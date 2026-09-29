@@ -45,6 +45,18 @@ EXOS: dict[str, dict] = {
         pourquoi="En 30 secondes, ton cœur s'accélère et tes épaules se lubrifient : "
                  "tu évites les blessures sur les pompes et les tractions.",
     ),
+    "Arm Circles": dict(
+        cible="Épaules", objectif="Échauffer les épaules",
+        comment=[
+            "Debout, pieds largeur des hanches, bras tendus sur les côtés.",
+            "Fais des cercles de plus en plus grands : 15 dans un sens, 15 dans l'autre.",
+            "Reste droit, épaules basses, respire calmement.",
+        ],
+        facile="Cercles plus petits, bras à moitié pliés.",
+        dur="Cercles grands et rapides, puis change de sens sans t'arrêter.",
+        pourquoi="Les épaules sont les articulations les plus sollicitées (tractions, développés, "
+                 "pompes, rugby). Les échauffer, c'est éviter les tendinites.",
+    ),
     "High Knees": dict(
         cible="Jambes + cardio", objectif="Réveiller les jambes",
         comment=[
@@ -263,6 +275,75 @@ EXOS: dict[str, dict] = {
     ),
 }
 
+# ---------------------------------------------------------------------------
+#  LES ÉTIREMENTS — à faire à la fin, 4 minutes, jamais à froid
+# ---------------------------------------------------------------------------
+ETIREMENTS: dict[str, list[dict]] = {
+    "A": [   # après la séance des jambes et du ventre
+        dict(nom="Étirement des quadriceps", duree="30 s par jambe",
+             comment=["Debout, une main sur un mur pour l'équilibre.",
+                      "Attrape ta cheville derrière toi et ramène le talon vers ta fesse.",
+                      "Garde les genoux serrés et avance légèrement le bassin. Change de jambe."],
+             pourquoi="Détend les cuisses, très sollicitées par les squats et les fentes."),
+        dict(nom="Étirement de l'arrière des cuisses", duree="30 s par jambe",
+             comment=["Assis au sol, une jambe tendue devant toi, l'autre pliée sur le côté.",
+                      "Penche doucement le buste vers le pied de la jambe tendue, **dos droit**.",
+                      "Tu dois sentir l'arrière de la cuisse tirer, sans douleur. Change de jambe."],
+             pourquoi="Ton exercice « Single-Leg Deadlift » cible exactement cette zone."),
+        dict(nom="Étirement des fessiers", duree="30 s par côté",
+             comment=["Allongé sur le dos, genoux pliés.",
+                      "Croise ta cheville sur le genou opposé, puis attrape ta cuisse derrière.",
+                      "Tire doucement vers toi, en gardant la tête au sol. Change de côté."],
+             pourquoi="Les fessiers travaillent dans tous tes squats et tes fentes."),
+        dict(nom="Étirement des mollets", duree="30 s par jambe",
+             comment=["Mains au mur, une jambe tendue loin derrière toi, talon au sol.",
+                      "Pousse doucement le bassin vers l'avant, sans décoller le talon.",
+                      "Change de jambe."],
+             pourquoi="Prépare tes mollets aux appuis du rugby — et évite la tendinite d'Achille."),
+        dict(nom="Posture de l'enfant", duree="40 s",
+             comment=["À genoux, assis sur tes talons, bras tendus devant toi.",
+                      "Pose le front au sol et respire profondément par le nez.",
+                      "Laisse le bas du dos s'allonger : c'est l'étirement qui te fera le plus de bien "
+                      "après une journée assis à dessiner."],
+             pourquoi="Détend le bas du dos et les lombaires, mis à contribution tout au long de la séance."),
+    ],
+    "B": [   # après la séance du haut du corps
+        dict(nom="Étirement des pectoraux au mur", duree="30 s par côté",
+             comment=["Place ton avant-bras contre un mur, à hauteur d'épaule, coude à 90°.",
+                      "Tourne doucement le buste du côté opposé, jusqu'à sentir la poitrine s'ouvrir.",
+                      "Change de côté."],
+             pourquoi="Il ouvre la poitrine, très sollicitée par les pompes — et corrige la posture "
+                      "penchée devant l'écran."),
+        dict(nom="Étirement des dorsaux, suspendu à la barre", duree="20 s, deux fois",
+             comment=["Attrape ta barre de traction, les deux mains.",
+                      "Laisse tout ton poids tirer, épaules relâchées vers le haut.",
+                      "Respire calmement. Descends, repose-toi 10 s, puis recommence."],
+             pourquoi="Le meilleur étirement pour ton dos après les tirages et les tractions — "
+                      "et tu as déjà la barre."),
+        dict(nom="Étirement des épaules", duree="30 s par bras",
+             comment=["Ramène un bras tendu en travers de ta poitrine.",
+                      "Plaque-le contre toi avec l'autre bras, à hauteur du coude.",
+                      "Relâche l'épaule, ne monte pas la tension. Change de bras."],
+             pourquoi="Détend l'articulation la plus sollicitée le vendredi (développés, pompes, tractions)."),
+        dict(nom="Étirement des triceps", duree="30 s par bras",
+             comment=["Lève un bras, plie le coude et pose la main derrière ta nuque.",
+                      "Avec l'autre main, tire doucement le coude vers le haut.",
+                      "Garde le dos droit. Change de bras."],
+             pourquoi="Les triceps travaillent à chaque pompe et chaque développé."),
+        dict(nom="Étirement de la nuque et du haut du dos", duree="30 s",
+             comment=["Mains croisées derrière la tête, coudes vers l'avant.",
+                      "Laisse tomber le menton vers ta poitrine et monte doucement le haut du dos.",
+                      "Respire profondément, sans tirer sur la nuque."],
+             pourquoi="Relâche les trapèzes, souvent tendus quand on dessine toute la journée."),
+        dict(nom="Chat-vache (mobilité du dos)", duree="30 s",
+             comment=["À quatre pattes, mains sous les épaules, genoux sous les hanches.",
+                      "Arrondis le dos en soufflant, puis creuse-le lentement en inspirant.",
+                      "Fais 6 à 8 allers-retours tranquillement."],
+             pourquoi="Il remet la colonne en mouvement : parfait après une séance de tirage."),
+    ],
+}
+
+
 # Quand une séance est réussie 4 fois de suite, on passe au mouvement au-dessus.
 UPGRADES = {
     "Knee Pushups": "Pushups",
@@ -276,12 +357,17 @@ UPGRADES = {
 # ---------------------------------------------------------------------------
 SEANCES: dict[str, dict] = {
     "A": dict(
-        nom="Séance A", jour="Lundi", emoji="🅰️",
+        nom="Lundi", jour="Lundi", emoji="📅",
         sous_titre="Bas du corps + tronc (jambes, fessiers, ventre)",
         note="Tes jambes ont 4 jours de repos derrière elles depuis le rugby : c'est le bon "
              "moment pour les charger.",
-        echauffement=[("Jumping Jacks", 30, False), ("High Knees", 20, False),
-                      ("Assisted Squats", 12, False), ("Knee Pushups", 8, False)],
+        # Échauffement SPÉCIFIQUE : on prépare exactement ce qu'on va travailler
+        echauffement=[
+            dict(nom="Jumping Jacks", reps=30, but="fait monter le cœur et la température"),
+            dict(nom="High Knees", reps=20, but="réveille les jambes et les hanches"),
+            dict(nom="Assisted Squats", reps=12, but="ouvre les hanches pour les squats chargés"),
+            dict(nom="Knee Pushups", reps=8, but="prépare les épaules et le gainage"),
+        ],
         blocs=[
             dict(num=1, repos=75, exos=[
                 dict(nom="Dumbbell Goblet Squat", reps=12, par_cote=False),
@@ -295,12 +381,18 @@ SEANCES: dict[str, dict] = {
         ],
     ),
     "B": dict(
-        nom="Séance B", jour="Vendredi", emoji="🅱️",
+        nom="Vendredi", jour="Vendredi", emoji="📅",
         sous_titre="Haut du corps + tronc — JAMBES AU REPOS (lendemain de rugby)",
         note="Rien pour les jambes aujourd'hui : elles ont couru hier au rugby. On travaille "
              "le dos, la poitrine, les épaules et le ventre.",
-        echauffement=[("Jumping Jacks", 30, False), ("High Knees", 15, False),
-                      ("Knee Pushups", 8, False), ("Crunches", 10, False)],
+        # Échauffement SPÉCIFIQUE : épaules et dos, car c'est ce qu'on utilise aujourd'hui
+        echauffement=[
+            dict(nom="Jumping Jacks", reps=30, but="fait monter le cœur et la température"),
+            dict(nom="Arm Circles", reps=15, but="échauffe les épaules (tractions, développés)"),
+            dict(nom="Knee Pushups", reps=8, but="prépare la poitrine et le gainage"),
+            dict(nom="Jumping Pullups", reps=3, but="réveille le dos et la prise"),
+            dict(nom="Crunches", reps=10, but="active le ventre"),
+        ],
         blocs=[
             dict(num=1, repos=75, exos=[
                 dict(nom="Dumbbell Bent Row", reps=10, par_cote=True),
@@ -658,7 +750,9 @@ def _bloc_reps(store, session: str):
     with st.container(border=True):
         st.markdown(f"#### {S['emoji']} {S['nom']} — {S['sous_titre']}")
         st.markdown(f"**{tab['tours']} tours** par bloc · **repos {tab['repos_apres_tour']} s** "
-                    f"entre les tours · **≈ 30 min** échauffement compris  \n"
+                    f"entre les tours  \n"
+                    f"Déroulé : 🔥 **4 min d'échauffement** → 3 blocs (≈ 22 min) → 🧘 **4 min "
+                    f"d'étirements** = **30 minutes**  \n"
                     f"Matériel : {MATERIEL}")
         st.caption(S["note"])
         st.markdown("**Ce que l'application a décidé pour toi aujourd'hui :**")
@@ -667,6 +761,10 @@ def _bloc_reps(store, session: str):
         st.caption("Ces réglages viennent de **tes** validations de séance (et de ton rugby). "
                    "Rien n'est imposé : si tu te sens bien, tu peux ajouter un tour.")
 
+    # ---- ÉCHAUFFEMENT (adapté à la séance) : AVANT LE BLOC 1
+    _section_echauffement(S)
+
+    # ---- LA SÉANCE
     st.subheader("Ta séance, ligne par ligne")
     st.caption("Fais l'exercice ① puis l'exercice ② **sans t'arrêter** (c'est un « superset »), "
                "puis souffle pendant le repos. Répète le bloc 3 fois au total.")
@@ -698,7 +796,58 @@ def _bloc_reps(store, session: str):
                    "ton dos (tirage) : c'est ta vraie prévention des blessures pour le rugby.")
 
     _chronometre(tab["repos_apres_tour"])
+
+    # ---- ÉTIREMENTS (adaptés à la séance) : À LA FIN
+    _section_etirements(S, session)
     return plan, tab, histo
+
+
+def _section_echauffement(S: dict):
+    """L'échauffement, avant le bloc 1 : court, adapté, et expliqué."""
+    with st.container(border=True):
+        st.markdown(f"### 🔥 Échauffement — 4 minutes  ·  *{S['nom']}*")
+        st.markdown("Fais ces mouvements **2 fois de suite**, dans l'ordre, sans t'arrêter. "
+                    "Tu dois finir un peu essoufflé — pas fatigué.")
+        for e in S["echauffement"]:
+            st.markdown(f"- **{e['nom']}** — {e['reps']} répétitions  ·  "
+                        f"<span class='hint'>{e['but']}</span>", unsafe_allow_html=True)
+        with st.expander("❔ Comment faire ces mouvements (détail) — et pourquoi cet échauffement"):
+            st.markdown(f"**Pourquoi cet échauffement-là :** il prépare exactement les muscles que "
+                        f"tu vas utiliser aujourd'hui.  \n→ {S['sous_titre']}")
+            for e in S["echauffement"]:
+                ex = EXOS.get(e["nom"], {})
+                st.markdown(f"**{e['nom']}** — {ex.get('cible', '')}")
+                for i, c in enumerate(ex.get("comment", []), start=1):
+                    st.markdown(f"{i}. {c}")
+                st.markdown(f"<span class='hint'>{ex.get('pourquoi', '')}</span>",
+                            unsafe_allow_html=True)
+                st.markdown("")
+            st.caption("C'est ta vraie prévention des blessures pour le rugby : 4 minutes "
+                       "maintenant t'évitent trois semaines d'arrêt plus tard.")
+
+
+def _section_etirements(S: dict, code: str):
+    """Les étirements, à la fin : ils réduisent les courbatures et gardent la mobilité."""
+    et = ETIREMENTS.get(code, [])
+    if not et:
+        return
+    with st.container(border=True):
+        st.markdown(f"### 🧘 Étirements — 4 minutes  ·  *{S['nom']}*")
+        st.markdown("À faire **juste après la dernière série**, pendant que les muscles sont "
+                    "chauds. Reste **immobile** dans chaque position et **respire** : ça ne doit "
+                    "jamais faire mal.")
+        for e in et:
+            st.markdown(f"- **{e['nom']}** — {e['duree']}")
+        with st.expander("❔ Comment faire chaque étirement (détail)"):
+            for e in et:
+                st.markdown(f"**{e['nom']}** — {e['duree']}")
+                for i, c in enumerate(e["comment"], start=1):
+                    st.markdown(f"{i}. {c}")
+                st.markdown(f"<span class='hint'>Pourquoi : {e['pourquoi']}</span>",
+                            unsafe_allow_html=True)
+                st.markdown("")
+            st.caption("Ils réduisent les courbatures, gardent ta mobilité pour le rugby et "
+                       "détendent le dos — le point faible de tous ceux qui dessinent assis.")
 
 
 def _formulaire_validation(store, session: str, nom: str, plan, tab, cle: str,
@@ -834,13 +983,13 @@ def _charge_semaine(store) -> int:
 # ---------------------------------------------------------------------------
 def page_seance(store, target_p: float | None = None):
     st.title("💪 Mes séances")
-    st.caption("Deux séances de renforcement de **30 minutes** (lundi et vendredi) et ton "
-               "**rugby du jeudi**. Tout se valide au même endroit, avec ton ressenti — "
-               "et le programme s'ajuste tout seul.")
+    st.caption("**Lundi** et **vendredi** : 30 minutes de renforcement — échauffement, 3 blocs, "
+               "étirements. **Jeudi** : ton rugby. Tout se valide au même endroit, avec ton "
+               "ressenti — et le programme s'ajuste tout seul.")
 
     auj = dt.date.today()
     jour_fr = JOURS_SEMAINE[auj.weekday()]
-    onglet1, onglet2 = st.tabs(["🏋️ Renforcement (lundi / vendredi)", "🏉 Rugby (jeudi)"])
+    onglet1, onglet2 = st.tabs(["🏋️ Lundi & Vendredi — renforcement", "🏉 Jeudi — rugby"])
 
     with onglet1:
         conseil = "A" if auj.weekday() == 0 else ("B" if auj.weekday() == 4 else None)
@@ -848,18 +997,17 @@ def page_seance(store, target_p: float | None = None):
         with c1:
             sess = st.radio("Séance", ["A", "B"], index=0 if conseil != "B" else 1,
                             horizontal=True,
-                            format_func=lambda s: f"{SEANCES[s]['emoji']} {SEANCES[s]['nom']}",
+                            format_func=lambda c: f"{SEANCES[c]['emoji']} {SEANCES[c]['nom']}",
                             key="se_choix")
         with c2:
             S = SEANCES[sess]
             if conseil == sess:
-                st.success(f"**Aujourd'hui c'est {jour_fr}** → c'est bien ta séance {sess} "
-                           f"({S['jour']}).")
+                st.success(f"**Aujourd'hui c'est {jour_fr}** → c'est bien ta séance du "
+                           f"**{S['jour']}**.")
             elif jour_fr in AUTRES_JOURS:
                 st.info(f"**{jour_fr}** — {AUTRES_JOURS[jour_fr]}")
             else:
-                st.caption(f"Séance {sess} — prévue normalement le **{S['jour']}**. "
-                           f"{S['sous_titre']}")
+                st.caption(f"Séance du **{S['jour']}** — {S['sous_titre']}")
 
         if sess == "B":
             st.caption("🦵 **Aucun exercice pour les jambes dans cette séance** : tu as rugby la "
@@ -870,11 +1018,11 @@ def page_seance(store, target_p: float | None = None):
         st.subheader("✅ J'ai fini — je valide ma séance")
         st.caption("20 secondes. C'est **ça** qui fait progresser le programme : plus tu es "
                    "honnête, mieux il règle la suite.")
-        _formulaire_validation(store, sess, S["nom"], plan, tab, cle=f"se{sess}",
-                               duree_defaut=30)
+        _formulaire_validation(store, sess, f"Séance du {S['jour']}", plan, tab,
+                               cle=f"se{sess}", duree_defaut=30)
 
         st.divider()
-        st.subheader("📈 Mes dernières séances de renforcement")
+        st.subheader(f"📈 Mes dernières séances du {S['jour'].lower()}")
         _historique_renforcement(store, sess, histo)
 
     with onglet2:
