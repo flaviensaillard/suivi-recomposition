@@ -5,24 +5,27 @@
 HEIGHT_CM = 185
 START_WEIGHT = 85.0          # mi-août 2026
 TARGET_WEIGHT = 77.0         # 31 décembre 2026
-TARGET_PROTEIN = 140         # g / jour (plancher 130)
-TARGET_CARBS = 170           # g / jour au repos (entraînement : 200)
-TARGET_FAT = 72              # g / jour
-TDEE = 2670
+TARGET_PROTEIN = 130         # g / jour (plancher à ne jamais descendre)
+TARGET_CARBS = 140           # g / jour
+TARGET_FAT = 50              # g / jour
+TARGET_KCAL = 1700           # kcal / jour — un seul objectif, tous les jours
+TDEE = 2400                  # dépense estimée (pour l'information)
 
+# Les blocs ne changent plus les calories : l'objectif est le même tous les jours.
 PHASES = [
-    ("2026-09-29", "2026-10-11", "Bloc 0 — Remise à niveau",   (2300, 2400, 2400)),
-    ("2026-10-12", "2026-12-06", "Bloc 1 — Déficit propre",    (2000, 2250, 2350)),
-    ("2026-12-07", "2026-12-20", "Bloc 2 — Pause diététique",  (2400, 2500, 2500)),
-    ("2026-12-21", "2027-03-31", "Bloc 3 — Derniers kilos",    (2000, 2250, 2350)),
+    ("2026-09-29", "2026-10-11", "Bloc 0 — Remise à niveau"),
+    ("2026-10-12", "2026-12-06", "Bloc 1 — Déficit propre"),
+    ("2026-12-07", "2026-12-20", "Pause (mêmes objectifs)"),
+    ("2026-12-21", "2027-03-31", "Bloc 3 — Derniers kilos"),
 ]
 
 
 def phase_for(d):
-    for start, end, label, kcal in PHASES:
+    """Renvoie (nom du bloc, objectif kcal du jour) — le même objectif pour tous."""
+    for start, end, label in PHASES:
         if start <= d.isoformat() <= end:
-            return label, kcal
-    return PHASES[-1][2], PHASES[-1][3]
+            return label, TARGET_KCAL
+    return PHASES[-1][2], TARGET_KCAL
 
 
 # ---------------------------------------------------------------- PROGRAMME 30 MIN

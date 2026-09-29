@@ -726,13 +726,19 @@ class MenusStore:
                 if nom_rec and nom_rec not in besoin[cle]["recettes"]:
                     besoin[cle]["recettes"].append(nom_rec)
 
-        # articles récurrents (pain, lait, PQ…) : toujours dans la liste
+        # articles récurrents (pain, lait, PQ…) : toujours dans la liste.
+        #   Ils n'ont pas de quantité calculée : on prend alors la QUANTITÉ
+        #   RECOMMANDÉE de la fiche (« 1 boîte », « 200 ml ») — sinon la liste
+        #   affichait « 0 g » pour tous les articles du fond de placard.
         for ing in self.ingredients():
             if ing.get("is_recurrent") and not ing.get("exclude_from_list"):
                 cle = ing.get("id")
+                q_rec = _nombre(ing.get("quantite_recommandee")) or 0.0
+                u_rec = (ing.get("unite_recommandee") or ing.get("unit")
+                         if q_rec else ing.get("unit"))
                 besoin.setdefault(cle, dict(nom=nom_court(ing), nom_complet=ing.get("name"),
-                                            unite=ing.get("unit"), unite_declaree=ing.get("unit"),
-                                            quantite=0.0, rayon=ing.get("category") or "Autre",
+                                            unite=u_rec, unite_declaree=ing.get("unit"),
+                                            quantite=q_rec, rayon=ing.get("category") or "Autre",
                                             quantite_recommandee=ing.get("quantite_recommandee"),
                                             unite_recommandee=ing.get("unite_recommandee"),
                                             poids_piece_g=ing.get("poids_piece_g"),
@@ -846,6 +852,8 @@ def arrondi_achat(v: dict) -> dict:
 def fmt_quantite(v: dict) -> str:
     """Texte lisible : « 400 g (2 pièces) », « 450 g », « 4 tranches »…"""
     q = v.get("quantite") or 0
+    if q <= 0:                      # pas de quantité calculée (article récurrent)
+        return "—"
     u = (v.get("unite") or "").strip()
     nb = v.get("pieces")
     # pluriels naturels : « 4 tranches », « 3 gousses »

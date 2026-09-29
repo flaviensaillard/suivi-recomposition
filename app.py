@@ -52,7 +52,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 D = dt.date
-VERSION = "2.7"
+VERSION = "2.8"
 
 
 def _libelles_uniques(libelles: list) -> list:
@@ -138,9 +138,10 @@ def menus_store():
     Sans Supabase configuré : renvoie un extrait de démonstration, pour que tu
     puisses voir la page tout de suite (les chiffres sont alors incomplets).
     """
-    VERSION_STORE = "30-09-2026c"      # à changer à chaque mise à jour du moteur
+    VERSION_STORE = "30-09-2026d"      # à changer à chaque mise à jour du moteur
     ms = st.session_state.get("_menus_store")
-    if ms is not None and st.session_state.get("_menus_version") == VERSION_STORE:
+    force = st.session_state.get("_menus_store_forcee")     # magasin imposé (tests)
+    if ms is not None and (force or st.session_state.get("_menus_version") == VERSION_STORE):
         return ms
     st.session_state.pop("_menus_store", None)      # version plus ancienne : on repart
     if getattr(store, "kind", None) == "supabase" and getattr(store, "client", None) is not None:
@@ -203,10 +204,29 @@ def prof(key, default):
 
 TARGET_W = float(prof("target_weight_kg", C.TARGET_WEIGHT))
 TARGET_P = int(prof("target_protein_g", C.TARGET_PROTEIN))
-TARGET_G = int(prof("target_carbs_g", getattr(C, "TARGET_CARBS", 170)))
-TARGET_L = int(prof("target_fat_g", getattr(C, "TARGET_FAT", 72)))
+TARGET_G = int(prof("target_carbs_g", getattr(C, "TARGET_CARBS", 140)))
+TARGET_L = int(prof("target_fat_g", getattr(C, "TARGET_FAT", 50)))
+TARGET_KCAL = int(prof("target_kcal", getattr(C, "TARGET_KCAL", 1700)))
 START_W = float(prof("start_weight_kg", C.START_WEIGHT))
 HEIGHT = float(prof("height_cm", C.HEIGHT_CM))
+
+
+def _enregistrer_profil(data: dict):
+    """Enregistre le profil. Si la base n'a pas encore les colonnes glucides/lipides/calories,
+    on enregistre quand même le reste et on le dit clairement à l'utilisateur."""
+    try:
+        store.save_profile(data)
+        return True, ""
+    except Exception:
+        leger = {k: v for k, v in data.items()
+                 if k not in ("target_carbs_g", "target_fat_g", "target_kcal")}
+        try:
+            store.save_profile(leger)
+        except Exception as e:
+            return False, f"Impossible d'enregistrer le profil : {e}"
+        return False, ("Le reste du profil est bien enregistré, mais tes cibles glucides / lipides / "
+                       "calories n'existent pas encore dans ta base. Lance le fichier "
+                       "19_objectifs.sql dans Supabase (SQL Editor), puis réenregistre.")
 
 
 # ============================================================================
@@ -377,9 +397,8 @@ def page_dashboard():
                        "protein_g", 7) if not prot.empty else None
     n_sess, sess_list = sessions_this_week()
 
-    st.markdown(f"**Phase actuelle :** {phase} · cibles **{kcal_t[0]} kcal** (repos) / "
-                f"**{kcal_t[1]} kcal** (entraînement) / **{kcal_t[2]} kcal** (rugby) · "
-                f"**{TARGET_P} g de protéines**")
+    st.markdown(f"**Phase actuelle :** {phase} · objectif **{TARGET_KCAL} kcal** / jour · "
+                f"**{TARGET_P} g de protéines** · **{TARGET_G} g de glucides** · **{TARGET_L} g de lipides**")
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Poids moyen 7 j", fmt(w_avg, " kg", 2),
@@ -958,9 +977,9 @@ def _bloc_reparation(store, a_completer: list, nb_jour: int):
 
 def page_proteines():
     st.title("🥗 Nutrition du jour")
-    st.caption(f"Tes trois compteurs du jour. **Protéines : {TARGET_P} g** (plancher 130 g) — "
-               "le levier n°1 pour perdre du gras sans perdre de muscle. "
-               f"Glucides : {TARGET_G} g · Lipides : {TARGET_L} g.")
+    st.caption(f"Tes trois compteurs du jour. **Protéines : {TARGET_P} g** (le plancher à ne "
+               "jamais descendre — c'est le levier n°1 pour perdre du gras sans perdre de muscle). "
+               f"Glucides : {TARGET_G} g · Lipides : {TARGET_L} g · Calories : {TARGET_KCAL} kcal.")
     today = D.today()
     df = store.protein_df()
     if not df.empty:
@@ -1131,6 +1150,8 @@ def page_reglages():
             st.rerun()
 
     st.subheader("Mon profil et mes objectifs")
+    st.caption(f"Objectifs actuels : **{TARGET_KCAL} kcal** · **{TARGET_P} g de protéines** · "
+               f"**{TARGET_G} g de glucides** · **{TARGET_L} g de lipides**")
     with st.form("profil"):
         c1, c2 = st.columns(2)
         nom = c1.text_input("Prénom", value=str(prof("display_name", "")))
@@ -1140,13 +1161,23 @@ def page_reglages():
         obj = c4.number_input("Poids objectif (kg)", 40.0, 200.0, TARGET_W, step=0.5)
         c5, c6 = st.columns(2)
         prot = c5.number_input("Protéines cibles (g/jour)", 80, 250, TARGET_P, step=5)
-        tdee = c6.number_input("Dépense estimée (kcal/jour)", 1500, 4000,
+        carb = c6.number_input("Glucides cibles (g/jour)", 40, 400, TARGET_G, step=5)
+        c7, c8 = st.columns(2)
+        lip = c7.number_input("Lipides cibles (g/jour)", 20, 150, TARGET_L, step=5)
+        kcal = c8.number_input("Calories cibles (kcal/jour)", 1000, 4000, TARGET_KCAL, step=50)
+        tdee = st.number_input("Dépense estimée (kcal/jour)", 1500, 4000,
                                int(prof("tdee_kcal", C.TDEE)), step=50)
         if st.form_submit_button("💾 Enregistrer le profil", type="primary", width="stretch"):
-            store.save_profile(dict(display_name=nom, height_cm=taille_p, start_weight_kg=dep,
-                                    target_weight_kg=obj, target_protein_g=int(prot), tdee_kcal=int(tdee),
-                                    phase=C.phase_for(D.today())[0]))
-            st.success("Profil enregistré. Recharge la page pour appliquer.")
+            ok, msg = _enregistrer_profil(dict(
+                display_name=nom, height_cm=taille_p, start_weight_kg=dep,
+                target_weight_kg=obj, target_protein_g=int(prot), target_carbs_g=int(carb),
+                target_fat_g=int(lip), target_kcal=int(kcal), tdee_kcal=int(tdee),
+                phase=C.phase_for(D.today())[0]))
+            if ok:
+                st.success("Profil enregistré. Recharge la page pour appliquer "
+                           "(F5 sur l'ordinateur, ↻ sur le téléphone).")
+            else:
+                st.warning(msg)
             st.rerun()
 
     st.subheader("Export de mes données")

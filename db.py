@@ -13,7 +13,6 @@ Le reste de l'application ne connaît que l'interface commune :
 """
 from __future__ import annotations
 
-import datetime as dt
 import json
 import os
 import sqlite3
@@ -25,7 +24,8 @@ USER = "local"
 DDL = """
 create table if not exists profiles(
   user_id text primary key, display_name text, height_cm real, start_weight_kg real,
-  target_weight_kg real, target_protein_g integer, tdee_kcal integer, phase text);
+  target_weight_kg real, target_protein_g integer, target_carbs_g integer,
+  target_fat_g integer, target_kcal integer, tdee_kcal integer, phase text);
 create table if not exists daily_logs(
   user_id text, log_date text, weight_kg real, body_fat_pct real, steps integer,
   sleep_h real, protein_g integer, kcal integer, activity text, energy integer, notes text,
@@ -90,8 +90,9 @@ class LocalStore:
     def _ensure_profile(self):
         if self.profile() is None:
             self.save_profile(dict(display_name="Jérôme", height_cm=185, start_weight_kg=85.0,
-                                   target_weight_kg=77.0, target_protein_g=140, tdee_kcal=2670,
-                                   phase="Bloc 0 — Remise à niveau"))
+                                   target_weight_kg=77.0, target_protein_g=130,
+                                   target_carbs_g=140, target_fat_g=50, target_kcal=1700,
+                                   tdee_kcal=2400, phase="Bloc 0 — Remise à niveau"))
 
     # -------- profil
     def profile(self):
