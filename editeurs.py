@@ -238,7 +238,9 @@ def page_planifier(ms, target_p: float):
                "(ex. un fruit) ou du **texte libre** (ex. « Restaurant »).")
 
     recettes = liste_recettes(ms)
-    ingredients = liste_ingredients(ms)
+    # TOUTE la base : tes ingrédients + les aliments de la base française
+    # (sinon on ne pouvait pas planifier un repas à base de Skyr ou d'amandes grillées).
+    ingredients = liste_ingredients(ms, tout=True)
     if not recettes and not ingredients:
         st.warning("Crée d'abord une recette ou un ingrédient (page « Recettes & ingrédients »).")
         return
@@ -332,7 +334,7 @@ def page_planifier(ms, target_p: float):
                     choix = f4.selectbox("Recette", ["—"] + noms, key=f"pl_r_{d}")
                     qte = None
                 elif genre == "Ingrédient":
-                    noms = [nom_affiche(i) for i in ingredients]
+                    noms, ids_ing = _choix_ingredients(ms, tout=True)
                     choix = f4.selectbox("Ingrédient", ["—"] + noms, key=f"pl_i_{d}")
                     qte = st.number_input("Quantité", 0.0, 5000.0, 1.0, step=0.5, key=f"pl_q_{d}")
                 else:
@@ -340,7 +342,8 @@ def page_planifier(ms, target_p: float):
                                           key=f"pl_t_{d}")
                     qte = None
                 if st.form_submit_button("➕ Ajouter ce repas", width="stretch"):
-                    _ajouter_repas(ms, d, moment, convives, genre, choix, qte, recettes, ingredients)
+                    _ajouter_repas(ms, d, moment, convives, genre, choix, qte, recettes,
+                                   ingredients, ids_ing if genre == "Ingrédient" else None)
 
     # ---- diagnostic (en bas de page)
     bloc_diagnostic(ms)
@@ -364,7 +367,8 @@ def page_planifier(ms, target_p: float):
             st.warning("Mode aperçu : rien n'est supprimé.")
 
 
-def _ajouter_repas(ms, jour, moment, convives, genre, choix, qte, recettes, ingredients):
+def _ajouter_repas(ms, jour, moment, convives, genre, choix, qte, recettes, ingredients,
+                   ids_ing: dict | None = None):
     if not _table(ms, "planned_meals"):
         st.warning("Mode aperçu : l'ajout n'est pas enregistré. Renseigne tes clés Supabase "
                    "pour que tout soit sauvegardé.")
@@ -384,7 +388,11 @@ def _ajouter_repas(ms, jour, moment, convives, genre, choix, qte, recettes, ingr
                 "day": jour_fr, "date_menu": jour.isoformat(), "meal_type": moment,
                 "recipe_id": rid, "servings": convives, "nb_persons": convives}).execute()
         elif genre == "Ingrédient":
-            ing = next((i for i in ingredients if nom_affiche(i) == choix), None)
+            # par identifiant d'abord (aucune ambiguïté de nom), sinon par nom
+            ident = (ids_ing or {}).get(choix)
+            ing = next((i for i in ingredients if _id(i) == ident), None) if ident else None
+            if ing is None:
+                ing = next((i for i in ingredients if nom_affiche(i) == choix), None)
             if ing is None:
                 st.error("Ingrédient introuvable.")
                 return
@@ -484,32 +492,101 @@ def page_recettes_edition(ms):
         _modifier_recette(ms)
 
 
-def _editeur_ingredients(ms, ingredients, prefixe: str, defaut: list | None = None) -> list[dict]:
-    """Petit éditeur de lignes « ingrédient + quantité + unité »."""
+def _choix_ingredients(ms, tout: bool = True):
+    """Construit la liste déroulante des ingrédients : libellés → identifiant.
+
+    On travaille par IDENTIFIANT (et non par nom) : c'est ce qui garantit que
+    l'ingrédient choisi est exactement celui enregistré dans la recette.
+
+    `tout=True` propose TOUTE la base (tes ingrédients + les 3 200 aliments de
+    la base française) ; `tout=False` ne montre que les tiens.
+    """
+    libelles: list[str] = []
+    ids: dict[str, str] = {}
+    for i in liste_ingredients(ms, tout=tout):
+        lib = nom_affiche(i)
+        if lib in ids:                      # deux aliments au même nom : on précise
+            base_lib, n = lib, 2
+            while lib in ids:
+                lib = f"{base_lib} ({n})"
+                n += 1
+        libelles.append(lib)
+        ident = _id(i)
+        if ident:
+            ids[lib] = ident
+    return libelles, ids
+
+
+def _lignes_recette(ms, prefixe: str, actuelles: list | None = None,
+                    tout: bool = True) -> list[dict]:
+    """Éditeur des lignes « ingrédient + quantité + unité » d'une recette.
+
+    • les lignes DÉJÀ dans la recette gardent leur identifiant (`ligne_id`) :
+      on pourra les mettre à jour, et même changer leur ingrédient ;
+    • les lignes ajoutées à l'écran n'ont pas d'identifiant : on les créera ;
+    • chaque ligne a une clé stable (`uid`) : supprimer une ligne ne décale plus
+      les choix des lignes suivantes (c'était une source d'erreurs).
+    """
+    import uuid as _uuid
+
     etat = f"{prefixe}_lignes"
+    supp = f"{prefixe}_supprimees"
+
+    def _nouvelle(l=None):
+        return {"uid": _uuid.uuid4().hex[:8],
+                "ligne_id": (l or {}).get("ligne_id"),
+                "ingredient_id": (l or {}).get("ingredient_id"),
+                "quantity": float((l or {}).get("quantity") or 100),
+                "unit": (l or {}).get("unit") or "g"}
+
     if etat not in st.session_state:
-        st.session_state[etat] = defaut or [{"ingredient": None, "quantity": 100.0, "unit": "g"}]
-    noms = sorted({nom_affiche(i) for i in ingredients})
-    for idx, ligne in enumerate(st.session_state[etat]):
+        st.session_state[etat] = [_nouvelle(l) for l in (actuelles or [])] or [_nouvelle()]
+        st.session_state[supp] = []
+
+    libelles, ids = _choix_ingredients(ms, tout=tout)
+    inverse: dict[str, str] = {}
+    for lib, ident in ids.items():
+        inverse.setdefault(str(ident), lib)
+    options = ["—"] + libelles
+
+    lignes = st.session_state[etat]
+    for idx in list(range(len(lignes))):
+        if idx >= len(st.session_state[etat]):        # supprimée entre-temps
+            break
+        ligne = st.session_state[etat][idx]
+        cle = ligne["uid"]
         c1, c2, c3, c4 = st.columns([4, 2, 2, 1])
-        choix = c1.selectbox("Ingrédient", ["—"] + noms,
-                             index=(["—"] + noms).index(ligne["ingredient"])
-                             if ligne.get("ingredient") in noms else 0,
-                             key=f"{prefixe}_i_{idx}", label_visibility="collapsed")
-        qte = c2.number_input("Qté", 0.0, 100000.0, float(ligne.get("quantity") or 100),
-                              step=10.0, key=f"{prefixe}_q_{idx}", label_visibility="collapsed")
-        unite = c3.selectbox("Unité", UNITES,
-                             index=UNITES.index(ligne["unit"]) if ligne.get("unit") in UNITES else 0,
-                             key=f"{prefixe}_u_{idx}", label_visibility="collapsed")
-        if c4.button("❌", key=f"{prefixe}_x_{idx}"):
+        k = f"{prefixe}_i_{cle}"
+        if k not in st.session_state:
+            courant = inverse.get(str(ligne.get("ingredient_id")), "—")
+            st.session_state[k] = courant if courant in options else "—"
+        c1.selectbox("Ingrédient", options, key=k, label_visibility="collapsed")
+        ligne["ingredient_id"] = ids.get(st.session_state[k])
+        ligne["quantity"] = c2.number_input(
+            "Qté", 0.0, 100000.0, float(ligne.get("quantity") or 100), step=10.0,
+            key=f"{prefixe}_q_{cle}", label_visibility="collapsed")
+        ku = f"{prefixe}_u_{cle}"
+        if ku not in st.session_state:
+            u = ligne.get("unit") if ligne.get("unit") in UNITES else UNITES[0]
+            st.session_state[ku] = u
+        c3.selectbox("Unité", UNITES, key=ku, label_visibility="collapsed")
+        ligne["unit"] = st.session_state[ku]
+        if c4.button("❌", key=f"{prefixe}_x_{cle}"):
+            if ligne.get("ligne_id"):
+                st.session_state[supp].append(ligne["ligne_id"])
             st.session_state[etat].pop(idx)
             st.rerun()
-        st.session_state[etat][idx] = {"ingredient": choix if choix != "—" else None,
-                                       "quantity": qte, "unit": unite}
+
     if st.button("➕ Ajouter une ligne", key=f"{prefixe}_add"):
-        st.session_state[etat].append({"ingredient": None, "quantity": 100.0, "unit": "g"})
+        st.session_state[etat].append(_nouvelle())
         st.rerun()
-    return [l for l in st.session_state[etat] if l.get("ingredient")]
+
+    return [dict(l) for l in st.session_state[etat]]
+
+
+def _lignes_a_enregistrer(lignes: list) -> list:
+    """Ne garde que les lignes utilisables (un ingrédient a bien été choisi)."""
+    return [l for l in lignes if l.get("ingredient_id")]
 
 
 def _editeur_etapes(prefixe: str, instructions: str) -> list[str]:
@@ -533,40 +610,44 @@ def _editeur_etapes(prefixe: str, instructions: str) -> list[str]:
 
 
 def _creer_recette(ms):
-    ingredients = liste_ingredients(ms)
+    st.caption("Choisis les ingrédients **dans toute ta base** : tes ingrédients, "
+               "le Skyr et les amandes grillées que tu viens d'ajouter, et les "
+               "3 200 aliments de la base française.")
     c1, c2 = st.columns([3, 1])
     nom = c1.text_input("Nom de la recette", key="cr_nom")
     parts = c2.number_input("Parts", 1, 20, 4, key="cr_parts")
+    tout = st.checkbox("🌍 Proposer aussi la base française (3 200 aliments)",
+                       value=True, key="cr_tout",
+                       help="Décoche pour ne voir que TES ingrédients.")
     st.markdown("**Ingrédients**")
-    lignes = _editeur_ingredients(ms, ingredients, "cr")
+    lignes = _lignes_recette(ms, "cr", tout=tout)
     st.markdown("**Préparation**")
     etapes = _editeur_etapes("cr", "")
     if st.button("💾 Enregistrer la recette", type="primary", width="stretch", key="cr_save"):
+        a_enregistrer = _lignes_a_enregistrer(lignes)
         if not nom.strip():
             st.error("Le nom est obligatoire.")
         elif not _table(ms, "recipes"):
             st.warning("Mode aperçu : l'enregistrement n'est pas possible sans tes clés Supabase.")
-        elif not lignes:
-            st.error("Ajoute au moins un ingrédient.")
+        elif not a_enregistrer:
+            st.error("Ajoute au moins un ingrédient (et choisis-le dans la liste de gauche).")
         else:
             try:
                 rid = _inserer(ms, "recipes", {
                     "name": nom.strip(), "base_servings": parts,
                     "instructions": PM.instructions_to_text(etapes)})
                 n = 0
-                for l in lignes:
-                    ing = next((i for i in ingredients if nom_affiche(i) == l["ingredient"]), None)
-                    if ing:
-                        _inserer(ms, "recipe_ingredients", {
-                            "recipe_id": rid, "ingredient_id": _id(ing),
-                            "quantity": l["quantity"], "unit": l["unit"]})
-                        n += 1
+                for l in a_enregistrer:
+                    _inserer(ms, "recipe_ingredients", {
+                        "recipe_id": rid, "ingredient_id": l["ingredient_id"],
+                        "quantity": l["quantity"], "unit": l["unit"]})
+                    n += 1
                 for cle in ("cr_lignes", "cr_etapes", "cr_nom"):
                     st.session_state.pop(cle, None)
                 _recharger(ms, f"Recette « {nom} » créée avec {n} ingrédient(s).")
             except Exception as e:
                 _erreur("Création de la recette", e,
-                        dict(nom=nom, parts=parts, nb_ingredients=len(lignes)))
+                        dict(nom=nom, parts=parts, nb_ingredients=len(a_enregistrer)))
 
 
 def _modifier_recette(ms):
@@ -577,9 +658,18 @@ def _modifier_recette(ms):
     noms = {r.get("name"): r.get("id") for r in recettes}
     choix = st.selectbox("Recette à modifier", list(noms.keys()), key="mr_choix")
     rid = noms[choix]
+
+    # Chaque recette a son propre brouillon : changer de recette repart de zéro
+    # (avant, les lignes ajoutées et les étapes restaient d'une recette à l'autre).
+    prefixe = "mr" + str(rid).replace("-", "")[:8]
+    ancien = st.session_state.get("mr_prefixe")
+    if ancien and ancien != prefixe:
+        for cle in [k for k in list(st.session_state.keys()) if str(k).startswith(str(ancien))]:
+            st.session_state.pop(cle, None)
+    st.session_state["mr_prefixe"] = prefixe
+
     calc = ms.recette(rid)
     lignes_actuelles = list(ms.lignes_par_recette().get(rid, []))
-    ings = ms.ing_par_id()
 
     st.markdown("**Valeurs par part** *(recette entière divisée par le nombre de parts)*")
     c1, c2, c3, c4, c5 = st.columns(5)
@@ -596,33 +686,25 @@ def _modifier_recette(ms):
                 + ", ".join(calc["estimees"]) + ". Corrige-les ci-dessous si besoin.", icon="ℹ️")
 
     f1, f2 = st.columns([3, 1])
-    nom = f1.text_input("Nom", value=choix, key=f"mr_nom_{rid}")
-    parts = f2.number_input("Parts", 1, 20, int(calc["parts"]), key=f"mr_parts_{rid}")
+    nom = f1.text_input("Nom", value=choix, key=f"{prefixe}_nom")
+    parts = f2.number_input("Parts", 1, 20, int(calc["parts"]), key=f"{prefixe}_parts")
 
     st.markdown("**Ingrédients de la recette**")
-    supprimer = []
-    modifs = []
-    for i, l in enumerate(lignes_actuelles):
-        ing = ings.get(l.get("ingredient_id")) or {}
-        c1, c2, c3, c4 = st.columns([4, 2, 2, 1])
-        c1.markdown(nom_affiche(ing))
-        qte = c2.number_input("Qté", 0.0, 100000.0, float(l.get("quantity") or 0), step=10.0,
-                              key=f"mr_q_{_id(l) or i}", label_visibility="collapsed")
-        unite = c3.selectbox("Unité", UNITES,
-                             index=UNITES.index(l.get("unit")) if l.get("unit") in UNITES else 0,
-                             key=f"mr_u_{_id(l) or i}", label_visibility="collapsed")
-        if c4.button("❌", key=f"mr_x_{_id(l) or i}"):
-            supprimer.append(_id(l))
-        modifs.append((_id(l), qte, unite))
-
-    st.markdown("**Ajouter des ingrédients**")
-    nouveaux = _editeur_ingredients(ms, liste_ingredients(ms), "mr", defaut=[])
+    st.caption("Tu peux **changer l'ingrédient** de chaque ligne : choisis-en un autre "
+               "dans la liste, ou remplace-le par un aliment de la base française.")
+    tout = st.checkbox("🌍 Proposer aussi la base française (3 200 aliments)",
+                       value=True, key=f"{prefixe}_tout",
+                       help="Décoche pour ne voir que TES ingrédients.")
+    actuelles = [{"ligne_id": _id(l), "ingredient_id": l.get("ingredient_id"),
+                  "quantity": l.get("quantity"), "unit": l.get("unit")}
+                 for l in lignes_actuelles]
+    lignes = _lignes_recette(ms, prefixe, actuelles=actuelles, tout=tout)
 
     st.markdown("**Préparation**")
-    etapes = _editeur_etapes("mr", calc.get("instructions") or "")
+    etapes = _editeur_etapes(prefixe, calc.get("instructions") or "")
 
     if st.button("💾 Sauvegarder les modifications", type="primary", width="stretch",
-                 key=f"mr_save_{rid}"):
+                 key=f"{prefixe}_save"):
         if not _table(ms, "recipes"):
             st.warning("Mode aperçu : l'enregistrement n'est pas possible sans tes clés Supabase.")
         else:
@@ -630,24 +712,23 @@ def _modifier_recette(ms):
                 ms.client.table("recipes").update({
                     "name": nom.strip(), "base_servings": parts,
                     "instructions": PM.instructions_to_text(etapes)}).eq("id", rid).execute()
-                for lid, qte, unite in modifs:
-                    if lid in supprimer:
-                        ms.client.table("recipe_ingredients").delete().eq("id", lid).execute()
-                    else:
+                ajout = 0
+                for l in lignes:
+                    if not l.get("ingredient_id"):
+                        continue
+                    if l.get("ligne_id"):
                         ms.client.table("recipe_ingredients").update({
-                            "quantity": qte, "unit": unite}).eq("id", lid).execute()
-                n = 0
-                for l in nouveaux:
-                    ing = next((i for i in liste_ingredients(ms)
-                                if nom_affiche(i) == l["ingredient"]), None)
-                    if ing:
+                            "ingredient_id": l["ingredient_id"],
+                            "quantity": l["quantity"], "unit": l["unit"]}).eq(
+                                "id", l["ligne_id"]).execute()
+                    else:
                         _inserer(ms, "recipe_ingredients", {
-                            "recipe_id": rid, "ingredient_id": _id(ing),
+                            "recipe_id": rid, "ingredient_id": l["ingredient_id"],
                             "quantity": l["quantity"], "unit": l["unit"]})
-                        n += 1
-                st.session_state.pop("mr_lignes", None)
-                st.session_state.pop("mr_etapes", None)
-                _recharger(ms, f"Modifications enregistrées ({n} ingrédient(s) ajouté(s)).")
+                        ajout += 1
+                for lid in st.session_state.get(f"{prefixe}_supprimees") or []:
+                    ms.client.table("recipe_ingredients").delete().eq("id", lid).execute()
+                _recharger(ms, f"Modifications enregistrées ({ajout} ingrédient(s) ajouté(s)).")
             except Exception as e:
                 _erreur("Modification de la recette", e, dict(recette=choix))
 
@@ -655,7 +736,7 @@ def _modifier_recette(ms):
     with st.expander("🗑️ Supprimer cette recette"):
         st.caption("La recette et ses lignes d'ingrédients seront supprimées. "
                    "Les repas déjà planifiés avec elle ne s'afficheront plus.")
-        if st.button(f"Supprimer « {choix} »", key=f"mr_del_{rid}"):
+        if st.button(f"Supprimer « {choix} »", key=f"{prefixe}_del"):
             if not _table(ms, "recipes"):
                 st.warning("Mode aperçu : rien n'est supprimé.")
             else:

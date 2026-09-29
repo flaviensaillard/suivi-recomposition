@@ -52,7 +52,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 D = dt.date
-VERSION = "2.5.1"
+VERSION = "2.7"
 
 
 def _libelles_uniques(libelles: list) -> list:
@@ -627,16 +627,17 @@ def page_seance():
 #  PAGE 5 — PROTÉINES  (3 modes de saisie)
 # ============================================================================
 def _ajout_repas_prevu():
-    """Mode 1 : choisir un repas prévu dans gestion-menus, avec la quantité mangée."""
-    client, tables, mapping = contexte_menus()
-    if not client:
+    """Mode 1 : choisir un repas prévu dans ta base de menus, avec « ma part ».
+
+    Lit EXACTEMENT comme la page « Repas & menus » (même moteur, mêmes chiffres) :
+    c'est ce qui manquait le 30/09 — cette page passait par la correspondance de
+    colonnes enregistrée, qui ne retrouvait pas la date, et affichait « aucun repas ».
+    """
+    ms = menus_store()
+    if ms is None:
         st.info("Ce mode lit ta base de menus : il a besoin des clés Supabase "
-                "(voir le guide, étape « Les 2 clés »). En attendant, l'onglet **Mes raccourcis** "
-                "fonctionne normalement.")
-        return
-    if not (mapping.get("tables") or {}).get("plan"):
-        st.warning("Ta table de planning n'a pas été reconnue. Va sur la page **🍽️ Cuisine & menus "
-                   "→ Étape 2** pour la désigner en deux clics.")
+                "(voir le guide, étape « Les 2 clés »). En attendant, l'onglet "
+                "**Mes raccourcis** fonctionne normalement.")
         return
 
     c1, c2 = st.columns([1, 2])
@@ -644,66 +645,98 @@ def _ajout_repas_prevu():
         jour = st.date_input("Jour", value=D.today(), format="DD/MM/YYYY", key="pr_jour")
     with c2:
         st.write("")
-        st.caption("Les repas viennent directement de ton application **gestion-menus** "
-                   "(`planned_meals` + `recipes` + `ingredients`).")
+        st.caption("Les repas viennent directement de ta base **gestion-menus** "
+                   "(`planned_meals` + `recipes` + `ingredients`) : ce sont les mêmes "
+                   "chiffres que la page **🍽️ Repas & menus**.")
 
-    repas = IT.repas_planifies(client, mapping, jour, jour)
+    with st.spinner("Lecture de ton planning…"):
+        try:
+            repas = ms.repas_du_jour(jour)
+        except Exception as e:
+            repas = []
+            st.warning(f"Lecture impossible pour l'instant ({type(e).__name__}). "
+                       "Réessaie dans quelques secondes.")
     if not repas:
-        st.caption("Aucun repas prévu à cette date dans gestion-menus. Change la date ci-dessus, "
-                   "ajoute le repas dans ton application de menus, ou utilise l'onglet "
-                   "**🥕 Ingrédient + quantité**.")
+        st.info(f"Rien de prévu le **{jour.strftime('%d/%m/%Y')}** dans ton planning. "
+                "Change la date ci-dessus, ou ajoute ce repas dans ton application de menus. "
+                "Tu peux aussi utiliser l'onglet **🥕 Ingrédient + quantité**.")
         return
 
     def _etiquette(i):
         r = repas[i]
-        moment = f"{str(r['moment']).capitalize()} · " if r["moment"] else ""
-        base = f"{r['prot_portion']:.0f} g de protéines par portion" if r["prot_portion"] \
-            else "protéines non renseignées"
-        return f"{moment}{r['nom']}  —  {base}"
+        moment = f"{str(r['heure']).capitalize()} · " if r["heure"] else ""
+        calc = r.get("calcul")
+        base = (f"{calc['par_part']['proteines']:.0f} g de protéines par part"
+                if calc else "protéines non renseignées")
+        return f"{moment}{r['recette']}  —  {base}"
 
-    # On donne à la liste déroulante les LIBELLÉS eux-mêmes (et non des numéros) :
-    # c'est ce qui permet à la case de recherche de trouver un repas en tapant son nom.
+    # Les libellés servent d'options : la case de recherche trouve donc le repas par son nom.
     libelles_repas = _libelles_uniques([_etiquette(i) for i in range(len(repas))])
     choix_repas = st.selectbox("Repas prévu", libelles_repas, key="pr_idx")
-    idx = libelles_repas.index(choix_repas)
-    r = repas[idx]
+    rang = libelles_repas.index(choix_repas)
+    r = repas[rang]
+    calc = r.get("calcul")
 
-    c1, c2 = st.columns([1, 2])
-    with c1:
-        choix = st.radio("Quantité mangée", ["½", "1", "1½", "2", "autre"],
-                         horizontal=True, index=1, key="pr_choix")
-    with c2:
-        if choix == "autre":
-            portions = st.number_input("Portions (libre)", 0.1, 8.0, 1.0, 0.1,
-                                       format="%.1f", key="pr_libre")
-        else:
-            portions = {"½": 0.5, "1": 1.0, "1½": 1.5, "2": 2.0}[choix]
-            st.write("")
-            st.caption("1 portion = ce que ta recette est censée représenter "
-                       f"(ton planning indique {r['portions']:g} portion(s) pour ce plat).")
+    if not calc:
+        st.caption(f"**{r['recette']}** — aucune recette n'est reliée à ce repas : "
+                   "estime les protéines à la main.")
+        apport = st.number_input("Protéines (g)", 0, 300, 30, 5, key="pr_man")
+        if st.button("➕ Ajouter au compteur du jour", type="primary", key="pr_add",
+                     width="stretch"):
+            store.add_protein(jour, f"{r['recette']} (menu)", int(apport))
+            st.success(f"+{int(apport)} g de protéines ajoutés.")
+            st.rerun()
+        return
 
-    if r["prot_portion"]:
-        total_apport = r["prot_portion"] * portions
-        st.metric(f"Protéines pour {portions:g} portion(s)", f"{total_apport:.0f} g",
-                  f"{r['prot_portion']:.0f} g × {portions:g}")
+    st.markdown(f"### {R.ligne_macros(calc['par_part'])}")
+    st.caption(f"1 part {r['recette']} (sur {calc['parts']:g}) · "
+               f"plat entier : {calc['total']['kcal']:.0f} kcal · {calc['poids_g']:.0f} g")
+
+    # « Ma part » : 3 façons de la définir, avec la proposition par défaut.
+    defaut = MN.part_defaut(calc["parts"], r["recette"], r["heure"])
+    mode = st.radio("Ma part", ["Parts", "% du plat", "Poids (g)"],
+                    horizontal=True, key="pr_mode",
+                    help="« Parts » = nombre de parts de la recette. Le défaut proposé "
+                         "est une estimation, change-le quand tu veux.")
+    if mode == "Parts":
+        val = st.number_input("Parts", 0.25, 6.0, float(defaut), 0.25, format="%.2f",
+                              key="pr_v_parts")
+        md = "parts"
+    elif mode == "% du plat":
+        val = st.number_input("% du plat", 5, 100,
+                              int(round(100 / (calc["parts"] or 1))), 5, key="pr_v_pct")
+        md = "pourcent"
     else:
-        total_apport = st.number_input("Protéines (g) — à estimer à la main : ta recette n'a pas "
-                                       "de valeurs nutritionnelles", 0, 300, 30, 5, key="pr_man")
+        val = st.number_input("Poids servi (g)", 10, 2000,
+                              int(round(calc["poids_g"] / (calc["parts"] or 1))), 10,
+                              key="pr_v_g")
+        md = "poids"
 
-    if st.button("➕ Ajouter au compteur du jour", type="primary", key="pr_add",
-                 width="stretch"):
-        libelle = f"{r['nom']} ({portions:g} portion" + ("s" if portions > 1 else "") + ")"
-        store.add_protein(D.today(), libelle, int(round(total_apport)), qty=portions)
-        st.success(f"+{int(round(total_apport))} g de protéines ajoutés.")
+    mp = MN.ma_part(calc, md, val, MN.portion_foyer())
+    st.markdown(f"### {R.ligne_macros(mp['macros'])}")
+    st.caption(f"{mp['libelle']} ({mp['fraction'] * 100:.0f} % du plat · "
+               f"{mp['grammes']:.0f} g servis)")
+
+    if st.button(f"➕ Ajouter {mp['macros']['proteines']:.0f} g de protéines au journal",
+                 type="primary", key="pr_add", width="stretch"):
+        store.add_protein(jour, f"{r['recette']} ({mp['libelle']})",
+                          int(round(mp["macros"]["proteines"])),
+                          qty=float(val),
+                          carbs=round(mp["macros"]["glucides"]),
+                          fat=round(mp["macros"]["lipides"]))
+        st.success(f"+{int(round(mp['macros']['proteines']))} g de protéines ajoutés "
+                   f"pour « {r['recette']} » ({mp['libelle']}).")
         st.rerun()
 
     autres = [x for x in repas if x is not r]
     if autres:
         with st.expander(f"Les autres repas de ce jour ({len(autres)})"):
             for x in autres:
-                moment = f"{str(x['moment']).capitalize()} · " if x["moment"] else ""
-                p = f"≈ {x['prot_portion']:.0f} g/portion" if x["prot_portion"] else "protéines inconnues"
-                st.markdown(f"- {moment}**{x['nom']}** — {p}")
+                moment = f"{str(x['heure']).capitalize()} · " if x["heure"] else ""
+                c = x.get("calcul")
+                p = (f"≈ {c['par_part']['proteines']:.0f} g de protéines par part"
+                     if c else "protéines inconnues")
+                st.markdown(f"- {moment}**{x['recette']}** — {p}")
 
 
 def _ajout_ingredient():
