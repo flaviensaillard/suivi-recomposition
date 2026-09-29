@@ -48,6 +48,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 D = dt.date
+VERSION = "1.2"   # affichée dans la barre latérale : permet de vérifier que le déploiement est à jour
 
 
 # ============================================================================
@@ -230,6 +231,52 @@ def top_of_range(cible: str):
 
 def fmt(v, suffix="", nd=1):
     return "—" if v is None or (isinstance(v, float) and pd.isna(v)) else f"{v:.{nd}f}{suffix}"
+
+
+def lire_map(st) -> dict:
+    """Lit la correspondance de colonnes sans jamais faire planter la page.
+
+    Si la méthode n'existe pas (version ancienne du fichier db.py) ou si la table
+    n'est pas encore créée, on renvoie simplement un dictionnaire vide : la page
+    se contente alors de relancer la détection automatique.
+    """
+    f = getattr(st, "get_map", None)
+    if callable(f):
+        try:
+            return f() or {}
+        except Exception:
+            return {}
+    return {}
+
+
+def ecrire_map(st, mapping: dict) -> bool:
+    f = getattr(st, "save_map", None)
+    if callable(f):
+        try:
+            f(mapping)
+            return True
+        except Exception:
+            return False
+    return False
+
+
+def page_safe(fonction):
+    """Filet de sécurité : une page ne doit jamais afficher une erreur brute."""
+    def enveloppe(*args, **kwargs):
+        try:
+            return fonction(*args, **kwargs)
+        except Exception as e:
+            st.error("**Cette page a rencontré un problème — le reste de l'application fonctionne normalement.**")
+            st.markdown(f"Type : `{type(e).__name__}` · Message : `{e}`")
+            with st.expander("🔬 Détail technique (à copier au coach)"):
+                import traceback
+                st.code(traceback.format_exc(), language="text")
+                st.caption("Copie-moi ce bloc et je corrige en une réponse.")
+            st.info("Pistes rapides : l'application est-elle bien en **Supabase (synchronisé)** ? "
+                    "As-tu bien relancé **`schema.sql`** après la dernière mise à jour ?")
+            return None
+    enveloppe.__name__ = getattr(fonction, "__name__", "page")
+    return enveloppe
 
 
 # ============================================================================
@@ -703,13 +750,13 @@ def page_cuisine():
         with st.spinner("Analyse de ta base de menus…"):
             _t = IT.analyser(client, TABS_A_ANALYSER)
             st.session_state["it_tables"] = _t
-            if _t and not (st.session_state.get("it_map") or store.get_map()):
+            if _t and not (st.session_state.get("it_map") or lire_map(store)):
                 # détection guidée par les données : on regarde quelle colonne est vraiment remplie
                 st.session_state["it_map"] = IT.affiner_mapping(
                     client, IT.deviner_mapping(_t), _t)
     tables = st.session_state["it_tables"]
 
-    mapping = st.session_state.get("it_map") or store.get_map() or {}
+    mapping = st.session_state.get("it_map") or lire_map(store) or {}
     if not mapping and tables:
         mapping = IT.affiner_mapping(client, IT.deviner_mapping(tables), tables)
         st.session_state["it_map"] = mapping
@@ -797,10 +844,15 @@ def page_cuisine():
                                                 ("liaison", IT.TABLES_LIAISON)):
                             if info["table"] in possibles:
                                 nouveau["tables"][role] = info["table"]
-                store.save_map(nouveau)
-                st.session_state["it_map"] = nouveau
-                st.success("Correspondance enregistrée.")
-                st.rerun()
+                if ecrire_map(store, nouveau):
+                    st.session_state["it_map"] = nouveau
+                    st.success("Correspondance enregistrée.")
+                    st.rerun()
+                else:
+                    st.warning("Impossible d'enregistrer pour l'instant : la table `sr_integration_map` "
+                               "n'existe pas encore dans ta base. Relance le script `schema.sql` dans "
+                               "Supabase (SQL Editor → Run), puis réessaie. La détection automatique "
+                               "fonctionne quand même en attendant.")
 
         if st.button("🔄 Relancer l'analyse de ma base"):
             st.session_state.pop("it_tables", None)
@@ -917,16 +969,16 @@ def page_reglages():
 #  NAVIGATION
 # ============================================================================
 pages = [
-    st.Page(page_dashboard, title="Tableau de bord", icon="🏠", default=True),
-    st.Page(page_pesee, title="Pesée & tendance", icon="⚖️"),
-    st.Page(page_seance, title="Séance 30 min", icon="💪"),
-    st.Page(page_proteines, title="Protéines", icon="🥗"),
-    st.Page(page_cuisine, title="Cuisine & menus", icon="🍽️"),
-    st.Page(page_mensurations, title="Mensurations", icon="📏"),
-    st.Page(page_courses, title="Courses", icon="🛒"),
-    st.Page(page_reglages, title="Réglages", icon="⚙️"),
+    st.Page(page_safe(page_dashboard), title="Tableau de bord", icon="🏠", default=True),
+    st.Page(page_safe(page_pesee), title="Pesée & tendance", icon="⚖️"),
+    st.Page(page_safe(page_seance), title="Séance 30 min", icon="💪"),
+    st.Page(page_safe(page_proteines), title="Protéines", icon="🥗"),
+    st.Page(page_safe(page_cuisine), title="Cuisine & menus", icon="🍽️"),
+    st.Page(page_safe(page_mensurations), title="Mensurations", icon="📏"),
+    st.Page(page_safe(page_courses), title="Courses", icon="🛒"),
+    st.Page(page_safe(page_reglages), title="Réglages", icon="⚙️"),
 ]
-st.sidebar.markdown(f"**Suivi Recomposition**  \n<span class='hint'>{store.label}</span>",
+st.sidebar.markdown(f"**Suivi Recomposition** <span class='hint'>v{VERSION}</span>  \n<span class='hint'>{store.label}</span>",
                     unsafe_allow_html=True)
 st.sidebar.caption(f"Objectif : {TARGET_W:.0f} kg · {TARGET_P} g de protéines/jour")
 

@@ -221,23 +221,6 @@ class LocalStore:
                         "on conflict(user_id) do update set mapping=excluded.mapping",
                         (self.user_id, json.dumps(mapping, ensure_ascii=False)))
 
-    # -------- passerelle avec l'application de menus
-    def get_map(self):
-        try:
-            r = (self.client.table(self._t("integration_map"))
-                 .select("mapping").eq("user_id", self.user_id).limit(1).execute())
-            if r.data:
-                m = r.data[0].get("mapping") or {}
-                return m if isinstance(m, dict) else json.loads(m)
-        except Exception:
-            pass
-        return {}
-
-    def save_map(self, mapping: dict):
-        self.client.table(self._t("integration_map")).upsert(
-            dict(user_id=self.user_id, mapping=mapping),
-            on_conflict="user_id").execute()
-
     # -------- export
     def export_all(self):
         return {
@@ -392,6 +375,23 @@ class SupaStore:
         self.client.table(self._t("shopping_state")).upsert(
             dict(user_id=self.user_id, item_key=item_key, week_of=str(week_of),
                  checked=bool(checked)), on_conflict="user_id,item_key,week_of").execute()
+
+    # -------- passerelle avec l'application de menus (gestion-menus)
+    def get_map(self):
+        """Récupère la correspondance de colonnes enregistrée. Ne lève jamais d'exception."""
+        try:
+            r = (self.client.table(self._t("integration_map"))
+                 .select("mapping").eq("user_id", self.user_id).limit(1).execute())
+            if r.data:
+                m = r.data[0].get("mapping") or {}
+                return m if isinstance(m, dict) else json.loads(m)
+        except Exception:
+            pass
+        return {}
+
+    def save_map(self, mapping: dict):
+        self.client.table(self._t("integration_map")).upsert(
+            dict(user_id=self.user_id, mapping=mapping), on_conflict="user_id").execute()
 
     # -------- export
     def export_all(self):
