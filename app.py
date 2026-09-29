@@ -52,7 +52,21 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 D = dt.date
-VERSION = "2.5"   # affichée dans la barre latérale : permet de vérifier que le déploiement est à jour
+VERSION = "2.5.1"
+
+
+def _libelles_uniques(libelles: list) -> list:
+    """Rend une liste de libellés unique (l'application exige des choix distincts).
+
+    Deux aliments peuvent avoir le même nom court (« Yaourt ou lait fermenté ») :
+    on ajoute alors un petit numéro « (2) », « (3) » pour pouvoir les distinguer.
+    """
+    vus, sortie = {}, []
+    for lib in libelles:
+        n = vus.get(lib, 0) + 1
+        vus[lib] = n
+        sortie.append(lib if n == 1 else f"{lib}  ({n})")
+    return sortie   # affichée dans la barre latérale : permet de vérifier que le déploiement est à jour
 
 
 # ============================================================================
@@ -647,7 +661,11 @@ def _ajout_repas_prevu():
             else "protéines non renseignées"
         return f"{moment}{r['nom']}  —  {base}"
 
-    idx = st.selectbox("Repas prévu", range(len(repas)), format_func=_etiquette, key="pr_idx")
+    # On donne à la liste déroulante les LIBELLÉS eux-mêmes (et non des numéros) :
+    # c'est ce qui permet à la case de recherche de trouver un repas en tapant son nom.
+    libelles_repas = _libelles_uniques([_etiquette(i) for i in range(len(repas))])
+    choix_repas = st.selectbox("Repas prévu", libelles_repas, key="pr_idx")
+    idx = libelles_repas.index(choix_repas)
     r = repas[idx]
 
     c1, c2 = st.columns([1, 2])
@@ -734,7 +752,10 @@ def _ajout_ingredient():
         return f"{x['nom']}  —  {' · '.join(prec)}"
 
     noms = [etiquette(i) for i in range(len(liste))]
-    idx = st.selectbox("Ingrédient", range(len(noms)), format_func=lambda i: noms[i], key="ing_idx")
+    # Idem ici : les libellés servent d'options, donc la recherche fonctionne.
+    options_ing = _libelles_uniques(noms)
+    choix_ing = st.selectbox("Ingrédient", options_ing, key="ing_idx")
+    idx = options_ing.index(choix_ing)
     ing = liste[idx]
 
     info = []
