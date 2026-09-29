@@ -52,7 +52,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 D = dt.date
-VERSION = "2.4"   # affichée dans la barre latérale : permet de vérifier que le déploiement est à jour
+VERSION = "2.5"   # affichée dans la barre latérale : permet de vérifier que le déploiement est à jour
 
 
 # ============================================================================
