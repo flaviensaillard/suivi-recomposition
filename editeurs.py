@@ -215,6 +215,9 @@ def _est_a_moi(i: dict) -> bool:
     base française (la fusion a gardé une seule ligne). Sans cette règle, ton
     beurre ou ta bûche de chèvre n'apparaîtraient plus dans la liste.
     """
+    marque = i.get("est_a_moi")
+    if marque is not None:          # colonne remplie par 13_base_unique.sql
+        return bool(marque)
     return (not i.get("code_ciqual") or bool(i.get("nom_affiche"))
             or bool(i.get("exclude_from_list")) or bool(i.get("is_recurrent")))
 
