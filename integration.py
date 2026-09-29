@@ -427,7 +427,14 @@ def recettes_proteinees(client, mapping: dict, limite: int = 8) -> list[dict]:
 # --------------------------------------------------------------------------
 #  Listes pour les listes déroulantes de l'application
 # --------------------------------------------------------------------------
-def ingredients_liste(client, mapping: dict, limite: int = 1500) -> list:
+def _sans_accent(t: str) -> str:
+    """minuscule sans accents (pour trier et comparer sans se tromper)."""
+    import unicodedata
+    txt = unicodedata.normalize("NFD", str(t or "").lower())
+    return "".join(c for c in txt if unicodedata.category(c) != "Mn")
+
+
+def ingredients_liste(client, mapping: dict, limite: int = 25000) -> list:
     """Tous tes ingrédients, prêts pour une liste déroulante.
 
     Chaque entrée : {"id", "nom", "prot100", "gluc100", "lip100", "kcal100",
@@ -451,10 +458,28 @@ def ingredients_liste(client, mapping: dict, limite: int = 1500) -> list:
         except Exception:
             return None
 
-    try:
-        lignes = client.table(t_ing).select("*").limit(limite).execute().data or []
-    except Exception:
-        return []
+    # Supabase ne renvoie que 1 000 lignes par requête : on demande par paquets
+    # de 1 000 jusqu'au bout. C'est ce qui faisait disparaître des ingrédients
+    # de la liste (ex. « Edamame ») alors qu'ils sont bien dans la base.
+    lignes = []
+    debut = 0
+    while debut < max(1, int(limite)):
+        bloc = None
+        for tri in ("id", None):
+            try:
+                q = client.table(t_ing).select("*")
+                if tri:
+                    q = q.order(tri)
+                bloc = q.range(debut, debut + 999).execute().data
+                break
+            except Exception:
+                bloc = None
+        if not bloc:
+            break
+        lignes += bloc
+        if len(bloc) < 1000:
+            break
+        debut += 1000
     sortie = []
     for r in lignes:
         nom = r.get(c_nom) if c_nom else None
@@ -470,7 +495,7 @@ def ingredients_liste(client, mapping: dict, limite: int = 1500) -> list:
             "unite": (str(r.get(c_unit)) if c_unit and r.get(c_unit) else ""),
             "poids_piece": _num(r.get(c_piece)) if c_piece else None,
         })
-    sortie.sort(key=lambda x: x["nom"].casefold())
+    sortie.sort(key=lambda x: _sans_accent(x["nom"]))
     return sortie
 
 

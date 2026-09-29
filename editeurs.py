@@ -176,6 +176,23 @@ def liste_recettes(ms) -> list[dict]:
     return sorted(r, key=lambda x: (x.get("name") or "").lower())
 
 
+# Les deux cases de gestion des courses (mêmes mots que dans gestion-menus).
+COL_FOND = "🚪 Fond de placard (hors liste)"
+COL_RECUR = "🔁 Récurrent"
+CASE_COLS = (COL_FOND, COL_RECUR)
+
+
+def compteur_doublons(ingredients: list) -> dict:
+    """{nom en minuscules: nombre de lignes} — pour repérer les doublons."""
+    from collections import Counter
+    c = Counter()
+    for i in ingredients:
+        nom = (i.get("name") or "").strip().lower()
+        if nom:
+            c[nom] += 1
+    return dict(c)
+
+
 def liste_ingredients(ms) -> list[dict]:
     """Tes ingrédients + ceux utilisés dans les recettes (pas les 3 339 de la base)."""
     utilises = {l.get("ingredient_id") for l in ms.lignes()}
@@ -637,28 +654,86 @@ def page_ingredients(ms):
     utilises = {l.get("ingredient_id") for l in ms.lignes()}
 
     if onglet.startswith("📋"):
-        c1, c2 = st.columns([3, 2])
+        c1, c2, c3 = st.columns([3, 2, 2])
         q = c1.text_input("Rechercher", placeholder="lait, courgette, fromage…")
         rayon = c2.selectbox("Rayon", ["Tous"] + RAYONS)
-        vus = []
+        filtre = c3.selectbox("Afficher", ["Tout", "🚪 Fond de placard", "🔁 Récurrent",
+                                           "⚠️ Doublons"])
+        doublons = compteur_doublons(tous)
+        vus, ids = [], []
         for i in tous:
             n = nom_affiche(i)
             if q and q.lower() not in n.lower():
                 continue
             if rayon != "Tous" and (i.get("category") or "Autre") != rayon:
                 continue
-            vus.append(dict(Ingrédient=n, Rayon=i.get("category") or "Autre",
-                            Unité=i.get("unit"),
-                            kcal=i.get("kcal_100g"), Protéines=i.get("proteines_100g"),
-                            Glucides=i.get("glucides_100g"), Lipides=i.get("lipides_100g"),
-                            Pièce_g=i.get("poids_piece_g"),
-                            Dans_mes_recettes="✓" if i.get("id") in utilises else "",
-                            Hors_liste="✓" if i.get("exclude_from_list") else "",
-                            Récurrent="✓" if i.get("is_recurrent") else ""))
-        st.caption(f"{len(vus)} ingrédient(s) — les valeurs sont pour 100 g "
-                   "(celles de la base française). Tes propres ingrédients gardent leurs "
-                   "valeurs si tu les as renseignées.")
-        st.dataframe(pd.DataFrame(vus), hide_index=True, width="stretch", height=460)
+            if filtre == "🚪 Fond de placard" and not i.get("exclude_from_list"):
+                continue
+            if filtre == "🔁 Récurrent" and not i.get("is_recurrent"):
+                continue
+            if filtre == "⚠️ Doublons" and doublons.get((i.get("name") or "").strip().lower(),
+                                                        0) < 2:
+                continue
+            ids.append(i.get("id"))
+            vus.append({"Ingrédient": n, "Rayon": i.get("category") or "Autre",
+                        "Unité": i.get("unit"),
+                        "kcal": i.get("kcal_100g"), "Protéines": i.get("proteines_100g"),
+                        "Glucides": i.get("glucides_100g"), "Lipides": i.get("lipides_100g"),
+                        "Pièce (g)": i.get("poids_piece_g"),
+                        "Dans mes recettes": "✓" if i.get("id") in utilises else "",
+                        "⚠️": ("double" if doublons.get((i.get("name") or "").strip().lower(),
+                                                        0) > 1 else ""),
+                        COL_FOND: bool(i.get("exclude_from_list")),
+                        COL_RECUR: bool(i.get("is_recurrent"))})
+        noms_doubles = sum(1 for c in doublons.values() if c > 1)
+        if noms_doubles and filtre != "⚠️ Doublons":
+            st.warning(f"⚠️ **{noms_doubles} nom(s) existent en plusieurs lignes** "
+                       f"(ex. deux « Aubergine »). Choisis **Afficher → ⚠️ Doublons** pour "
+                       "les voir, et lance le script **`10_doublons.sql`** dans Supabase "
+                       "pour regrouper les vraies paires.")
+        st.caption(f"{len(vus)} ligne(s) affichée(s) — valeurs pour 100 g. "
+                   f"Les deux dernières colonnes se cochent **directement dans le tableau** : "
+                   f"**🚪 Fond de placard** = tu l'as toujours à la maison, il sort de la "
+                   f"liste de courses · **🔁 Récurrent** = à racheter chaque semaine "
+                   f"(il apparaît dans la liste même hors menus).")
+        if not vus:
+            st.info("Aucun ingrédient avec ce filtre.")
+            return
+        df = pd.DataFrame(vus)
+        df.insert(0, "_id", ids)
+        edite = st.data_editor(
+            df, hide_index=True, width="stretch", height=460, key="ing_editeur",
+            disabled=[c for c in df.columns if c not in CASE_COLS],
+            column_config={"_id": None,
+                           "⚠️": st.column_config.TextColumn("⚠️", width="small",
+                                                             help="Ce nom apparaît sur "
+                                                                  "plusieurs lignes."),
+                           COL_FOND: st.column_config.CheckboxColumn(
+                               COL_FOND, help="Coché = article que tu as toujours chez toi : "
+                                              "il ne sort pas dans la liste de courses."),
+                           COL_RECUR: st.column_config.CheckboxColumn(
+                               COL_RECUR, help="Coché = à racheter toutes les semaines.")})
+        modifs = []
+        for pos in range(min(len(df), len(edite))):
+            apres, avant = edite.iloc[pos], df.iloc[pos]
+            change = {}
+            for col in CASE_COLS:
+                v_apres, v_avant = bool(apres[col]), bool(avant[col])
+                if v_apres != v_avant:
+                    change["exclude_from_list" if col == COL_FOND else "is_recurrent"] = v_apres
+            if change:
+                modifs.append((avant["_id"], change))
+        if modifs:
+            if not _table(ms, "ingredients"):
+                st.warning("Mode aperçu : les cases ne sont pas enregistrées. "
+                           "Il faut les clés Supabase (page Réglages).")
+            else:
+                try:
+                    for cid, change in modifs:
+                        ms.client.table("ingredients").update(change).eq("id", cid).execute()
+                    _recharger(ms, f"{len(modifs)} ingrédient(s) mis à jour.")
+                except Exception as e:
+                    _erreur("Mise à jour des cases", e, dict(nb=len(modifs)))
 
     elif onglet.startswith("➕"):
         with st.form("ajouter_ingredient", clear_on_submit=True):

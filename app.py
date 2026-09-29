@@ -710,7 +710,24 @@ def _ajout_ingredient():
         st.caption(f"{len(liste)} ingrédients chargés depuis ta base — tape les premières lettres "
                    "pour filtrer la liste.")
 
-    noms = [x["nom"] for x in liste]
+    compte = {}
+    for x in liste:
+        cle = x["nom"].strip().lower()
+        compte[cle] = compte.get(cle, 0) + 1
+
+    def etiquette(i):
+        x = liste[i]
+        if compte.get(x["nom"].strip().lower(), 0) < 2:
+            return x["nom"]
+        # même nom sur deux lignes : on précise unité et valeurs pour ne pas se tromper
+        prec = [x["unite"] or "unité ?"]
+        if x["prot100"] is not None:
+            prec.append(f"{x['prot100']:g} g P/100 g")
+        if x["kcal100"] is not None:
+            prec.append(f"{x['kcal100']:g} kcal")
+        return f"{x['nom']}  —  {' · '.join(prec)}"
+
+    noms = [etiquette(i) for i in range(len(liste))]
     idx = st.selectbox("Ingrédient", range(len(noms)), format_func=lambda i: noms[i], key="ing_idx")
     ing = liste[idx]
 
