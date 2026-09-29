@@ -245,8 +245,24 @@ class MenusStore:
         self._cache: dict[str, list] = {}
         self.erreur: str | None = None
 
+    @property
+    def erreurs(self) -> list[str]:
+        """Toutes les erreurs de lecture rencontrées (pour le diagnostic)."""
+        e = getattr(self, "erreur", None)
+        return [e] if e else []
+
     # -- outils
     def _tous(self, table: str, colonnes: str = "*", ordre: str | None = None) -> list[dict]:
+        """Lit toute une table, en entier (Supabase ne renvoie que 1 000 lignes à la fois).
+
+        On demande TOUJOURS toutes les colonnes (« * ») : c'est ce qui manquait —
+        une colonne demandée par erreur empêchait de retrouver les identifiants.
+        """
+        # garde-fous : un argument mal passé ne doit JAMAIS casser une lecture
+        if not isinstance(colonnes, str) or not colonnes.strip():
+            colonnes = "*"
+        if not isinstance(ordre, str) or not ordre.strip():
+            ordre = None
         if table in self._cache:
             return self._cache[table]
         if self.client is None:
@@ -260,7 +276,7 @@ class MenusStore:
                     q = q.order(ordre)
                 res = q.range(debut, debut + PAGE_SUPABASE - 1).execute()
             except Exception as e:                       # table absente, droits, réseau…
-                self.erreur = f"{table} : {e}"
+                self.erreur = f"{table} : {type(e).__name__} — {e}"
                 break
             lot = res.data or []
             lignes.extend(lot)
@@ -275,16 +291,16 @@ class MenusStore:
 
     # -- collections
     def ingredients(self) -> list[dict]:
-        return self._tous("ingredients", order_col("ingredients"))
+        return self._tous("ingredients", "*", order_col("ingredients"))
 
     def recettes(self) -> list[dict]:
-        return self._tous("recipes", order_col("recipes"))
+        return self._tous("recipes", "*", order_col("recipes"))
 
     def lignes(self) -> list[dict]:
-        return self._tous("recipe_ingredients", order_col("recipe_ingredients"))
+        return self._tous("recipe_ingredients", "*", order_col("recipe_ingredients"))
 
     def planning(self) -> list[dict]:
-        return self._tous("planned_meals", order_col("planned_meals"))
+        return self._tous("planned_meals", "*", order_col("planned_meals"))
 
     # -- index
     def ing_par_id(self) -> dict:
