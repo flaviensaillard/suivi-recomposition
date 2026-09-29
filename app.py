@@ -52,7 +52,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 D = dt.date
-VERSION = "2.2"   # affichée dans la barre latérale : permet de vérifier que le déploiement est à jour
+VERSION = "2.3"   # affichée dans la barre latérale : permet de vérifier que le déploiement est à jour
 
 
 # ============================================================================
@@ -124,7 +124,7 @@ def menus_store():
     Sans Supabase configuré : renvoie un extrait de démonstration, pour que tu
     puisses voir la page tout de suite (les chiffres sont alors incomplets).
     """
-    VERSION_STORE = "30-09-2026a"      # à changer à chaque mise à jour du moteur
+    VERSION_STORE = "30-09-2026b"      # à changer à chaque mise à jour du moteur
     ms = st.session_state.get("_menus_store")
     if ms is not None and st.session_state.get("_menus_version") == VERSION_STORE:
         return ms
@@ -284,7 +284,13 @@ def contexte_menus():
         mapping = IT.affiner_mapping(client, IT.deviner_mapping(tables), tables) if tables else {}
         st.session_state["it_ctx"] = {"tables": tables, "mapping": mapping}
     ctx = st.session_state["it_ctx"]
-    mapping = st.session_state.get("it_map") or lire_map(store) or ctx["mapping"]
+    sauve = st.session_state.get("it_map") or lire_map(store) or {}
+    # La correspondance enregistrée peut être ANCIENNE (créée avant l'import de la
+    # base française) : on la complète, et on la réenregistre si elle a changé.
+    mapping = IT.mapping_a_jour(sauve, ctx["mapping"], ctx["tables"])
+    if mapping and mapping != sauve:
+        ecrire_map(store, mapping)
+        st.session_state["it_map"] = mapping
     return client, ctx["tables"], mapping
 
 
@@ -767,7 +773,7 @@ def _ajout_ingredient():
 
     if ing["prot100"] is None:
         st.warning("Pas de valeur de protéines pour cet ingrédient dans ta base. "
-                   "Lance le script **7_nutrition.sql** : il remplit les valeurs manquantes.")
+                   "Tu peux saisir la valeur à la main ci-dessous : elle comptera pour ce repas.")
         apport = st.number_input("Protéines (g) — saisie manuelle", 0, 300, 20, 1, key="ing_man")
     elif base == "pour 100 g":
         apport = ing["prot100"] * grammes / 100.0

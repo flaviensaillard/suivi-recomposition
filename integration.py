@@ -115,17 +115,26 @@ def _norm(s: str) -> str:
 
 
 def scorer(colonne: str, candidats: list[str]) -> int:
-    """Score de ressemblance entre un nom de colonne réel et nos noms probables."""
+    """Score de ressemblance entre un nom de colonne réel et nos noms probables.
+
+    À égalité, la correspondance la PLUS LONGUE gagne : « poids_piece_g » (poids
+    d'une pièce) passe devant « unit » — sinon les deux marquaient 80 et la
+    première colonne de la table l'emportait (erreur corrigée le 30/09).
+    """
     c = _norm(colonne)
     best = 0
     for cand in candidats:
         k = _norm(cand)
         if c == k:
-            best = max(best, 100)
+            s = 100
         elif c.startswith(k) or k.startswith(c):
-            best = max(best, 80)
+            # plus le nom probable couvre la colonne, plus le score monte
+            s = 80 + int(9 * min(len(k), len(c)) / max(len(k), len(c)))
         elif k in c or c in k:
-            best = max(best, 60)
+            s = 60 + int(9 * min(len(k), len(c)) / max(len(k), len(c)))
+        else:
+            s = 0
+        best = max(best, s)
     return best
 
 
@@ -427,6 +436,30 @@ def recettes_proteinees(client, mapping: dict, limite: int = 8) -> list[dict]:
 # --------------------------------------------------------------------------
 #  Listes pour les listes déroulantes de l'application
 # --------------------------------------------------------------------------
+def mapping_a_jour(sauve: dict, frais: dict, tables: dict | None = None) -> dict:
+    """Fusionne la correspondance ENREGISTRÉE avec celle qui vient d'être détectée.
+
+    - tes choix enregistrés sont gardés tant que la colonne existe vraiment ;
+    - tout ce qui manque (colonnes ajoutées depuis, comme `proteines_100g` et
+      `kcal_100g` après l'import de la base française) est complété.
+    """
+    frais = frais or {}
+    if not sauve:
+        return frais
+    cols_frais = frais.get("cols") or {}
+    cols_sauve = sauve.get("cols") or {}
+    out = {"tables": dict(frais.get("tables") or sauve.get("tables") or {}), "cols": {}}
+    for cle, val in cols_frais.items():
+        s = cols_sauve.get(cle) or {}
+        t = s.get("table") or val.get("table")
+        c = s.get("col")
+        connu = bool(c) and (not tables or c in (tables.get(t) or []))
+        out["cols"][cle] = {"table": t, "col": c} if connu else val
+    for cle, val in cols_sauve.items():          # tes choix sur d'autres clés
+        out["cols"].setdefault(cle, val)
+    return out
+
+
 def _sans_accent(t: str) -> str:
     """minuscule sans accents (pour trier et comparer sans se tromper)."""
     import unicodedata
@@ -444,10 +477,14 @@ def ingredients_liste(client, mapping: dict, limite: int = 25000) -> list:
     if not t_ing:
         return []
     c_nom = (mapping["cols"].get("ingredient_name") or {}).get("col")
-    c_prot = (mapping["cols"].get("protein_100g") or {}).get("col")
-    c_kcal = (mapping["cols"].get("kcal_100g") or {}).get("col")
-    c_unit = (mapping["cols"].get("unit") or {}).get("col")
-    c_piece = (mapping["cols"].get("piece_weight") or {}).get("col")
+    # Plan B sur les noms de colonnes : une correspondance enregistrée AVANT
+    # l'import de la base française ne connaît pas `proteines_100g` / `kcal_100g`.
+    # Sans ce garde-fou, cette page affichait « aucune valeur nutritionnelle »
+    # pour TOUS les ingrédients (c'était le cas du 30/09).
+    c_prot = (mapping["cols"].get("protein_100g") or {}).get("col") or "proteines_100g"
+    c_kcal = (mapping["cols"].get("kcal_100g") or {}).get("col") or "kcal_100g"
+    c_unit = (mapping["cols"].get("unit") or {}).get("col") or "unit"
+    c_piece = (mapping["cols"].get("piece_weight") or {}).get("col") or "poids_piece_g"
     # glucides / lipides : colonnes de la base Ciqual importée
     c_glu = (mapping["cols"].get("carbs_100g") or {}).get("col") or "glucides_100g"
     c_lip = (mapping["cols"].get("fat_100g") or {}).get("col") or "lipides_100g"
@@ -457,6 +494,13 @@ def ingredients_liste(client, mapping: dict, limite: int = 25000) -> list:
             return float(str(v).replace(",", "."))
         except Exception:
             return None
+
+    def _lu(r, col, *secours):
+        """Valeur d'une colonne, avec des noms de secours si elle est vide/absente."""
+        for c in (col,) + secours:
+            if c and r.get(c) not in (None, ""):
+                return r.get(c)
+        return None
 
     # Supabase ne renvoie que 1 000 lignes par requête : on demande par paquets
     # de 1 000 jusqu'au bout. C'est ce qui faisait disparaître des ingrédients
@@ -488,12 +532,13 @@ def ingredients_liste(client, mapping: dict, limite: int = 25000) -> list:
         sortie.append({
             "id": r.get("id"),
             "nom": nom.strip(),
-            "prot100": _num(r.get(c_prot)) if c_prot else None,
-            "gluc100": _num(r.get(c_glu)),
-            "lip100": _num(r.get(c_lip)),
-            "kcal100": _num(r.get(c_kcal)) if c_kcal else None,
-            "unite": (str(r.get(c_unit)) if c_unit and r.get(c_unit) else ""),
-            "poids_piece": _num(r.get(c_piece)) if c_piece else None,
+            "prot100": _num(_lu(r, c_prot, "proteines_100g", "protein", "proteines",
+                                 "protein_g")),
+            "gluc100": _num(_lu(r, c_glu, "glucides_100g", "glucides", "carbs")),
+            "lip100": _num(_lu(r, c_lip, "lipides_100g", "lipides", "fat")),
+            "kcal100": _num(_lu(r, c_kcal, "kcal_100g", "kcal", "calories", "energie")),
+            "unite": (str(_lu(r, c_unit, "unit", "unite")) or "").strip(),
+            "poids_piece": _num(_lu(r, c_piece, "poids_piece_g", "poids_piece")),
         })
     sortie.sort(key=lambda x: _sans_accent(x["nom"]))
     return sortie
