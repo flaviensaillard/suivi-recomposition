@@ -35,9 +35,20 @@ def _recharger(ms, message: str):
     st.rerun()
 
 
-def _table(nom: str):
-    """La table Supabase, ou None en mode aperçu."""
-    return None if getattr(ms, "client", None) is None else nom
+# Nom de la table à écrire — ou None quand on est en mode aperçu (pas de clés).
+# Chaque appel reçoit le lecteur de menus « ms » : sans ça, la page plantait
+# dès qu'on validait un formulaire (erreur corrigée le 29/09).
+TABLES_ECRITURE = ("planned_meals", "recipes", "recipe_ingredients", "ingredients")
+
+
+def mode_ecriture(ms) -> bool:
+    """Peut-on vraiment enregistrer ? (faux en mode aperçu)"""
+    return getattr(ms, "client", None) is not None
+
+
+def _table(ms, nom: str):
+    """Renvoie le nom de la table si l'écriture est possible, sinon None."""
+    return nom if mode_ecriture(ms) else None
 
 
 def nom_affiche(ing: dict) -> str:
@@ -132,7 +143,7 @@ def page_planifier(ms, target_p: float):
                     libelle += f" · {p['servings']} convives"
                 c1.markdown(libelle)
                 if c2.button("🗑️ Supprimer", key=f"pl_del_{p['id']}"):
-                    if _table("planned_meals"):
+                    if _table(ms, "planned_meals"):
                         ms.client.table("planned_meals").delete().eq("id", p["id"]).execute()
                         _recharger(ms, "Repas supprimé.")
                     else:
@@ -170,7 +181,7 @@ def page_planifier(ms, target_p: float):
     if c1.button("📄 Générer la fiche PDF de la semaine", type="primary", width="stretch"):
         _fiche_pdf(ms, jours, planning, recettes_par_id, ing_par_id)
     if c2.button("🗑️ Vider toute la semaine", width="stretch"):
-        if _table("planned_meals"):
+        if _table(ms, "planned_meals"):
             n = 0
             for d in jours:
                 for p in repas_du_jour(d):
@@ -182,7 +193,7 @@ def page_planifier(ms, target_p: float):
 
 
 def _ajouter_repas(ms, jour, moment, convives, genre, choix, qte, recettes, ingredients):
-    if not _table("planned_meals"):
+    if not _table(ms, "planned_meals"):
         st.warning("Mode aperçu : l'ajout n'est pas enregistré. Renseigne tes clés Supabase "
                    "pour que tout soit sauvegardé.")
         return
@@ -358,7 +369,7 @@ def _creer_recette(ms):
     if st.button("💾 Enregistrer la recette", type="primary", width="stretch", key="cr_save"):
         if not nom.strip():
             st.error("Le nom est obligatoire.")
-        elif not _table("recipes"):
+        elif not _table(ms, "recipes"):
             st.warning("Mode aperçu : l'enregistrement n'est pas possible sans tes clés Supabase.")
         elif not lignes:
             st.error("Ajoute au moins un ingrédient.")
@@ -428,7 +439,7 @@ def _modifier_recette(ms):
 
     if st.button("💾 Sauvegarder les modifications", type="primary", width="stretch",
                  key=f"mr_save_{rid}"):
-        if not _table("recipes"):
+        if not _table(ms, "recipes"):
             st.warning("Mode aperçu : l'enregistrement n'est pas possible sans tes clés Supabase.")
         else:
             try:
@@ -461,7 +472,7 @@ def _modifier_recette(ms):
         st.caption("La recette et ses lignes d'ingrédients seront supprimées. "
                    "Les repas déjà planifiés avec elle ne s'afficheront plus.")
         if st.button(f"Supprimer « {choix} »", key=f"mr_del_{rid}"):
-            if not _table("recipes"):
+            if not _table(ms, "recipes"):
                 st.warning("Mode aperçu : rien n'est supprimé.")
             else:
                 try:
@@ -529,7 +540,7 @@ def page_ingredients(ms):
             if st.form_submit_button("💾 Enregistrer", type="primary", width="stretch"):
                 if not nom.strip() or unite == "-" or rayon == "-":
                     st.error("Il faut au moins un nom, une unité et un rayon.")
-                elif not _table("ingredients"):
+                elif not _table(ms, "ingredients"):
                     st.warning("Mode aperçu : l'ajout n'est pas enregistré.")
                 else:
                     try:
@@ -575,7 +586,7 @@ def page_ingredients(ms):
             hors = c9.checkbox("Fond de placard", value=bool(ing.get("exclude_from_list")))
             recur = c10.checkbox("Récurrent", value=bool(ing.get("is_recurrent")))
             if st.form_submit_button("💾 Enregistrer", type="primary", width="stretch"):
-                if not _table("ingredients"):
+                if not _table(ms, "ingredients"):
                     st.warning("Mode aperçu : l'enregistrement n'est pas possible.")
                 else:
                     try:
@@ -596,6 +607,6 @@ def page_ingredients(ms):
                 st.warning(f"Cet ingrédient est utilisé dans {nb} ligne(s) de recettes. "
                            "Supprime-le d'abord de ces recettes.")
             elif st.button("Supprimer", key="ing_del"):
-                if _table("ingredients"):
+                if _table(ms, "ingredients"):
                     ms.client.table("ingredients").delete().eq("id", ing["id"]).execute()
                     _recharger(ms, "Ingrédient supprimé.")
