@@ -52,7 +52,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 D = dt.date
-VERSION = "2.3"   # affichée dans la barre latérale : permet de vérifier que le déploiement est à jour
+VERSION = "2.4"   # affichée dans la barre latérale : permet de vérifier que le déploiement est à jour
 
 
 # ============================================================================
@@ -124,7 +124,7 @@ def menus_store():
     Sans Supabase configuré : renvoie un extrait de démonstration, pour que tu
     puisses voir la page tout de suite (les chiffres sont alors incomplets).
     """
-    VERSION_STORE = "30-09-2026b"      # à changer à chaque mise à jour du moteur
+    VERSION_STORE = "30-09-2026c"      # à changer à chaque mise à jour du moteur
     ms = st.session_state.get("_menus_store")
     if ms is not None and st.session_state.get("_menus_version") == VERSION_STORE:
         return ms

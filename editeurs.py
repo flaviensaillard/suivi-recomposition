@@ -193,12 +193,37 @@ def compteur_doublons(ingredients: list) -> dict:
     return dict(c)
 
 
-def liste_ingredients(ms) -> list[dict]:
-    """Tes ingrédients + ceux utilisés dans les recettes (pas les 3 339 de la base)."""
+def liste_ingredients(ms, tout: bool = False) -> list[dict]:
+    """Tes ingrédients + ceux utilisés dans les recettes.
+
+    `tout=True` ajoute les 3 339 aliments de la base française (ils servent aux
+    valeurs nutritionnelles). Par défaut on ne montre que les tiens : sinon la
+    liste est noyée sous 3 300 lignes d'aliments de référence.
+    """
+    if tout:
+        return sorted(ms.ingredients(), key=lambda x: _sans_accent(nom_affiche(x)))
     utilises = {l.get("ingredient_id") for l in ms.lignes()}
     out = [i for i in ms.ingredients()
-           if not i.get("code_ciqual") or i.get("id") in utilises]
-    return sorted(out, key=lambda x: nom_affiche(x).lower())
+           if _est_a_moi(i) or i.get("id") in utilises]
+    return sorted(out, key=lambda x: _sans_accent(nom_affiche(x)))
+
+
+def _est_a_moi(i: dict) -> bool:
+    """Un ingrédient « à toi » : le tien, ou une ligne que tu as réglée.
+
+    Depuis la fusion des doublons, tes ingrédients portent souvent un code de la
+    base française (la fusion a gardé une seule ligne). Sans cette règle, ton
+    beurre ou ta bûche de chèvre n'apparaîtraient plus dans la liste.
+    """
+    return (not i.get("code_ciqual") or bool(i.get("nom_affiche"))
+            or bool(i.get("exclude_from_list")) or bool(i.get("is_recurrent")))
+
+
+def _sans_accent(t: str) -> str:
+    """minuscule sans accents (pour trier « Édamame » avec les E, pas après les Z)."""
+    import unicodedata
+    txt = unicodedata.normalize("NFD", str(t or "").lower())
+    return "".join(c for c in txt if unicodedata.category(c) != "Mn")
 
 
 # ---------------------------------------------------------------------------
@@ -650,11 +675,18 @@ def page_ingredients(ms):
 
     onglet = st.radio("Action", ["📋 Consulter", "➕ Ajouter", "✏️ Modifier"],
                       horizontal=True, label_visibility="collapsed")
-    tous = liste_ingredients(ms)
     utilises = {l.get("ingredient_id") for l in ms.lignes()}
 
     if onglet.startswith("📋"):
-        c1, c2, c3 = st.columns([3, 2, 2])
+        nb_perso = len([i for i in ms.ingredients() if _est_a_moi(i)])
+        nb_base = len(ms.ingredients()) - nb_perso
+        c0, c1, c2, c3 = st.columns([2, 3, 2, 2])
+        inclus = c0.checkbox(f"🌍 Inclure la base française ({nb_base})",
+                             value=False, key="ing_tout",
+                             help="Les aliments de référence qui donnent les valeurs "
+                                  "nutritionnelles. Décoche pour ne voir que TES "
+                                  f"{nb_perso} ingrédients.")
+        tous = liste_ingredients(ms, tout=inclus)
         q = c1.text_input("Rechercher", placeholder="lait, courgette, fromage…")
         rayon = c2.selectbox("Rayon", ["Tous"] + RAYONS)
         filtre = c3.selectbox("Afficher", ["Tout", "🚪 Fond de placard", "🔁 Récurrent",
@@ -675,7 +707,9 @@ def page_ingredients(ms):
                                                         0) < 2:
                 continue
             ids.append(i.get("id"))
-            vus.append({"Ingrédient": n, "Rayon": i.get("category") or "Autre",
+            vus.append({"Ingrédient": n,
+                        "Origine": ("le mien" if _est_a_moi(i) else "base française"),
+                        "Rayon": i.get("category") or "Autre",
                         "Unité": i.get("unit"),
                         "kcal": i.get("kcal_100g"), "Protéines": i.get("proteines_100g"),
                         "Glucides": i.get("glucides_100g"), "Lipides": i.get("lipides_100g"),
@@ -691,7 +725,8 @@ def page_ingredients(ms):
                        f"(ex. deux « Aubergine »). Choisis **Afficher → ⚠️ Doublons** pour "
                        "les voir, et lance le script **`10_doublons.sql`** dans Supabase "
                        "pour regrouper les vraies paires.")
-        st.caption(f"{len(vus)} ligne(s) affichée(s) — valeurs pour 100 g. "
+        st.caption(f"{len(vus)} ligne(s) affichée(s) sur {len(ms.ingredients())} au total "
+                   f"— valeurs pour 100 g. "
                    f"Les deux dernières colonnes se cochent **directement dans le tableau** : "
                    f"**🚪 Fond de placard** = tu l'as toujours à la maison, il sort de la "
                    f"liste de courses · **🔁 Récurrent** = à racheter chaque semaine "

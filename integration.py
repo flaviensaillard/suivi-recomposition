@@ -529,9 +529,15 @@ def ingredients_liste(client, mapping: dict, limite: int = 25000) -> list:
         nom = r.get(c_nom) if c_nom else None
         if not isinstance(nom, str) or not nom.strip() or _est_un_id(nom):
             continue
+        # Le NOM AFFICHÉ d'abord : c'est celui que tu vois à l'écran.
+        # (« Edamames » est stocké sous « Fève, pelée, fraîche, surgelée, crue » :
+        #  sans ça, taper « edamame » ne trouvait rien.)
+        affiche = _lu(r, "nom_affiche")
+        affiche = affiche.strip() if isinstance(affiche, str) and affiche.strip() else nom.strip()
         sortie.append({
             "id": r.get("id"),
-            "nom": nom.strip(),
+            "nom": affiche,
+            "nom_technique": nom.strip(),
             "prot100": _num(_lu(r, c_prot, "proteines_100g", "protein", "proteines",
                                  "protein_g")),
             "gluc100": _num(_lu(r, c_glu, "glucides_100g", "glucides", "carbs")),
