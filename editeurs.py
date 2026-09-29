@@ -51,6 +51,32 @@ def _table(ms, nom: str):
     return nom if mode_ecriture(ms) else None
 
 
+def _inserer(ms, table: str, charge: dict) -> str:
+    """Enregistre une ligne et renvoie son identifiant.
+
+    L'identifiant est fabriqué ici, avant l'envoi : c'est celui qui sera écrit
+    dans la base. On ne dépend donc plus de ce que Supabase renvoie — c'est ce
+    qui provoquait l'erreur « Enregistrement impossible : 'id' ».
+    """
+    ligne = dict(charge)
+    ligne.setdefault("id", str(uuid.uuid4()))
+    ms.client.table(table).insert(ligne).execute()
+    return ligne["id"]
+
+
+def _erreur(action: str, e: Exception, details: dict | None = None):
+    """Affiche une erreur compréhensible, avec le nécessaire pour la diagnostiquer."""
+    st.error(f"**{action} — impossible.** {type(e).__name__} : {e}")
+    with st.expander("🔍 Détail (à m'envoyer si ça recommence)"):
+        st.markdown(f"- **Action** : {action}\n- **Type d'erreur** : `{type(e).__name__}`"
+                    f"\n- **Message exact** : `{e}`")
+        if details:
+            st.json(details, expanded=False)
+        st.caption("Deux causes fréquentes : la clé Supabase est refusée (Réglages), ou une "
+                   "colonne obligatoire manque dans ta table. Envoie-moi une capture de ce "
+                   "cadre et je corrige.")
+
+
 def nom_affiche(ing: dict) -> str:
     """Nom court et familier si on l'a (« Boeuf haché » plutôt que le nom Ciqual)."""
     return ing.get("nom_affiche") or ing.get("name") or "?"
@@ -218,27 +244,26 @@ def _ajouter_repas(ms, jour, moment, convives, genre, choix, qte, recettes, ingr
             if existante:
                 rid = existante["id"]
             else:
-                res = ms.client.table("recipes").insert({
-                    "name": nom_rec, "base_servings": 1, "instructions": ""}).execute()
-                rid = res.data[0]["id"]
-                ms.client.table("recipe_ingredients").insert({
+                rid = _inserer(ms, "recipes", {
+                    "name": nom_rec, "base_servings": 1, "instructions": ""})
+                _inserer(ms, "recipe_ingredients", {
                     "recipe_id": rid, "ingredient_id": ing["id"], "quantity": 1,
-                    "unit": ing.get("unit")}).execute()
+                    "unit": ing.get("unit")})
             ms.client.table("planned_meals").insert({
                 "day": jour_fr, "date_menu": jour.isoformat(), "meal_type": moment,
                 "recipe_id": rid, "servings": convives, "nb_persons": convives,
                 "ingredient_qty": qte}).execute()
         else:
             nom_rec = f"[Txt] {choix.strip()}"
-            res = ms.client.table("recipes").insert({
-                "name": nom_rec, "base_servings": 1, "instructions": ""}).execute()
-            ms.client.table("planned_meals").insert({
+            rid = _inserer(ms, "recipes", {
+                "name": nom_rec, "base_servings": 1, "instructions": ""})
+            _inserer(ms, "planned_meals", {
                 "day": jour_fr, "date_menu": jour.isoformat(), "meal_type": moment,
-                "recipe_id": res.data[0]["id"], "servings": convives,
-                "nb_persons": convives}).execute()
+                "recipe_id": rid, "servings": convives, "nb_persons": convives})
         _recharger(ms, "Repas ajouté.")
     except Exception as e:
-        st.error(f"Enregistrement impossible : {e}")
+        _erreur("Ajout du repas", e, dict(jour=str(jour), moment=moment, genre=genre,
+                                          choix=choix, convives=convives))
 
 
 def _fiche_pdf(ms, jours, planning, recettes_par_id, ing_par_id, pour_foyer: bool = True):
@@ -375,23 +400,23 @@ def _creer_recette(ms):
             st.error("Ajoute au moins un ingrédient.")
         else:
             try:
-                res = ms.client.table("recipes").insert({
+                rid = _inserer(ms, "recipes", {
                     "name": nom.strip(), "base_servings": parts,
-                    "instructions": PM.instructions_to_text(etapes)}).execute()
-                rid = res.data[0]["id"]
+                    "instructions": PM.instructions_to_text(etapes)})
                 n = 0
                 for l in lignes:
                     ing = next((i for i in ingredients if nom_affiche(i) == l["ingredient"]), None)
                     if ing:
-                        ms.client.table("recipe_ingredients").insert({
+                        _inserer(ms, "recipe_ingredients", {
                             "recipe_id": rid, "ingredient_id": ing["id"],
-                            "quantity": l["quantity"], "unit": l["unit"]}).execute()
+                            "quantity": l["quantity"], "unit": l["unit"]})
                         n += 1
                 for cle in ("cr_lignes", "cr_etapes", "cr_nom"):
                     st.session_state.pop(cle, None)
                 _recharger(ms, f"Recette « {nom} » créée avec {n} ingrédient(s).")
             except Exception as e:
-                st.error(f"Enregistrement impossible : {e}")
+                _erreur("Création de la recette", e,
+                        dict(nom=nom, parts=parts, nb_ingredients=len(lignes)))
 
 
 def _modifier_recette(ms):
@@ -457,15 +482,15 @@ def _modifier_recette(ms):
                     ing = next((i for i in liste_ingredients(ms)
                                 if nom_affiche(i) == l["ingredient"]), None)
                     if ing:
-                        ms.client.table("recipe_ingredients").insert({
+                        _inserer(ms, "recipe_ingredients", {
                             "recipe_id": rid, "ingredient_id": ing["id"],
-                            "quantity": l["quantity"], "unit": l["unit"]}).execute()
+                            "quantity": l["quantity"], "unit": l["unit"]})
                         n += 1
                 st.session_state.pop("mr_lignes", None)
                 st.session_state.pop("mr_etapes", None)
                 _recharger(ms, f"Modifications enregistrées ({n} ingrédient(s) ajouté(s)).")
             except Exception as e:
-                st.error(f"Enregistrement impossible : {e}")
+                _erreur("Modification de la recette", e, dict(recette=choix))
 
     st.divider()
     with st.expander("🗑️ Supprimer cette recette"):
@@ -480,7 +505,7 @@ def _modifier_recette(ms):
                     ms.client.table("recipes").delete().eq("id", rid).execute()
                     _recharger(ms, "Recette supprimée.")
                 except Exception as e:
-                    st.error(f"Suppression impossible : {e}")
+                    _erreur("Suppression de la recette", e, dict(recette=choix))
 
 
 # ---------------------------------------------------------------------------
@@ -544,18 +569,19 @@ def page_ingredients(ms):
                     st.warning("Mode aperçu : l'ajout n'est pas enregistré.")
                 else:
                     try:
-                        ms.client.table("ingredients").insert({
-                            "id": str(uuid.uuid4()), "name": nom.strip(), "unit": unite,
+                        _inserer(ms, "ingredients", {
+                            "name": nom.strip(), "unit": unite,
                             "category": rayon, "exclude_from_list": hors,
                             "is_recurrent": recur,
                             "poids_piece_g": poids or None,
                             "unite_liste_courses": unite,
                             "kcal_100g": kcal or None, "proteines_100g": prot or None,
                             "glucides_100g": gluc or None, "lipides_100g": lip or None,
-                            "source": "mes ingrédients"}).execute()
+                            "source": "mes ingrédients"})
                         _recharger(ms, "Ingrédient ajouté.")
                     except Exception as e:
-                        st.error(f"Enregistrement impossible : {e}")
+                        _erreur("Ajout de l'ingrédient", e, dict(nom=nom, unite=unite,
+                                                                 rayon=rayon))
 
     else:
         mes = [i for i in tous if not i.get("code_ciqual")]
@@ -599,7 +625,7 @@ def page_ingredients(ms):
                         }).eq("id", ing["id"]).execute()
                         _recharger(ms, "Ingrédient modifié.")
                     except Exception as e:
-                        st.error(f"Enregistrement impossible : {e}")
+                        _erreur("Modification de l'ingrédient", e, dict(nom=nom))
 
         with st.expander("🗑️ Supprimer cet ingrédient"):
             nb = sum(1 for l in ms.lignes() if l.get("ingredient_id") == ing["id"])
