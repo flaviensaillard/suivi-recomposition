@@ -123,9 +123,11 @@ def menus_store():
     Sans Supabase configuré : renvoie un extrait de démonstration, pour que tu
     puisses voir la page tout de suite (les chiffres sont alors incomplets).
     """
+    VERSION_STORE = "29-09-2026b"      # à changer à chaque mise à jour du moteur
     ms = st.session_state.get("_menus_store")
-    if ms is not None:
+    if ms is not None and st.session_state.get("_menus_version") == VERSION_STORE:
         return ms
+    st.session_state.pop("_menus_store", None)      # version plus ancienne : on repart
     if getattr(store, "kind", None) == "supabase" and getattr(store, "client", None) is not None:
         ms = MN.MenusStore(store.client)
     else:
@@ -142,6 +144,7 @@ def menus_store():
         except Exception:
             return None
     st.session_state["_menus_store"] = ms
+    st.session_state["_menus_version"] = VERSION_STORE
     return ms
 
 
