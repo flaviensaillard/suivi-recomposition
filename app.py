@@ -19,6 +19,7 @@ import pandas as pd
 import streamlit as st
 
 import content as C
+import integration as IT
 from db import LocalStore, SupaStore
 
 # ============================================================================
@@ -53,14 +54,37 @@ D = dt.date
 #  INITIALISATION : stockage + authentification
 # ============================================================================
 def read_secrets():
+    """Lit les Secrets (`.streamlit/secrets.toml` ou Streamlit Cloud) et nettoie les valeurs."""
     try:
         if "supabase" in st.secrets:
             cfg = st.secrets["supabase"]
-            if cfg.get("url") and cfg.get("anon_key"):
-                return cfg
+            url = str(cfg.get("url", "") or "").strip().rstrip("/")
+            key = str(cfg.get("anon_key", "") or "").strip()
+            if url and key:
+                return {"url": url, "anon_key": key}
     except Exception:
         return None
     return None
+
+
+def problemes_secrets(cfg) -> list:
+    """Contrôles de bon sens : mieux vaut s'arrêter net que d'écrire au mauvais endroit."""
+    pbs = []
+    if not cfg["url"].startswith("http") or ".supabase.co" not in cfg["url"]:
+        pbs.append("**url** doit ressembler à `https://xxxxx.supabase.co`. Tu as peut-être collé "
+                   "l'adresse du tableau de bord (`supabase.com/dashboard/project/...`) au lieu de "
+                   "la « Project URL ».")
+    k = cfg["anon_key"]
+    if k.startswith("sb_secret_") or "service_role" in k:
+        pbs.append("Tu as collé une **clé secrète** (`sb_secret_...` ou `service_role`). Cette clé "
+                   "contourne toutes les sécurités : elle ne doit jamais servir ici. Prends la clé "
+                   "**publishable** (`sb_publishable_...`) ou l'ancienne clé **anon public** "
+                   "(commençant par `eyJ`).")
+    elif not (k.startswith("sb_publishable_") or k.startswith("eyJ")):
+        pbs.append("**anon_key** ne ressemble ni à une clé `sb_publishable_...`, ni à une ancienne "
+                   "clé `anon` commençant par `eyJ`. Vérifie que tu n'as pas copié un mot de passe "
+                   "de base de données ou une référence de projet.")
+    return pbs
 
 
 def login_page(store: SupaStore):
@@ -90,6 +114,14 @@ def init_store():
         return st.session_state["store"]
     cfg = read_secrets()
     if cfg:
+        pbs = problemes_secrets(cfg)
+        if pbs:
+            st.error("### ⛔ Configuration Supabase à corriger\n\n"
+                     + "\n\n".join(f"- {p}" for p in pbs)
+                     + "\n\n**Où corriger :** Streamlit Cloud → ton application → **⋮ → Settings → "
+                       "Secrets**, puis **Save** et **Reboot**. *(En local : le fichier "
+                       "`.streamlit/secrets.toml`.)*")
+            st.stop()
         store = SupaStore(cfg["url"], cfg["anon_key"])
         sess = st.session_state.get("sb_session")
         if sess:
@@ -646,6 +678,144 @@ def page_proteines():
             st.markdown(f"- *{t}* — {txt}")
 
 
+
+# ============================================================================
+#  PAGE — CUISINE & MENUS (passerelle avec l'application gestion-menus)
+# ============================================================================
+TABS_A_ANALYSER = list(dict.fromkeys(
+    IT.TABLES_PLAN + IT.TABLES_RECETTES + IT.TABLES_INGREDIENTS + IT.TABLES_LIAISON))
+
+
+def page_cuisine():
+    st.title("🍽️ Cuisine & menus")
+    st.caption("Le pont avec ton application de menus : ce que tu as prévu de manger alimente "
+               "ton compteur de protéines, en un appui. Plus besoin de saisir deux fois.")
+
+    if store.kind != "supabase":
+        st.info("**Cette page se branche sur ta base de menus, qui vit dans Supabase.**\n\n"
+                "Elle a besoin des clés Supabase (étape 1.4 du guide) pour lire tes tables "
+                "`recipes`, `planned_meals`, `ingredients`… Tant que ce n'est pas fait, "
+                "tout le reste de l'application fonctionne en mode local — tu ne perds rien.")
+        return
+
+    client = store.client
+    if "it_tables" not in st.session_state:
+        with st.spinner("Analyse de ta base de menus…"):
+            _t = IT.analyser(client, TABS_A_ANALYSER)
+            st.session_state["it_tables"] = _t
+            if _t and not (st.session_state.get("it_map") or store.get_map()):
+                # détection guidée par les données : on regarde quelle colonne est vraiment remplie
+                st.session_state["it_map"] = IT.affiner_mapping(
+                    client, IT.deviner_mapping(_t), _t)
+    tables = st.session_state["it_tables"]
+
+    mapping = st.session_state.get("it_map") or store.get_map() or {}
+    if not mapping and tables:
+        mapping = IT.affiner_mapping(client, IT.deviner_mapping(tables), tables)
+        st.session_state["it_map"] = mapping
+
+    # --- résultat de l'analyse
+    if not tables:
+        st.warning("Aucune table de menus détectée. Vérifie que la clé Supabase est bien celle du "
+                   "projet `gestion-menus` (bouton ⟳ en haut à droite après avoir modifié les Secrets).")
+    else:
+        st.success(f"**{len(tables)} table(s) de ta base de menus détectée(s)** : "
+                   + ", ".join("`" + t + "`" for t in tables))
+
+    # --- repas du jour
+    if mapping and tables:
+        st.subheader("Repas prévus aujourd'hui")
+        try:
+            repas = IT.repas_du_jour(client, mapping, D.today())
+        except Exception as e:
+            repas = []
+            st.caption(f"Lecture impossible : {type(e).__name__}")
+        if not repas:
+            st.caption("Aucun repas trouvé pour aujourd'hui. Soit ton planning est vide à cette date, "
+                       "soit la colonne de date n'a pas été reconnue — corrige la correspondance "
+                       "juste en dessous.")
+        for i, r in enumerate(repas):
+            c1, c2, c3 = st.columns([5, 3, 2])
+            libelle = str(r["nom"]) + (f"  ·  *{r['moment']}*" if r.get("moment") else "")
+            c1.markdown(libelle)
+            if r.get("proteines"):
+                c2.markdown(f"≈ **{r['proteines']} g** de protéines")
+                if c3.button("Ajouter", key=f"cu_add_{i}"):
+                    store.add_protein(D.today(), f"{r['nom']} (menu prévu)", int(r["proteines"]))
+                    st.toast(f"+{r['proteines']} g ajoutés au compteur du jour")
+                    st.rerun()
+            else:
+                val = c2.number_input("g", 0, 150, 30, step=5, key=f"cu_man_{i}",
+                                      label_visibility="collapsed")
+                if c3.button("Ajouter", key=f"cu_addm_{i}"):
+                    store.add_protein(D.today(), f"{r['nom']} (menu prévu)", int(val))
+                    st.rerun()
+
+        # --- recettes protéinées
+        rec = IT.recettes_proteinees(client, mapping)
+        if rec:
+            with st.expander(f"🎯 Tes {len(rec)} recettes les plus protéinées"):
+                st.caption("Idéal pour choisir quoi cuisiner les semaines où tu veux monter à "
+                           f"{TARGET_P} g sans forcer sur la viande.")
+                for r in rec:
+                    st.markdown(f"- **{r['nom']}** — ≈ {r['proteines']} g de protéines")
+
+    # --- correspondance des colonnes
+    with st.expander("🔧 Étape 2 — Vérifier / corriger la correspondance des colonnes",
+                     expanded=not bool(tables)):
+        st.caption("L'application devine toute seule où se trouvent les informations dans ta base. "
+                   "Vérifie que c'est juste ; si besoin, corrige et enregistre.")
+        if not tables:
+            st.info("Lance d'abord l'analyse ci-dessus.")
+        else:
+            options = ["— non utilisé —"] + [f"{t}.{c}" for t, cols in tables.items() for c in cols]
+            nouveau = {"tables": dict(mapping.get("tables") or {}), "cols": {}}
+            for cle, (libelle, _) in IT.CHAMPS.items():
+                info = (mapping.get("cols") or {}).get(cle) or {}
+                actuel = f"{info.get('table')}.{info.get('col')}" if info.get("table") and info.get("col") else "— non utilisé —"
+                idx = options.index(actuel) if actuel in options else 0
+                if cle in ("recipe_name", "ingredient_name", "protein_100g", "quantity_g",
+                           "meal_date", "meal_slot"):
+                    choix = st.selectbox(libelle, options, index=idx, key=f"it_{cle}")
+                    if choix == "— non utilisé —":
+                        nouveau["cols"][cle] = {"table": None, "col": None}
+                    else:
+                        t, c = choix.rsplit(".", 1)
+                        nouveau["cols"][cle] = {"table": t, "col": c}
+                else:
+                    nouveau["cols"][cle] = info or {"table": None, "col": None}
+            if st.button("💾 Enregistrer la correspondance", type="primary", width="stretch"):
+                nouveau["tables"] = {}
+                for cle, possibles in (("plan", IT.TABLES_PLAN), ("recettes", IT.TABLES_RECETTES),
+                                       ("ingredients", IT.TABLES_INGREDIENTS),
+                                       ("liaison", IT.TABLES_LIAISON)):
+                    nouveau["tables"][cle] = next((t for t in possibles if t in tables), None)
+                for cle, info in nouveau["cols"].items():
+                    if info.get("table"):
+                        for role, possibles in (("plan", IT.TABLES_PLAN), ("recettes", IT.TABLES_RECETTES),
+                                                ("ingredients", IT.TABLES_INGREDIENTS),
+                                                ("liaison", IT.TABLES_LIAISON)):
+                            if info["table"] in possibles:
+                                nouveau["tables"][role] = info["table"]
+                store.save_map(nouveau)
+                st.session_state["it_map"] = nouveau
+                st.success("Correspondance enregistrée.")
+                st.rerun()
+
+        if st.button("🔄 Relancer l'analyse de ma base"):
+            st.session_state.pop("it_tables", None)
+            st.session_state.pop("it_map", None)
+            st.rerun()
+
+        if tables:
+            with st.expander("🔬 Diagnostic (à copier-coller au coach en cas de souci)"):
+                st.code(IT.diagnostic(tables, mapping), language="text")
+
+    st.divider()
+    st.caption("Rappel : l'application Menus reste ton outil pour composer, planifier et faire les "
+               "courses. Celle-ci lit simplement ce que tu y as prévu.")
+
+
 # ============================================================================
 #  PAGE 6 — COURSES
 # ============================================================================
@@ -751,6 +921,7 @@ pages = [
     st.Page(page_pesee, title="Pesée & tendance", icon="⚖️"),
     st.Page(page_seance, title="Séance 30 min", icon="💪"),
     st.Page(page_proteines, title="Protéines", icon="🥗"),
+    st.Page(page_cuisine, title="Cuisine & menus", icon="🍽️"),
     st.Page(page_mensurations, title="Mensurations", icon="📏"),
     st.Page(page_courses, title="Courses", icon="🛒"),
     st.Page(page_reglages, title="Réglages", icon="⚙️"),
@@ -759,6 +930,14 @@ st.sidebar.markdown(f"**Suivi Recomposition**  \n<span class='hint'>{store.label
                     unsafe_allow_html=True)
 st.sidebar.caption(f"Objectif : {TARGET_W:.0f} kg · {TARGET_P} g de protéines/jour")
 
+# Lien facultatif vers l'application de menus (à déclarer dans les Secrets, section [apps])
+try:
+    _menus_url = st.secrets.get("apps", {}).get("menus_url")
+except Exception:
+    _menus_url = None
+if _menus_url:
+    st.sidebar.link_button("🍽️ Ouvrir Menus & recettes", _menus_url, width="stretch")
+
 # Hook de test (utilisé par test_app.py pour vérifier chaque page sans navigateur)
 import os
 
@@ -766,6 +945,7 @@ _test_page = os.environ.get("APP_TEST_PAGE")
 if _test_page:
     {"dashboard": page_dashboard, "pesee": page_pesee, "seance": page_seance,
      "proteines": page_proteines, "mensurations": page_mensurations,
-     "courses": page_courses, "reglages": page_reglages}[_test_page]()
+     "courses": page_courses, "reglages": page_reglages,
+     "cuisine": page_cuisine}[_test_page]()
 else:
     st.navigation(pages).run()

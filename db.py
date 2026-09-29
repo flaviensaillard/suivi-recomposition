@@ -14,6 +14,7 @@ Le reste de l'application ne connaît que l'interface commune :
 from __future__ import annotations
 
 import datetime as dt
+import json
 import os
 import sqlite3
 import pandas as pd
@@ -44,6 +45,8 @@ create table if not exists protein_entries(
   protein_g integer, qty real);
 create table if not exists shopping_state(
   user_id text, item_key text, week_of text, checked integer, primary key(user_id, item_key, week_of));
+create table if not exists integration_map(
+  user_id text primary key, mapping text);
 """
 
 
@@ -197,6 +200,43 @@ class LocalStore:
         sql, params = _upsert_sql("shopping_state", ["user_id", "item_key", "week_of"], row)
         with self._con() as con:
             con.execute(sql, params)
+
+    # -------- passerelle menus (indisponible en mode local)
+    @property
+    def client(self):
+        return None
+
+    def get_map(self):
+        df = self._q("select mapping from integration_map where user_id=?", (self.user_id,))
+        if df.empty:
+            return {}
+        try:
+            return json.loads(df.iloc[0]["mapping"] or "{}")
+        except Exception:
+            return {}
+
+    def save_map(self, mapping: dict):
+        with self._con() as con:
+            con.execute("insert into integration_map (user_id, mapping) values (?,?) "
+                        "on conflict(user_id) do update set mapping=excluded.mapping",
+                        (self.user_id, json.dumps(mapping, ensure_ascii=False)))
+
+    # -------- passerelle avec l'application de menus
+    def get_map(self):
+        try:
+            r = (self.client.table(self._t("integration_map"))
+                 .select("mapping").eq("user_id", self.user_id).limit(1).execute())
+            if r.data:
+                m = r.data[0].get("mapping") or {}
+                return m if isinstance(m, dict) else json.loads(m)
+        except Exception:
+            pass
+        return {}
+
+    def save_map(self, mapping: dict):
+        self.client.table(self._t("integration_map")).upsert(
+            dict(user_id=self.user_id, mapping=mapping),
+            on_conflict="user_id").execute()
 
     # -------- export
     def export_all(self):

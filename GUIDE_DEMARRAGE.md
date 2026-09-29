@@ -88,10 +88,12 @@ tu éviteras de le transférer depuis l'ordinateur.
 
 5. Dans le menu de gauche, clique **SQL Editor** (icône `>_`).
 6. Clique **New query**.
-7. **Copie tout le contenu du fichier `schema.sql`** (il est dans le ZIP, dossier racine) et colle-le
-   dans la zone de texte.
+7. **Copie tout le contenu du fichier `schema.sql`** (Ctrl+A puis Ctrl+C) et colle-le dans la zone
+   de texte. *Le fichier est dans le ZIP à la racine, et son contenu complet est aussi fourni dans
+   le message du coach.*
 8. Clique le bouton **Run** (en haut à droite, ou `Ctrl+Entrée`).
-9. Tu dois voir apparaître en bas : **« Success. No rows returned »**. ✅ C'est bon.
+9. Tu dois voir un **tableau de 8 lignes** s'afficher en bas (les 8 tables `sr_`).
+   **8 lignes = c'est réussi ✅** Tu peux relancer la commande sans risque, elle ne fait rien la 2ᵉ fois.
 
 > Ce script crée 7 tables et active la sécurité « RLS » : seule ta connexion pourra lire tes données.
 
@@ -111,17 +113,59 @@ tu éviteras de le transférer depuis l'ordinateur.
     - Si une case **Auto Confirm User** est proposée : **coche-la**.
 16. Clique **Create user**.
 
-### 1.4 Récupérer tes 2 clés
+### 1.4 Récupérer tes 2 clés — 4 chemins possibles
 
-17. Clique sur la **roue dentée** (⚙ **Project Settings**) en bas du menu de gauche.
-18. Clique **API** (ou **API Keys** selon la version).
-19. Copie et garde de côté **deux valeurs** :
-    - **Project URL** → ressemble à `https://abcdefgh.supabase.co`
-    - **anon public** (parfois appelée **publishable key**) → longue chaîne commençant par `eyJ...`
+⚠️ **C'est ici que beaucoup se perdent : Supabase a renommé cette page plusieurs fois.**
+Les tutoriels disent « Settings → API », aujourd'hui elle s'appelle « Settings → **API Keys** ».
+Si tu ne la trouves pas, utilise le **chemin 3** : il fonctionne toujours.
 
-> La clé « anon » est faite pour être utilisée dans une application : elle ne donne accès qu'à
-> *tes* lignes, grâce à la sécurité RLS activée à l'étape 1.2. N'utilise jamais la clé
-> « service_role » : elle, elle donnerait accès à tout.
+**🥇 Chemin 1 — le bouton « Connect » (le plus rapide, 10 secondes)**
+
+1. En haut de la page de ton projet, à droite du nom du projet, clique le bouton vert **Connect**.
+2. Choisis l'onglet **App Frameworks**.
+3. Tu vois deux lignes, chacune avec une icône « copier » à droite :
+   - `SUPABASE_URL` → `https://xxxxxxxx.supabase.co` ← c'est ta **Project URL**
+   - `SUPABASE_KEY` → `sb_publishable_...` ou `eyJ...` ← c'est ta clé
+
+**🥈 Chemin 2 — Settings → API Keys**
+
+1. Barre latérale **gauche**, tout en bas : clique la **roue dentée ⚙** (« Project Settings »).
+2. Dans le sous-menu qui apparaît à gauche, clique **API Keys**.
+   *(Ne cherche pas « API » : le libellé a changé.)*
+3. **Tout en haut de cette page : « Project URL »** avec une icône pour la copier.
+   C'est la valeur qui ressemble à `https://xxxxxxxx.supabase.co`.
+4. Juste en dessous se trouvent les clés. **Deux formats possibles selon l'âge du projet :**
+   - **nouveau** : `Publishable key` → commence par `sb_publishable_`
+   - **ancien** : onglet ou section **Legacy API keys** → clé `anon` / `public` → commence par `eyJ`
+   - ✅ **Les deux fonctionnent avec notre application.** Prends celle des deux que tu trouves.
+   - ⛔ **Jamais** la clé `secret` (`sb_secret_...`) ni `service_role` : elle donne accès à tout.
+
+**🥉 Chemin 3 — La barre d'adresse de ton navigateur (infaillible, aucun menu à trouver)**
+
+1. Regarde l'adresse de la page Supabase où tu te trouves. Elle ressemble à :
+   `https://supabase.com/dashboard/project/abcdefghijklm`
+2. La partie après `/project/` — ici `abcdefghijklm` — est ta **référence de projet**.
+3. Ta **Project URL** est cette référence encadrée ainsi :
+   → `https://abcdefghijklm.supabase.co`
+   *(Uniquement des `https://` + référence + `.supabase.co`, et jamais de `/` à la fin.)*
+
+**🎁 Chemin 4 — Tu l'as déjà sous la main !**
+
+L'application **`gestion-menus`** utilise déjà ces deux valeurs. Retrouve-les :
+- si elle est sur Streamlit Cloud → *share.streamlit.io* → ton appli → **⋮ → Settings → Secrets** ;
+- sinon, dans son code : le fichier `.streamlit/secrets.toml`, ou un fichier `.env` / `supabase_client.py`.
+Tu y verras `url = "https://....supabase.co"` et la clé. **Réutilise exactement les mêmes.**
+
+> ℹ️ **Pourquoi c'est sans danger de partager ces deux valeurs ?** La **Project URL** est publique
+> (elle voyage à chaque visite, c'est juste une adresse). La clé **publishable** / **anon** ne donne
+> accès **qu'à ce que les règles de sécurité RLS autorisent** — c'est-à-dire uniquement tes propres
+> lignes, grâce au script `schema.sql`. C'est pour cette raison qu'il faut copier celle-là et
+> **jamais** la clé `secret` / `service_role`.
+
+> 🛡️ **Bonne nouvelle :** l'application **vérifie automatiquement** ces deux valeurs au démarrage.
+> Si tu te trompes (adresse du tableau de bord collée par erreur, clé secrète, mot de passe de la
+> base…), elle **refuse de démarrer et t'explique précisément quoi corriger**, plutôt que d'écrire
+> des données au mauvais endroit.
 
 ✅ **Supabase est prêt.** Garde la fenêtre ouverte, tu vas copier ces 2 valeurs à l'étape 3.
 
@@ -177,7 +221,12 @@ que le chemin à saisir à l'étape 3 sera `suivi-recomposition/app.py`.
 ```toml
 [supabase]
 url = "https://abcdefgh.supabase.co"
-anon_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+anon_key = "sb_publishable_xxxxxxxxxxxx"
+
+# Facultatif : affiche un bouton « Ouvrir Menus & recettes » dans la barre latérale,
+# et active la page « Cuisine & menus » qui lit tes repas planifiés.
+[apps]
+menus_url = "https://gestion-menus.streamlit.app"
 ```
 
 > Respecte bien les guillemets, les espaces autour du `=` et les majuscules.
@@ -209,8 +258,9 @@ le navigateur. L'étape suivante te donne juste une vraie icône et le plein éc
 
 # ÉTAPE 4 — Installer l'APK sur ton téléphone · 5 min
 
-> ℹ️ **Ce qu'est cet APK :** une application Android native qui affiche ton suivi en plein écran
-> et mémorise son adresse. C'est la façon la plus propre d'avoir « ton application » sur ton
+> ℹ️ **Ce qu'est cet APK :** une application Android native qui affiche **tes deux applications**
+> (Suivi + Menus) en plein écran, avec un bouton **⇄** pour passer de l'une à l'autre, et qui
+> mémorise leurs adresses. C'est la façon la plus propre d'avoir « ton application » sur ton
 > téléphone sans passer par le Play Store. Elle a besoin d'internet (tes données sont dans le cloud).
 
 ### 4.1 Transférer le fichier
@@ -240,12 +290,15 @@ via Google Drive, ou par WhatsApp (« Message à moi-même »).
 ### 4.3 Premier lancement
 
 1. Ouvre l'application **Suivi** (icône bleu-vert avec un haltère) depuis ton écran d'accueil.
-2. Elle affiche un écran de configuration : colle l'adresse obtenue à l'étape 3
-   (`https://....streamlit.app`).
-3. Appuie sur **Ouvrir mon application**.
+2. Elle affiche un écran de configuration avec **deux champs** :
+   - **Application Suivi** (obligatoire) : l'adresse obtenue à l'étape 3 ;
+   - **Application Menus** (facultative) : l'adresse de ton `gestion-menus`.
+3. Appuie sur **Enregistrer et ouvrir**.
+4. Le bouton **⇄** en haut à droite bascule entre les deux applications, sans les quitter.
 4. L'application se charge. Connecte-toi avec ton email/mot de passe Supabase.
 
 **Les boutons de l'application :**
+- **⇄** : passer de l'application Suivi à l'application Menus (si tu as renseigné les deux)
 - **⟳** (en haut à droite) : recharger la page.
 - **⚙** : modifier l'adresse, vider le cache, ouvrir dans le navigateur.
 - **Bouton retour du téléphone** : revient dans l'application au lieu de la fermer.

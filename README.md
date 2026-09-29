@@ -18,6 +18,7 @@ mensurations, liste de courses. Les données sont synchronisées entre le PC et 
 | 🏠 **Tableau de bord** | Poids moyen 7 jours, tour de taille, masse grasse, protéines moyennes, séances de la semaine, progression vers 77 kg, **alertes automatiques du coach** |
 | ⚖️ **Pesée & tendance** | Saisie du matin (poids, % gras balance, pas, sommeil, énergie), graphique poids + moyenne 7 jours |
 | 💪 **Séance 30 min** | Séance A (lundi) / B (vendredi) en supersets, **chrono de repos**, saisie des séries, rappel de la dernière performance, détection « monte d'un niveau », suivi des tractions |
+| 🍽️ **Cuisine & menus** | Passerelle avec ton application de menus : repas prévus détectés automatiquement, protéines calculées, un appui pour les compter. Détail : `JUMELAGE.md` |
 | 🥗 **Protéines** | Objectif 140 g, ajout en un appui selon ce que tu viens de manger, moyenne 7/30 jours, historique |
 | 📏 **Mensurations** | Tour de taille au nombril (la vraie mesure), calcul du % de gras par la formule Marine en plus de la balance |
 | 🛒 **Courses** | Liste hebdomadaire cochable, par rayon, avec prix indicatifs et total |
@@ -57,7 +58,8 @@ Pour repartir de zéro : supprime `data/suivi.db` (les données de démo dispara
    préfixé **`sr_`**, donc aucune collision possible. Procédure détaillée pour un projet déjà utilisé :
    voir **`SUPABASE_GESTION-MENUS.md`** à la racine du dépôt.*
 2. Dans **SQL Editor → New query**, colle l'intégralité de `schema.sql` puis **Run**.
-   Cela crée les 7 tables `sr_*` et active la sécurité **RLS** : chaque ligne n'est lisible que par son propriétaire.
+   Tu dois voir un tableau de **8 lignes** s'afficher : 8 tables `sr_*` avec la sécurité **RLS** active
+   (chaque ligne n'est lisible que par son propriétaire). Le script est réexécutable sans risque.
 3. **Authentication → Users → Add user** : crée ton compte (email + mot de passe). C'est avec ça que tu te connecteras.
 4. **Authentication → Providers → Email** : décoche « Confirm email » si tu veux éviter l'email de validation.
 5. **Project Settings → API** : note `Project URL` et la clé `anon public`.
@@ -106,12 +108,13 @@ app/
 ├── app.py                       # interface Streamlit (7 pages)
 ├── db.py                        # couche de données : Supabase OU SQLite local
 ├── content.py                   # programme 30 min, liste de courses, presets protéines, calculs
+├── integration.py               # passerelle avec l'application de menus (détection des colonnes)
 ├── schema.sql                   # schéma Supabase + politiques RLS (à coller dans le SQL Editor)
 ├── seed_demo.py                 # jeu de données de démonstration
 ├── requirements.txt
 ├── .streamlit/
 │   ├── config.toml              # thème, port, options serveur
-│   └── secrets.toml.example     # modèle de configuration Supabase
+│   └── secrets.toml.example     # modèle de configuration Supabase (+ section [apps] facultative)
 └── data/suivi.db                # base locale (mode hors ligne, non committée)
 ```
 

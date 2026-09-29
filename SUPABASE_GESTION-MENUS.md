@@ -16,7 +16,7 @@ touchée**. Ce document remplace l'« Étape 1 » du guide général.
 | `planned_meals` | `sr_workout_sets` |
 | `recipe_ingredient` | `sr_protein_entries` |
 | `recipes` | `sr_shopping_state` |
-| `recurring_items` | |
+| `recurring_items` | `sr_integration_map` ← la passerelle vers tes menus |
 
 **Aucun nom en commun.** Nos tables sont toutes préfixées `sr_` (« suivi recomposition »).
 Deux mondes séparés dans la même base : ton gestionnaire de menus continue de fonctionner
@@ -24,47 +24,60 @@ exactement comme avant.
 
 ---
 
-## Étape 1 — Contrôle avant travaux (30 secondes)
+## Étape 1 — La commande SQL, en une seule fois (1 minute)
 
-Dans ton projet `gestion-menus` : **SQL Editor** → **New query** → colle ceci → **Run** :
+**C'est la seule chose technique à faire. Tu copies, tu colles, tu cliques Run. Rien à comprendre.**
 
-```sql
-select table_name
-from information_schema.tables
-where table_schema = 'public' and table_name like 'sr_%';
+1. Ouvre ton projet **`gestion-menus`** sur supabase.com.
+2. Menu de gauche → **SQL Editor** (l'icône `>_`).
+3. Clique **New query**.
+4. Ouvre le fichier **`schema.sql`**, fais **Ctrl+A** (tout sélectionner) puis **Ctrl+C** (copier).
+   *Sur Mac : Cmd+A puis Cmd+C.*
+5. Dans Supabase, clique dans la grande zone de texte et fais **Ctrl+V** (coller).
+6. Clique le bouton **Run** (en haut à droite — ou **Ctrl + Entrée**).
+
+### ✅ Ce que tu dois voir en bas de l'écran
+
+Un tableau de **8 lignes** qui s'affiche :
+
+```
+    Table créée     | Colonnes | Sécurité active
+--------------------+----------+-----------------
+ sr_daily_logs      |       13 | t
+ sr_integration_map |        3 | t
+ sr_measurements    |       11 | t
+ sr_profiles        |        9 | t
+ sr_protein_entries |        7 | t
+ sr_shopping_state  |        5 | t
+ sr_workout_sets    |       10 | t
+ sr_workouts        |        7 | t
+(8 rows)
 ```
 
-**Résultat attendu : aucune ligne** (« Success. No rows returned »).
-Si des lignes apparaissent, c'est que le schéma a déjà été installé — tu peux sauter l'étape 2.
+**8 lignes = c'est réussi ✅**
 
----
+Les mentions `NOTICE` et les lignes en vert `CREATE TABLE` que tu vois au-dessus sont **normales** :
+ce sont simplement les messages de progression.
 
-## Étape 2 — Créer nos 7 tables (1 minute)
+### 🛡️ Ce que cette commande ne fait pas
 
-1. **SQL Editor** → **New query**.
-2. Ouvre le fichier **`schema.sql`** (dans le dossier décompressé du ZIP), **copie tout**,
-   **colle** dans la zone de texte.
-3. **Run**.
+- Elle **ne touche pas** à tes tables `recipes`, `menu`, `planned_meals`, `ingredients`, etc.
+- Elle **ne supprime aucune donnée**.
+- Tu peux la **relancer autant de fois que tu veux** : la deuxième fois, elle ne crée rien de plus
+  (c'est vérifié, et ça n'affichera toujours que 8 lignes).
 
-**Résultat attendu : « Success. No rows returned »** ✅
+### 🔁 Tu avais déjà lancé une ancienne version de ce script ?
 
-> Ce script crée 7 tables préfixées `sr_`, leurs index (eux aussi en `sr_`), et active la sécurité
-> **RLS** sur ces 7 tables uniquement, avec 4 politiques par table. Tes 8 tables existantes ne sont
-> ni lues, ni modifiées, ni verrouillées.
+**Aucun problème, et rien de spécial à faire.** La commande est prévue pour ça :
+- si une ancienne table existe sans le préfixe `sr_`, elle est **renommée** automatiquement
+  (tes données de pesée sont conservées) ;
+- si les bonnes tables existent déjà, elle ne fait rien dessus.
 
-### Contrôle immédiat (facultatif mais rassurant)
+Dans tous les cas : **relance simplement la même commande** et vérifie que tu obtiens bien 8 lignes.
 
-```sql
-select tablename, rowsecurity
-from pg_tables
-where schemaname = 'public' and tablename like 'sr_%'
-order by tablename;
-```
+### 🆘 Si tu vois un message rouge (« ERROR »)
 
-**Résultat attendu : 7 lignes, avec `rowsecurity = true` partout.**
-*(`rowsecurity = true` = la sécurité est bien active : personne d'autre que toi ne peut lire tes données.)*
-
----
+Ne touche à rien. Copie-moi le texte du message et je te corrige ça en une réponse.
 
 ## Étape 3 — Ton compte de connexion (1 minute)
 
@@ -86,20 +99,59 @@ Menu de gauche → **Authentication** → **Users**.
 
 ---
 
-## Étape 4 — Récupérer les 2 clés (30 secondes)
+## Étape 4 — Récupérer tes 2 clés (4 chemins possibles)
 
-**Project Settings** (la roue dentée ⚙ en bas du menu de gauche) → **API** :
+⚠️ **C'est ici que beaucoup se perdent : Supabase a renommé cette page plusieurs fois.**
+Les tutoriels disent « Settings → API », aujourd'hui elle s'appelle « Settings → **API Keys** ».
+Si tu ne la trouves pas, utilise le **chemin 3** : il fonctionne toujours.
 
-- **Project URL** → `https://xxxxx.supabase.co`
-- **anon public** (ou *publishable key*) → la longue chaîne `eyJ...`
+**🥇 Chemin 1 — le bouton « Connect » (le plus rapide, 10 secondes)**
 
-> ℹ️ **Ce sont exactement les mêmes clés que celles utilisées par `gestion-menus`. C'est normal et
-> sans danger.** La clé « anon » identifie le projet, pas l'application. La séparation entre tes deux
-> applications se fait à deux niveaux : **par table** (`sr_*` vs `*`) et **par ligne**
-> (`user_id = auth.uid()` grâce aux politiques RLS). Une application ne peut donc pas voir les
-> données de l'autre.
+1. En haut de la page de ton projet, à droite du nom du projet, clique le bouton vert **Connect**.
+2. Choisis l'onglet **App Frameworks**.
+3. Tu vois deux lignes, chacune avec une icône « copier » à droite :
+   - `SUPABASE_URL` → `https://xxxxxxxx.supabase.co` ← c'est ta **Project URL**
+   - `SUPABASE_KEY` → `sb_publishable_...` ou `eyJ...` ← c'est ta clé
 
----
+**🥈 Chemin 2 — Settings → API Keys**
+
+1. Barre latérale **gauche**, tout en bas : clique la **roue dentée ⚙** (« Project Settings »).
+2. Dans le sous-menu qui apparaît à gauche, clique **API Keys**.
+   *(Ne cherche pas « API » : le libellé a changé.)*
+3. **Tout en haut de cette page : « Project URL »** avec une icône pour la copier.
+   C'est la valeur qui ressemble à `https://xxxxxxxx.supabase.co`.
+4. Juste en dessous se trouvent les clés. **Deux formats possibles selon l'âge du projet :**
+   - **nouveau** : `Publishable key` → commence par `sb_publishable_`
+   - **ancien** : onglet ou section **Legacy API keys** → clé `anon` / `public` → commence par `eyJ`
+   - ✅ **Les deux fonctionnent avec notre application.** Prends celle des deux que tu trouves.
+   - ⛔ **Jamais** la clé `secret` (`sb_secret_...`) ni `service_role` : elle donne accès à tout.
+
+**🥉 Chemin 3 — La barre d'adresse de ton navigateur (infaillible, aucun menu à trouver)**
+
+1. Regarde l'adresse de la page Supabase où tu te trouves. Elle ressemble à :
+   `https://supabase.com/dashboard/project/abcdefghijklm`
+2. La partie après `/project/` — ici `abcdefghijklm` — est ta **référence de projet**.
+3. Ta **Project URL** est cette référence encadrée ainsi :
+   → `https://abcdefghijklm.supabase.co`
+   *(Uniquement des `https://` + référence + `.supabase.co`, et jamais de `/` à la fin.)*
+
+**🎁 Chemin 4 — Tu l'as déjà sous la main !**
+
+L'application **`gestion-menus`** utilise déjà ces deux valeurs. Retrouve-les :
+- si elle est sur Streamlit Cloud → *share.streamlit.io* → ton appli → **⋮ → Settings → Secrets** ;
+- sinon, dans son code : le fichier `.streamlit/secrets.toml`, ou un fichier `.env` / `supabase_client.py`.
+Tu y verras `url = "https://....supabase.co"` et la clé. **Réutilise exactement les mêmes.**
+
+> ℹ️ **Pourquoi c'est sans danger de partager ces deux valeurs ?** La **Project URL** est publique
+> (elle voyage à chaque visite, c'est juste une adresse). La clé **publishable** / **anon** ne donne
+> accès **qu'à ce que les règles de sécurité RLS autorisent** — c'est-à-dire uniquement tes propres
+> lignes, grâce au script `schema.sql`. C'est pour cette raison qu'il faut copier celle-là et
+> **jamais** la clé `secret` / `service_role`.
+
+> 🛡️ **Bonne nouvelle :** l'application **vérifie automatiquement** ces deux valeurs au démarrage.
+> Si tu te trompes (adresse du tableau de bord collée par erreur, clé secrète, mot de passe de la
+> base…), elle **refuse de démarrer et t'explique précisément quoi corriger**, plutôt que d'écrire
+> des données au mauvais endroit.
 
 ## Étape 5 — Streamlit (identique au guide général)
 

@@ -4,7 +4,7 @@ import os
 import sys
 from streamlit.testing.v1 import AppTest
 
-PAGES = ["dashboard", "pesee", "seance", "proteines", "mensurations", "courses", "reglages"]
+PAGES = ["dashboard", "pesee", "seance", "proteines", "cuisine", "mensurations", "courses", "reglages"]
 ko = 0
 for p in PAGES:
     os.environ["APP_TEST_PAGE"] = p
