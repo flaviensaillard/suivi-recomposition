@@ -13,6 +13,7 @@ Ce qui change : le calcul des macros, qui vient maintenant de la base française
 from __future__ import annotations
 
 import datetime as dt
+import traceback
 import uuid
 
 import pandas as pd
@@ -39,6 +40,69 @@ def _recharger(ms, message: str):
 # Chaque appel reçoit le lecteur de menus « ms » : sans ça, la page plantait
 # dès qu'on validait un formulaire (erreur corrigée le 29/09).
 TABLES_ECRITURE = ("planned_meals", "recipes", "recipe_ingredients", "ingredients")
+
+
+# Les noms de colonne qui peuvent jouer le rôle d'identifiant dans une base.
+# On les essaie dans l'ordre : ainsi, que la clé s'appelle `id`, `recipe_id`,
+# `uuid`… l'application s'en sort. C'est ce qui manquait quand tu as vu
+# « KeyError : 'id' ».
+CLES_ID = ("id", "uuid", "ID", "recipe_id", "ingredient_id", "planned_meal_id")
+
+
+def _id(ligne) -> str | None:
+    """L'identifiant d'une ligne, quel que soit le nom de la colonne. Ne plante jamais."""
+    if not isinstance(ligne, dict):
+        return None
+    for cle in CLES_ID:
+        v = ligne.get(cle)
+        if v is not None and str(v).strip() not in ("", "null", "None"):
+            return str(v)
+    return None
+
+
+def _colonnes(ms, table: str) -> list:
+    """Les colonnes que la base renvoie VRAIMENT pour cette table (pour le diagnostic)."""
+    try:
+        lignes = ms.client.table(table).select("*").limit(1).execute().data or []
+        return sorted(lignes[0].keys()) if lignes else []
+    except Exception as e:
+        return [f"⚠️ {type(e).__name__} : {e}"]
+
+
+def bloc_diagnostic(ms):
+    """Bouton « Diagnostic » : montre ce que ta base renvoie et teste une écriture."""
+    with st.expander("🧪 Diagnostic de l'enregistrement (à ouvrir en cas de problème)"):
+        st.caption("Cet outil **ne modifie rien** : il lit les colonnes de tes 4 tables, "
+                   "puis fait un test d'écriture qu'il annule aussitôt.")
+        if st.button("▶️ Lancer le diagnostic", key="diag_lancer"):
+            if not mode_ecriture(ms):
+                st.warning("Pas de connexion Supabase : ouvre d'abord Réglages → clés.")
+                return
+            rapport = {}
+            for t in ("ingredients", "recipes", "recipe_ingredients", "planned_meals"):
+                cols = _colonnes(ms, t)
+                nb = len(getattr(ms, {"ingredients": "ingredients", "recipes": "recettes",
+                                      "recipe_ingredients": "lignes",
+                                      "planned_meals": "planning"}[t])())
+                st.markdown(f"**{t}** — {nb} ligne(s) lue(s)")
+                st.code(", ".join(cols) if cols else "(aucune colonne)", language="text")
+                rapport[t] = cols
+            st.markdown("**Test d'écriture** (création puis suppression immédiate)")
+            try:
+                rid = _inserer(ms, "planned_meals", {
+                    "day": "Lundi", "meal_type": "Test", "servings": 1, "nb_persons": 1,
+                    "recipe_id": None})
+                ms.client.table("planned_meals").delete().eq("id", rid).execute()
+                st.success("✅ Écriture et suppression : **OK** — l'enregistrement fonctionne.")
+            except Exception as e:
+                st.error(f"❌ Écriture impossible : {type(e).__name__} — {e}")
+                st.caption("Envoie-moi cette phrase : elle contient la cause exacte.")
+            st.caption("Si un tableau ci-dessus affiche « ⚠️ », cette table a un problème de "
+                       "droits ou de nom : envoie-moi la capture.")
+
+        st.divider()
+        st.caption("**Rappel** : la page doit afficher 3492 ingrédients, 104 recettes, "
+                   "161 lignes et 79 repas si ta base est complète.")
 
 
 def mode_ecriture(ms) -> bool:
@@ -72,9 +136,9 @@ def _erreur(action: str, e: Exception, details: dict | None = None):
                     f"\n- **Message exact** : `{e}`")
         if details:
             st.json(details, expanded=False)
-        st.caption("Deux causes fréquentes : la clé Supabase est refusée (Réglages), ou une "
-                   "colonne obligatoire manque dans ta table. Envoie-moi une capture de ce "
-                   "cadre et je corrige.")
+        st.code(traceback.format_exc(), language="text")
+        st.caption("Copie-colle ce cadre (ou une capture) : il contient la ligne exacte "
+                   "où ça bloque. Utilise aussi « 🧪 Diagnostic » en bas de la page Planifier.")
 
 
 def nom_affiche(ing: dict) -> str:
@@ -168,9 +232,16 @@ def page_planifier(ms, target_p: float):
                 if p.get("servings"):
                     libelle += f" · {p['servings']} convives"
                 c1.markdown(libelle)
-                if c2.button("🗑️ Supprimer", key=f"pl_del_{p['id']}"):
+                pid = _id(p)
+                if c2.button("🗑️ Supprimer", key=f"pl_del_{pid or p.get('date_menu')}"):
                     if _table(ms, "planned_meals"):
-                        ms.client.table("planned_meals").delete().eq("id", p["id"]).execute()
+                        q = ms.client.table("planned_meals").delete()
+                        if pid:
+                            q.eq("id", pid).execute()
+                        else:                    # pas d'id : on supprime par son contenu
+                            q.eq("date_menu", p.get("date_menu")).eq(
+                                "meal_type", p.get("meal_type")).eq(
+                                "recipe_id", p.get("recipe_id")).execute()
                         _recharger(ms, "Repas supprimé.")
                     else:
                         st.warning("Mode aperçu : la modification n'est pas enregistrée.")
@@ -201,6 +272,9 @@ def page_planifier(ms, target_p: float):
                 if st.form_submit_button("➕ Ajouter ce repas", width="stretch"):
                     _ajouter_repas(ms, d, moment, convives, genre, choix, qte, recettes, ingredients)
 
+    # ---- diagnostic (en bas de page)
+    bloc_diagnostic(ms)
+
     # ---- outils de semaine
     st.divider()
     c1, c2 = st.columns(2)
@@ -211,7 +285,9 @@ def page_planifier(ms, target_p: float):
             n = 0
             for d in jours:
                 for p in repas_du_jour(d):
-                    ms.client.table("planned_meals").delete().eq("id", p["id"]).execute()
+                    pid = _id(p)
+                    q = ms.client.table("planned_meals").delete()
+                    (q.eq("id", pid) if pid else q.eq("date_menu", p.get("date_menu"))).execute()
                     n += 1
             _recharger(ms, f"Semaine vidée ({n} repas supprimés).")
         else:
@@ -229,7 +305,11 @@ def _ajouter_repas(ms, jour, moment, convives, genre, choix, qte, recettes, ingr
     jour_fr = JOURS[jour.weekday()]
     try:
         if genre == "Recette":
-            rid = next((r["id"] for r in recettes if r.get("name") == choix), None)
+            rid = next((_id(r) for r in recettes if r.get("name") == choix), None)
+            if rid is None:
+                st.error("Cette recette n'a pas d'identifiant lisible dans la base. "
+                         "Ouvre « 🧪 Diagnostic » en bas de page et envoie-moi le résultat.")
+                return
             ms.client.table("planned_meals").insert({
                 "day": jour_fr, "date_menu": jour.isoformat(), "meal_type": moment,
                 "recipe_id": rid, "servings": convives, "nb_persons": convives}).execute()
@@ -241,13 +321,12 @@ def _ajouter_repas(ms, jour, moment, convives, genre, choix, qte, recettes, ingr
             # on réutilise (ou crée) la recette « [Ing] Nom » comme dans ton application
             nom_rec = f"[Ing] {nom_affiche(ing)}"
             existante = next((r for r in ms.recettes() if r.get("name") == nom_rec), None)
-            if existante:
-                rid = existante["id"]
-            else:
+            rid = _id(existante) if existante else None
+            if rid is None:                       # pas de recette « [Ing] » : on la crée
                 rid = _inserer(ms, "recipes", {
                     "name": nom_rec, "base_servings": 1, "instructions": ""})
                 _inserer(ms, "recipe_ingredients", {
-                    "recipe_id": rid, "ingredient_id": ing["id"], "quantity": 1,
+                    "recipe_id": rid, "ingredient_id": _id(ing), "quantity": 1,
                     "unit": ing.get("unit")})
             ms.client.table("planned_meals").insert({
                 "day": jour_fr, "date_menu": jour.isoformat(), "meal_type": moment,
@@ -408,7 +487,7 @@ def _creer_recette(ms):
                     ing = next((i for i in ingredients if nom_affiche(i) == l["ingredient"]), None)
                     if ing:
                         _inserer(ms, "recipe_ingredients", {
-                            "recipe_id": rid, "ingredient_id": ing["id"],
+                            "recipe_id": rid, "ingredient_id": _id(ing),
                             "quantity": l["quantity"], "unit": l["unit"]})
                         n += 1
                 for cle in ("cr_lignes", "cr_etapes", "cr_nom"):
@@ -443,18 +522,18 @@ def _modifier_recette(ms):
     st.markdown("**Ingrédients de la recette**")
     supprimer = []
     modifs = []
-    for l in lignes_actuelles:
+    for i, l in enumerate(lignes_actuelles):
         ing = ings.get(l.get("ingredient_id")) or {}
         c1, c2, c3, c4 = st.columns([4, 2, 2, 1])
         c1.markdown(nom_affiche(ing))
         qte = c2.number_input("Qté", 0.0, 100000.0, float(l.get("quantity") or 0), step=10.0,
-                              key=f"mr_q_{l['id']}", label_visibility="collapsed")
+                              key=f"mr_q_{_id(l) or i}", label_visibility="collapsed")
         unite = c3.selectbox("Unité", UNITES,
                              index=UNITES.index(l.get("unit")) if l.get("unit") in UNITES else 0,
-                             key=f"mr_u_{l['id']}", label_visibility="collapsed")
-        if c4.button("❌", key=f"mr_x_{l['id']}"):
-            supprimer.append(l["id"])
-        modifs.append((l["id"], qte, unite))
+                             key=f"mr_u_{_id(l) or i}", label_visibility="collapsed")
+        if c4.button("❌", key=f"mr_x_{_id(l) or i}"):
+            supprimer.append(_id(l))
+        modifs.append((_id(l), qte, unite))
 
     st.markdown("**Ajouter des ingrédients**")
     nouveaux = _editeur_ingredients(ms, liste_ingredients(ms), "mr", defaut=[])
@@ -483,7 +562,7 @@ def _modifier_recette(ms):
                                 if nom_affiche(i) == l["ingredient"]), None)
                     if ing:
                         _inserer(ms, "recipe_ingredients", {
-                            "recipe_id": rid, "ingredient_id": ing["id"],
+                            "recipe_id": rid, "ingredient_id": _id(ing),
                             "quantity": l["quantity"], "unit": l["unit"]})
                         n += 1
                 st.session_state.pop("mr_lignes", None)
@@ -622,17 +701,17 @@ def page_ingredients(ms):
                             "is_recurrent": recur,
                             "kcal_100g": kcal or None, "proteines_100g": prot or None,
                             "glucides_100g": gluc or None, "lipides_100g": lip or None,
-                        }).eq("id", ing["id"]).execute()
+                        }).eq("id", _id(ing)).execute()
                         _recharger(ms, "Ingrédient modifié.")
                     except Exception as e:
                         _erreur("Modification de l'ingrédient", e, dict(nom=nom))
 
         with st.expander("🗑️ Supprimer cet ingrédient"):
-            nb = sum(1 for l in ms.lignes() if l.get("ingredient_id") == ing["id"])
+            nb = sum(1 for l in ms.lignes() if l.get("ingredient_id") == _id(ing))
             if nb:
                 st.warning(f"Cet ingrédient est utilisé dans {nb} ligne(s) de recettes. "
                            "Supprime-le d'abord de ces recettes.")
             elif st.button("Supprimer", key="ing_del"):
                 if _table(ms, "ingredients"):
-                    ms.client.table("ingredients").delete().eq("id", ing["id"]).execute()
+                    ms.client.table("ingredients").delete().eq("id", _id(ing)).execute()
                     _recharger(ms, "Ingrédient supprimé.")
