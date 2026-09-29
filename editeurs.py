@@ -74,7 +74,12 @@ def bloc_diagnostic(ms):
     with st.expander("🧪 Diagnostic de l'enregistrement (à ouvrir en cas de problème)"):
         st.caption("Cet outil **ne modifie rien** : il lit les colonnes de tes 4 tables, "
                    "puis fait un test d'écriture qu'il annule aussitôt.")
-        if st.button("▶️ Lancer le diagnostic", key="diag_lancer"):
+        c1, c2 = st.columns(2)
+        relire = c2.button("🔄 Vider le cache et relire", key="diag_relire")
+        if relire and mode_ecriture(ms):
+            ms.vider_cache()
+            st.success("Cache vidé : les compteurs ci-dessous sont relus en direct.")
+        if c1.button("▶️ Lancer le diagnostic", key="diag_lancer") or relire:
             if not mode_ecriture(ms):
                 st.warning("Pas de connexion Supabase : ouvre d'abord Réglages → clés.")
                 return
@@ -87,12 +92,18 @@ def bloc_diagnostic(ms):
                 st.markdown(f"**{t}** — {nb} ligne(s) lue(s)")
                 st.code(", ".join(cols) if cols else "(aucune colonne)", language="text")
                 rapport[t] = cols
+            if getattr(ms, "erreur", None):
+                st.error(f"⚠️ Erreur de lecture : {ms.erreur}")
+            else:
+                st.caption("Aucune erreur de lecture.")
             st.markdown("**Test d'écriture** (création puis suppression immédiate)")
             try:
                 rid = _inserer(ms, "planned_meals", {
                     "day": "Lundi", "meal_type": "Test", "servings": 1, "nb_persons": 1,
-                    "recipe_id": None})
-                ms.client.table("planned_meals").delete().eq("id", rid).execute()
+                    "recipe_id": None}, identifiant=False)
+                q = ms.client.table("planned_meals").delete()
+                (q.eq("id", rid) if rid else q.eq("meal_type", "Test")).execute()
+                ms.vider_cache()
                 st.success("✅ Écriture et suppression : **OK** — l'enregistrement fonctionne.")
             except Exception as e:
                 st.error(f"❌ Écriture impossible : {type(e).__name__} — {e}")
@@ -115,17 +126,30 @@ def _table(ms, nom: str):
     return nom if mode_ecriture(ms) else None
 
 
-def _inserer(ms, table: str, charge: dict) -> str:
-    """Enregistre une ligne et renvoie son identifiant.
+# Tables dont la colonne « id » est un UUID que NOUS fabriquons.
+# `planned_meals` n'en fait PAS partie : sa colonne id est un ENTIER que la base
+# numérote elle-même (162, 163…). Y mettre un UUID faisait échouer l'écriture
+# avec « invalid input syntax for type bigint » — c'est maintenant corrigé.
+ID_UUID = {"recipes": True, "recipe_ingredients": True, "ingredients": True,
+           "planned_meals": False}
 
-    L'identifiant est fabriqué ici, avant l'envoi : c'est celui qui sera écrit
-    dans la base. On ne dépend donc plus de ce que Supabase renvoie — c'est ce
-    qui provoquait l'erreur « Enregistrement impossible : 'id' ».
+
+def _inserer(ms, table: str, charge: dict, identifiant: bool | None = None) -> str | None:
+    """Enregistre une ligne et renvoie son identifiant (None si la base le gère).
+
+    • Pour `recipes`, `recipe_ingredients` et `ingredients` : on fabrique l'UUID
+      nous-mêmes avant l'envoi, donc on n'a rien à relire après.
+    • Pour `planned_meals` : la base numérote (id entier) — on n'envoie pas d'id.
     """
+    if identifiant is None:
+        identifiant = ID_UUID.get(table, True)
     ligne = dict(charge)
-    ligne.setdefault("id", str(uuid.uuid4()))
+    if identifiant:
+        ligne.setdefault("id", str(uuid.uuid4()))
+    else:
+        ligne.pop("id", None)
     ms.client.table(table).insert(ligne).execute()
-    return ligne["id"]
+    return ligne.get("id")
 
 
 def _erreur(action: str, e: Exception, details: dict | None = None):
@@ -328,17 +352,18 @@ def _ajouter_repas(ms, jour, moment, convives, genre, choix, qte, recettes, ingr
                 _inserer(ms, "recipe_ingredients", {
                     "recipe_id": rid, "ingredient_id": _id(ing), "quantity": 1,
                     "unit": ing.get("unit")})
-            ms.client.table("planned_meals").insert({
+            _inserer(ms, "planned_meals", {
                 "day": jour_fr, "date_menu": jour.isoformat(), "meal_type": moment,
                 "recipe_id": rid, "servings": convives, "nb_persons": convives,
-                "ingredient_qty": qte}).execute()
+                "ingredient_qty": qte}, identifiant=False)
         else:
             nom_rec = f"[Txt] {choix.strip()}"
             rid = _inserer(ms, "recipes", {
                 "name": nom_rec, "base_servings": 1, "instructions": ""})
             _inserer(ms, "planned_meals", {
                 "day": jour_fr, "date_menu": jour.isoformat(), "meal_type": moment,
-                "recipe_id": rid, "servings": convives, "nb_persons": convives})
+                "recipe_id": rid, "servings": convives, "nb_persons": convives},
+                identifiant=False)
         _recharger(ms, "Repas ajouté.")
     except Exception as e:
         _erreur("Ajout du repas", e, dict(jour=str(jour), moment=moment, genre=genre,
