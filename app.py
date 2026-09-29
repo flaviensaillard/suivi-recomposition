@@ -52,7 +52,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 D = dt.date
-VERSION = "2.8"
+VERSION = "2.8.1"
 
 
 def _libelles_uniques(libelles: list) -> list:
@@ -138,7 +138,7 @@ def menus_store():
     Sans Supabase configuré : renvoie un extrait de démonstration, pour que tu
     puisses voir la page tout de suite (les chiffres sont alors incomplets).
     """
-    VERSION_STORE = "30-09-2026d"      # à changer à chaque mise à jour du moteur
+    VERSION_STORE = "30-09-2026e"      # à changer à chaque mise à jour du moteur
     ms = st.session_state.get("_menus_store")
     force = st.session_state.get("_menus_store_forcee")     # magasin imposé (tests)
     if ms is not None and (force or st.session_state.get("_menus_version") == VERSION_STORE):
@@ -999,11 +999,24 @@ def page_proteines():
         if "fat_g" in auj0.columns:
             l_today = float(auj0["fat_g"].fillna(0).sum())
 
+    # --- calories du jour : calculées depuis tes saisies (protéines 4, glucides 4,
+    #     lipides 9 kcal par gramme). C'est le total « consommé » de la journée.
+    kcal_today = 4.0 * p_today + 4.0 * g_today + 9.0 * l_today
+    reste_kcal = TARGET_KCAL - kcal_today
+
     st.markdown("**Aujourd'hui**")
-    k1, k2, k3 = st.columns(3)
+    k1, k2, k3, k4 = st.columns(4)
     k1.metric(f"Protéines · cible {TARGET_P} g", fmt(p_today, " g", 0))
     k2.metric(f"Glucides · cible {TARGET_G} g", fmt(g_today, " g", 0))
     k3.metric(f"Lipides · cible {TARGET_L} g", fmt(l_today, " g", 0))
+    k4.metric(f"Calories · cible {TARGET_KCAL} kcal", f"{kcal_today:.0f} kcal",
+              f"{reste_kcal:+.0f} kcal restantes" if kcal_today else "à compléter",
+              delta_color="off")
+    st.progress(min(1.0, kcal_today / TARGET_KCAL) if TARGET_KCAL else 0.0,
+                text=f"**Calories : {kcal_today:.0f} / {TARGET_KCAL} kcal**"
+                     + (" ✅ objectif atteint" if kcal_today >= TARGET_KCAL else
+                        f" — il reste {reste_kcal:.0f} kcal" if kcal_today else
+                        " — rien d'enregistré pour l'instant"))
 
     # --- repas saisis AVANT l'ajout des glucides/lipides : on peut les compléter
     a_completer = []
@@ -1019,29 +1032,32 @@ def page_proteines():
     # comparaison « trop ou pas assez » — ce qui reste à prendre sur la journée
     rien_g = bool(p_today) and not g_today
     rien_l = bool(p_today) and not l_today
-    ecarts = [("Protéines", p_today, TARGET_P, False), ("Glucides", g_today, TARGET_G, rien_g),
-              ("Lipides", l_today, TARGET_L, rien_l)]
+    ecarts = [("Protéines", p_today, TARGET_P, False, "g"),
+              ("Glucides", g_today, TARGET_G, rien_g, "g"),
+              ("Lipides", l_today, TARGET_L, rien_l, "g"),
+              ("Calories", kcal_today, TARGET_KCAL, bool(p_today and not kcal_today), "kcal")]
     lignes = []
-    for nom, val, cible, non_renseigne in ecarts:
+    for nom, val, cible, non_renseigne, unite in ecarts:
         reste = cible - val
         if val <= 0 and non_renseigne:
             verdict = "non renseigné — repas saisis avant la mise à jour"
             val_txt = "—"
         elif val <= 0:
             verdict = "à compléter — rien d'enregistré pour l'instant"
-            val_txt = "0 g"
+            val_txt = f"0 {unite}"
         elif 0.85 * cible <= val <= 1.15 * cible:
             verdict = "✅ dans la cible"
-            val_txt = f"{val:.0f} g"
+            val_txt = f"{val:.0f} {unite}"
         elif val < cible:
-            verdict = f"🔻 il manque {reste:.0f} g ({val / cible:.0%} de la cible)"
-            val_txt = f"{val:.0f} g"
+            verdict = f"🔻 il manque {reste:.0f} {unite} ({val / cible:.0%} de la cible)"
+            val_txt = f"{val:.0f} {unite}"
         else:
-            verdict = f"🔺 {abs(reste):.0f} g de trop ({val / cible:.0%} de la cible)"
-            val_txt = f"{val:.0f} g"
-        lignes.append(dict(Nutriment=nom, Aujourdhui=val_txt, Cible=f"{cible} g", Verdict=verdict))
+            verdict = f"🔺 {abs(reste):.0f} {unite} de trop ({val / cible:.0%} de la cible)"
+            val_txt = f"{val:.0f} {unite}"
+        lignes.append(dict(Nutriment=nom, Aujourdhui=val_txt, Cible=f"{cible} {unite}",
+                           Verdict=verdict))
     st.dataframe(pd.DataFrame(lignes), hide_index=True, width="stretch")
-    st.caption("Ces trois lignes viennent de tes saisies du jour (menu, ingrédient, raccourcis). "
+    st.caption("Ces lignes viennent de tes saisies du jour (menu, ingrédient, raccourcis). "
                "Remplis-les via **Repas & menus** ou l'onglet **Repas prévu** ci-dessous : "
                "le compteur se met à jour tout seul.")
     pb_all = protein_by_day()
@@ -1269,6 +1285,13 @@ pages = {
         st.Page(page_safe(page_reglages), title="Réglages", icon="⚙️"),
     ],
 }
+# la page « Recettes » est mise de côté : la page « Repas & menus » s'en sert pour
+# proposer un lien « 📖 Voir la recette » sur chaque plat à préparer.
+try:
+    st.session_state["_page_recettes"] = pages["👨‍👩‍👧‍👦 Menus & courses (partagé)"][2]
+except Exception:
+    pass
+
 _v_editeur = getattr(ED, "VERSION", "ancien")
 _v_menus = getattr(MN, "VERSION", "ancien")
 st.sidebar.markdown(f"**Suivi Recomposition** <span class='hint'>v{VERSION}</span>  \n"

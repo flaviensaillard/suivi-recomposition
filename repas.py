@@ -17,6 +17,10 @@ import pandas as pd
 import streamlit as st
 
 import menus as MN
+try:
+    import repas_plats as RP
+except ImportError:                      # fichier pas recopié sur GitHub
+    RP = None
 
 
 # ---------------------------------------------------------------------------
@@ -100,11 +104,19 @@ def page_repas(store, menus_store, target_p: float, jours_visibles: int = 10):
                    "sera complet.\n\n"
                    "**Dis-moi ce que tu voudrais changer** : je corrige et je relance l'aperçu.")
 
-    onglets = st.tabs(["📅 Aujourd'hui", "🗓️ Ma semaine", "📖 Mes recettes"])
+    onglets = st.tabs(["🍳 Plats à préparer", "🗓️ Ma semaine", "📖 Mes recettes"])
 
-    # ---------------------------------------------------------------- aujourd'hui
+    # ------------------------------------------------- plats à préparer (avec la recette)
     with onglets[0]:
-        _onglet_jour(store, ms, target_p)
+        if RP is None:
+            st.error("⚠️ **Le fichier `repas_plats.py` n'a pas été recopié sur GitHub.**\n\n"
+                     "C'est le fichier qui affiche la liste des plats avec le lien vers la "
+                     "recette. Recopie **tous** les fichiers `.py` du dossier "
+                     "`1_a_copier_dans_GITHUB`, puis **Reboot app** sur share.streamlit.io.\n\n"
+                     "En attendant, l'ancien écran est affiché ci-dessous.")
+            _onglet_jour(store, ms, target_p)
+        else:
+            RP.page_plats_a_preparer(ms, jours_visibles)
 
     # ---------------------------------------------------------------- semaine
     with onglets[1]:
@@ -116,6 +128,13 @@ def page_repas(store, menus_store, target_p: float, jours_visibles: int = 10):
 
 
 def _onglet_jour(store, ms, target_p: float):
+    """⚠️ Ancien onglet « Aujourd'hui » — il n'est plus affiché.
+
+    Tu m'as dit : « enlève de Repas & menus ce qui se trouve dans aujourd'hui,
+    je veux simplement les plats à préparer avec un lien vers la recette ».
+    C'est désormais `repas_plats.page_plats_a_preparer`. La fonction reste ici
+    (elle ne s'affiche pas) pour ne rien casser si tu la cherches.
+    """
     quand = st.date_input("Jour", value=dt.date.today(), format="DD/MM/YYYY", key="rep_jour")
     with st.spinner("Calcul…"):
         repas = ms.repas_du_jour(quand)

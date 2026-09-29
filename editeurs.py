@@ -17,7 +17,7 @@ from __future__ import annotations
 #  (« éditeur 2.8 »). S'il affiche autre chose, c'est que ce fichier n'a pas
 #  été recopié sur GitHub.
 # ---------------------------------------------------------------------------
-VERSION = "2.8"
+VERSION = "2.8.1"
 
 import datetime as dt
 import traceback

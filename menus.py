@@ -19,7 +19,7 @@ Ce module en déduit, sans aucune saisie :
 Aucune écriture ici : que de la lecture et du calcul. Tu peux tester sans risque.
 """
 
-VERSION = "2.8"        # affiché dans la barre de gauche (contrôle des fichiers à jour)
+VERSION = "2.8.1"        # affiché dans la barre de gauche (contrôle des fichiers à jour)
 
 import datetime as dt
 import math
