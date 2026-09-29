@@ -19,7 +19,7 @@ mensurations, liste de courses. Les données sont synchronisées entre le PC et 
 | ⚖️ **Pesée & tendance** | Saisie du matin (poids, % gras balance, pas, sommeil, énergie), graphique poids + moyenne 7 jours |
 | 💪 **Séance 30 min** | Séance A (lundi) / B (vendredi) en supersets, **chrono de repos**, saisie des séries, rappel de la dernière performance, détection « monte d'un niveau », suivi des tractions |
 | 🍽️ **Cuisine & menus** | Passerelle avec ton application de menus : repas prévus détectés automatiquement, protéines calculées, un appui pour les compter. Détail : `JUMELAGE.md` |
-| 🥗 **Protéines** | Objectif 140 g, ajout en un appui selon ce que tu viens de manger, moyenne 7/30 jours, historique |
+| 🥗 **Protéines** | **3 modes** : ① repas prévu depuis gestion-menus avec la quantité mangée, ② ingrédient + quantité + unité (g, kg, ml, cl, l, pièce, tranche, c. à s./c. à c.), ③ raccourcis. Compteur, moyennes 7/30 j, historique — détail : `PROTEINES_SAISIE.md` |
 | 📏 **Mensurations** | Tour de taille au nombril (la vraie mesure), calcul du % de gras par la formule Marine en plus de la balance |
 | 🛒 **Courses** | Liste hebdomadaire cochable, par rayon, avec prix indicatifs et total |
 | ⚙️ **Réglages** | Profil, objectifs, export CSV de toutes les données |

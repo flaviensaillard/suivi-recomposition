@@ -41,7 +41,72 @@ CHAMPS = {
                                            "meal_time", "moment_repas"]),
     "servings": ("Nombre de portions", ["servings", "portions", "nb_personnes", "persons", "serves",
                                         "nombre_personnes"]),
+    "piece_weight": ("Poids d'une pièce (g)", ["poids_piece", "weight_per_unit", "grams_per_piece",
+                                               "poids_unitaire", "unit_weight", "portion_g",
+                                               "poids_moyen", "piece_weight"]),
 }
+
+
+# Poids moyens constatés, utilisés seulement comme SUGGESTION quand l'unité est « pièce ».
+# La clé la plus longue gagne : « pomme de terre » passe avant « pomme ».
+POIDS_PIECE = {
+    "pommedeterre": 150, "patatedouce": 200, "blancdepoulet": 150, "filetdepoulet": 150,
+    "escalopedepoulet": 120, "steakhache": 100, "saumon": 130, "cabillaud": 120, "colin": 120,
+    "tranchedepain": 30, "tranchedejambon": 40, "fromageblanc": 100, "pomme": 150, "poire": 170,
+    "banane": 120, "orange": 130, "clementine": 70, "kiwi": 75, "avocat": 200, "tomate": 120,
+    "carotte": 80, "courgette": 200, "poivron": 150, "oignon": 80, "concombre": 300,
+    "oeuf": 50, "oeufs": 50, "yaourt": 125, "skyr": 150, "pain": 30, "tranche": 30,
+    "jambon": 40, "ail": 5, "salade": 100,
+}
+
+# Facteurs de conversion vers les grammes
+FACTEURS = {
+    "g": 1.0, "gr": 1.0, "gramme": 1.0, "grammes": 1.0,
+    "kg": 1000.0, "kilo": 1000.0, "kilos": 1000.0, "kilogramme": 1000.0,
+    "ml": 1.0, "cl": 10.0, "dl": 100.0, "l": 1000.0, "litre": 1000.0, "litres": 1000.0,
+    "cas": 15.0, "cuillereasoupe": 15.0, "cuilleresasoupe": 15.0,
+    "cac": 5.0, "cuillereacafe": 5.0, "cuilleresacafe": 5.0,
+}
+
+UNITES_PIECE = ("piece", "pieces", "unite", "unites", "portion", "portions",
+                "tranche", "tranches", "verre", "verres", "bol", "bols", "gousse", "gousses")
+
+# Unités proposées dans la liste déroulante de l'application
+UNITES_UI = ["g", "kg", "ml", "cl", "l", "pièce(s)", "tranche(s)", "portion(s)",
+             "c. à s.", "c. à c."]
+
+
+def poids_piece_suggere(nom: str) -> int:
+    """Poids moyen d'une pièce pour un aliment donné (suggestion). 50 g par défaut."""
+    n = _norm(nom or "")
+    for cle in sorted(POIDS_PIECE, key=len, reverse=True):
+        if cle in n:
+            return POIDS_PIECE[cle]
+    return 50
+
+
+def est_unite_piece(u: str) -> bool:
+    """Vrai si l'unité désigne un objet comptable (pièce, tranche, portion…)."""
+    return _norm(u or "") in UNITES_PIECE
+
+
+def convertir_grammes(qte: float, unite: str, poids_piece: float = None):
+    """Convertit une quantité + unité en grammes.
+
+    Retourne (grammes, explication lisible). L'application affiche toujours
+    l'hypothèse retenue : jamais un chiffre opaque.
+    """
+    qte = float(qte or 0)
+    u = _norm(unite or "")
+    if u in ("", "g", "gr", "gramme", "grammes"):
+        return qte, f"{qte:g} g"
+    if u in FACTEURS:
+        g = qte * FACTEURS[u]
+        return g, f"{qte:g} {unite} ≈ {g:g} g"
+    if u in UNITES_PIECE:
+        poids = float(poids_piece or 0) or 50.0
+        return qte * poids, f"{qte:g} × {poids:g} g = {qte * poids:g} g"
+    return qte, f"{qte:g} (unité inconnue : prise comme des grammes)"
 
 
 def _norm(s: str) -> str:
@@ -128,6 +193,7 @@ def deviner_mapping(tables: dict) -> dict:
             ("meal_date", [t_plan]),
             ("meal_slot", [t_plan]),
             ("servings", [t_rec, t_lia, t_plan]),
+            ("piece_weight", [t_ing]),
     ):
         cibles = [t for t in cibles if t]
         t, c = choisir(cle, cibles)
@@ -319,20 +385,8 @@ def _proteines_du_plat(client, mapping, ligne):
             prot = float(ing.get(col_prot) or 0)
         except Exception:
             continue
-        # conversion d'unités : on ne connaît pas la correspondance exacte, donc on reste prudent
-        if unite in ("g", "gr", "gramme", "grammes", "gram", "", "ml"):   # ml ≈ g (eau, lait…)
-            grammes = qte
-        elif unite in ("kg", "kilo", "kilos"):
-            grammes = qte * 1000
-        elif unite == "cl":
-            grammes = qte * 10
-        elif unite == "dl":
-            grammes = qte * 100
-        elif unite in ("l", "litre", "litres"):
-            grammes = qte * 1000
-        else:
-            # pièces, tranches, unités : ~50 g par unité, sauf si la quantité est déjà un poids
-            grammes = qte * 50 if qte <= 20 else qte
+        nom_ing = str(ing.get(col_nom_ing) or "") if col_nom_ing else ""
+        grammes, _ = convertir_grammes(qte, unite, poids_piece_suggere(nom_ing))
         total += prot * grammes / 100.0
         compte += 1
     if compte == 0:
@@ -368,6 +422,103 @@ def recettes_proteinees(client, mapping: dict, limite: int = 8) -> list[dict]:
             sortie.append({"nom": nom, "proteines": p})
     sortie.sort(key=lambda x: -x["proteines"])
     return sortie[:limite]
+
+
+# --------------------------------------------------------------------------
+#  Listes pour les listes déroulantes de l'application
+# --------------------------------------------------------------------------
+def ingredients_liste(client, mapping: dict, limite: int = 1500) -> list:
+    """Tous tes ingrédients, prêts pour une liste déroulante.
+
+    Chaque entrée : {"id", "nom", "prot100", "kcal100", "unite", "poids_piece"}
+    """
+    t_ing = (mapping.get("tables") or {}).get("ingredients")
+    if not t_ing:
+        return []
+    c_nom = (mapping["cols"].get("ingredient_name") or {}).get("col")
+    c_prot = (mapping["cols"].get("protein_100g") or {}).get("col")
+    c_kcal = (mapping["cols"].get("kcal_100g") or {}).get("col")
+    c_unit = (mapping["cols"].get("unit") or {}).get("col")
+    c_piece = (mapping["cols"].get("piece_weight") or {}).get("col")
+
+    def _num(v):
+        try:
+            return float(str(v).replace(",", "."))
+        except Exception:
+            return None
+
+    try:
+        lignes = client.table(t_ing).select("*").limit(limite).execute().data or []
+    except Exception:
+        return []
+    sortie = []
+    for r in lignes:
+        nom = r.get(c_nom) if c_nom else None
+        if not isinstance(nom, str) or not nom.strip() or _est_un_id(nom):
+            continue
+        sortie.append({
+            "id": r.get("id"),
+            "nom": nom.strip(),
+            "prot100": _num(r.get(c_prot)) if c_prot else None,
+            "kcal100": _num(r.get(c_kcal)) if c_kcal else None,
+            "unite": (str(r.get(c_unit)) if c_unit and r.get(c_unit) else ""),
+            "poids_piece": _num(r.get(c_piece)) if c_piece else None,
+        })
+    sortie.sort(key=lambda x: x["nom"].casefold())
+    return sortie
+
+
+def parser_date(v):
+    """Transforme une valeur de date quelconque en objet date, ou None."""
+    import datetime as _dt
+    if v is None:
+        return None
+    if isinstance(v, _dt.datetime):
+        return v.date()
+    if isinstance(v, _dt.date):
+        return v
+    txt = str(v).strip()
+    for essai in (txt[:19], txt[:10], txt):
+        for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S",
+                    "%d/%m/%Y", "%d-%m-%Y", "%d/%m/%y"):
+            try:
+                return _dt.datetime.strptime(essai, fmt).date()
+            except Exception:
+                continue
+    return None
+
+
+def repas_planifies(client, mapping, du, au, limite: int = 400) -> list:
+    """Repas prévus entre deux dates, avec les protéines pour UNE portion."""
+    t_plan = (mapping.get("tables") or {}).get("plan")
+    if not t_plan:
+        return []
+    c_date = (mapping["cols"].get("meal_date") or {}).get("col")
+    try:
+        lignes = client.table(t_plan).select("*").limit(limite).execute().data or []
+    except Exception:
+        return []
+    sortie = []
+    for ligne in lignes:
+        d = parser_date(ligne.get(c_date)) if c_date else None
+        if d is None or not (du <= d <= au):
+            continue
+        portions = _valeur(ligne, mapping, "servings")
+        try:
+            portions = float(portions) if portions else 1.0
+        except Exception:
+            portions = 1.0
+        sortie.append({
+            "date": d,
+            "moment": _valeur(ligne, mapping, "meal_slot"),
+            "nom": _nom_du_plat(client, mapping, ligne),
+            "prot_portion": _proteines_du_plat(client, mapping, ligne),
+            "portions": portions,
+            "brut": ligne,
+        })
+    sortie = [x for x in sortie if x["nom"]]
+    sortie.sort(key=lambda x: (x["date"], str(x["moment"] or "")))
+    return sortie
 
 
 # --------------------------------------------------------------------------

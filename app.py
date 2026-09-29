@@ -20,6 +20,9 @@ import streamlit as st
 
 import content as C
 import integration as IT
+import editeurs as ED
+import menus as MN
+import repas as R
 from db import LocalStore, SupaStore
 
 # ============================================================================
@@ -48,7 +51,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 D = dt.date
-VERSION = "1.2"   # affichée dans la barre latérale : permet de vérifier que le déploiement est à jour
+VERSION = "2.0"   # affichée dans la barre latérale : permet de vérifier que le déploiement est à jour
 
 
 # ============================================================================
@@ -108,6 +111,38 @@ def login_page(store: SupaStore):
         except Exception as e:
             st.error(f"Échec : {e}")
     st.stop()
+
+
+import json as _json
+import os as _os
+
+
+def menus_store():
+    """Lecteur de la base de menus (tes 4 tables), mis en cache pour la session.
+
+    Sans Supabase configuré : renvoie un extrait de démonstration, pour que tu
+    puisses voir la page tout de suite (les chiffres sont alors incomplets).
+    """
+    ms = st.session_state.get("_menus_store")
+    if ms is not None:
+        return ms
+    if getattr(store, "kind", None) == "supabase" and getattr(store, "client", None) is not None:
+        ms = MN.MenusStore(store.client)
+    else:
+        chemin = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)),
+                               "data", "demo_menus.json")
+        if not _os.path.exists(chemin):
+            return None
+        try:
+            with open(chemin, encoding="utf-8") as f:
+                donnees = _json.load(f)
+            ms = MN.MenusStore(None)
+            ms._cache = donnees
+            ms.demo = True
+        except Exception:
+            return None
+    st.session_state["_menus_store"] = ms
+    return ms
 
 
 def init_store():
@@ -227,6 +262,24 @@ def last_sets(exercise, session, before: D):
 def top_of_range(cible: str):
     nums = [int(n) for n in re.findall(r"\d+", cible)]
     return max(nums) if nums else None
+
+
+TABS_A_ANALYSER = list(dict.fromkeys(
+    IT.TABLES_PLAN + IT.TABLES_RECETTES + IT.TABLES_INGREDIENTS + IT.TABLES_LIAISON))
+
+
+def contexte_menus():
+    """Analyse la base de menus une seule fois et renvoie (client, tables, correspondance)."""
+    if store.kind != "supabase":
+        return None, {}, {}
+    client = store.client
+    if "it_ctx" not in st.session_state:
+        tables = IT.analyser(client, TABS_A_ANALYSER)
+        mapping = IT.affiner_mapping(client, IT.deviner_mapping(tables), tables) if tables else {}
+        st.session_state["it_ctx"] = {"tables": tables, "mapping": mapping}
+    ctx = st.session_state["it_ctx"]
+    mapping = st.session_state.get("it_map") or lire_map(store) or ctx["mapping"]
+    return client, ctx["tables"], mapping
 
 
 def fmt(v, suffix="", nd=1):
@@ -651,8 +704,191 @@ def page_seance():
 
 
 # ============================================================================
-#  PAGE 5 — PROTÉINES
+#  PAGE 5 — PROTÉINES  (3 modes de saisie)
 # ============================================================================
+def _ajout_repas_prevu():
+    """Mode 1 : choisir un repas prévu dans gestion-menus, avec la quantité mangée."""
+    client, tables, mapping = contexte_menus()
+    if not client:
+        st.info("Ce mode lit ta base de menus : il a besoin des clés Supabase "
+                "(voir le guide, étape « Les 2 clés »). En attendant, l'onglet **Mes raccourcis** "
+                "fonctionne normalement.")
+        return
+    if not (mapping.get("tables") or {}).get("plan"):
+        st.warning("Ta table de planning n'a pas été reconnue. Va sur la page **🍽️ Cuisine & menus "
+                   "→ Étape 2** pour la désigner en deux clics.")
+        return
+
+    c1, c2 = st.columns([1, 2])
+    with c1:
+        jour = st.date_input("Jour", value=D.today(), format="DD/MM/YYYY", key="pr_jour")
+    with c2:
+        st.write("")
+        st.caption("Les repas viennent directement de ton application **gestion-menus** "
+                   "(`planned_meals` + `recipes` + `ingredients`).")
+
+    repas = IT.repas_planifies(client, mapping, jour, jour)
+    if not repas:
+        st.caption("Aucun repas prévu à cette date dans gestion-menus. Change la date ci-dessus, "
+                   "ajoute le repas dans ton application de menus, ou utilise l'onglet "
+                   "**🥕 Ingrédient + quantité**.")
+        return
+
+    def _etiquette(i):
+        r = repas[i]
+        moment = f"{str(r['moment']).capitalize()} · " if r["moment"] else ""
+        base = f"{r['prot_portion']:.0f} g de protéines par portion" if r["prot_portion"] \
+            else "protéines non renseignées"
+        return f"{moment}{r['nom']}  —  {base}"
+
+    idx = st.selectbox("Repas prévu", range(len(repas)), format_func=_etiquette, key="pr_idx")
+    r = repas[idx]
+
+    c1, c2 = st.columns([1, 2])
+    with c1:
+        choix = st.radio("Quantité mangée", ["½", "1", "1½", "2", "autre"],
+                         horizontal=True, index=1, key="pr_choix")
+    with c2:
+        if choix == "autre":
+            portions = st.number_input("Portions (libre)", 0.1, 8.0, 1.0, 0.1,
+                                       format="%.1f", key="pr_libre")
+        else:
+            portions = {"½": 0.5, "1": 1.0, "1½": 1.5, "2": 2.0}[choix]
+            st.write("")
+            st.caption("1 portion = ce que ta recette est censée représenter "
+                       f"(ton planning indique {r['portions']:g} portion(s) pour ce plat).")
+
+    if r["prot_portion"]:
+        total_apport = r["prot_portion"] * portions
+        st.metric(f"Protéines pour {portions:g} portion(s)", f"{total_apport:.0f} g",
+                  f"{r['prot_portion']:.0f} g × {portions:g}")
+    else:
+        total_apport = st.number_input("Protéines (g) — à estimer à la main : ta recette n'a pas "
+                                       "de valeurs nutritionnelles", 0, 300, 30, 5, key="pr_man")
+
+    if st.button("➕ Ajouter au compteur du jour", type="primary", key="pr_add",
+                 width="stretch"):
+        libelle = f"{r['nom']} ({portions:g} portion" + ("s" if portions > 1 else "") + ")"
+        store.add_protein(D.today(), libelle, int(round(total_apport)), qty=portions)
+        st.success(f"+{int(round(total_apport))} g de protéines ajoutés.")
+        st.rerun()
+
+    autres = [x for x in repas if x is not r]
+    if autres:
+        with st.expander(f"Les autres repas de ce jour ({len(autres)})"):
+            for x in autres:
+                moment = f"{str(x['moment']).capitalize()} · " if x["moment"] else ""
+                p = f"≈ {x['prot_portion']:.0f} g/portion" if x["prot_portion"] else "protéines inconnues"
+                st.markdown(f"- {moment}**{x['nom']}** — {p}")
+
+
+def _ajout_ingredient():
+    """Mode 2 : choisir un ingrédient de sa base, avec quantité et unité."""
+    client, tables, mapping = contexte_menus()
+    if not client:
+        st.info("Ce mode lit ta table `ingredients` : il a besoin des clés Supabase. "
+                "En attendant, l'onglet **Mes raccourcis** fonctionne normalement.")
+        return
+
+    c1, c2 = st.columns([3, 1])
+    with c2:
+        st.write("")
+        if st.button("🔄 Rafraîchir la liste", key="ing_refresh", width="stretch"):
+            st.session_state.pop("it_ingredients", None)
+            st.rerun()
+    liste = st.session_state.get("it_ingredients")
+    if liste is None:
+        with st.spinner("Chargement de tes ingrédients…"):
+            liste = IT.ingredients_liste(client, mapping)
+        st.session_state["it_ingredients"] = liste
+
+    if not liste:
+        st.warning("Aucun ingrédient trouvé. Vérifie la correspondance des colonnes sur la page "
+                   "**🍽️ Cuisine & menus → Étape 2**.")
+        return
+    with c1:
+        st.caption(f"{len(liste)} ingrédients chargés depuis ta base — tape les premières lettres "
+                   "pour filtrer la liste.")
+
+    noms = [x["nom"] for x in liste]
+    idx = st.selectbox("Ingrédient", range(len(noms)), format_func=lambda i: noms[i], key="ing_idx")
+    ing = liste[idx]
+
+    info = []
+    if ing["prot100"] is not None:
+        info.append(f"{ing['prot100']:g} g de protéines / 100 g")
+    if ing["kcal100"] is not None:
+        info.append(f"{ing['kcal100']:g} kcal / 100 g")
+    if info:
+        st.caption("**" + ing["nom"] + "** — " + " · ".join(info))
+    else:
+        st.caption(f"**{ing['nom']}** — aucune valeur nutritionnelle dans ta base pour cet ingrédient.")
+
+    c1, c2, c3 = st.columns([2, 2, 2])
+    with c1:
+        unite = st.selectbox("Unité", IT.UNITES_UI, key=f"ing_unite_{idx}")
+    piece = IT.est_unite_piece(unite)
+    poids_piece = None
+    if piece:
+        sugg = ing["poids_piece"] or IT.poids_piece_suggere(ing["nom"])
+        with c2:
+            poids_piece = st.number_input("Poids d'une unité (g)", 1.0, 2000.0,
+                                          float(sugg), 5.0, key=f"ing_pp_{idx}")
+        with c3:
+            qte = st.number_input("Quantité", 0.25, 200.0, 1.0, 0.25, key=f"ing_qp_{idx}")
+    else:
+        with c2:
+            qte = st.number_input("Quantité", 0.0, 5000.0, 100.0, 10.0, key=f"ing_q_{idx}_{unite}")
+        with c3:
+            st.write("")
+            st.caption("Tu peux taper une valeur précise.")
+
+    grammes, explication = IT.convertir_grammes(qte, unite, poids_piece)
+    base = st.radio("Dans ta base, les protéines sont indiquées…",
+                    ["pour 100 g", "par portion ou par pièce"],
+                    horizontal=True, key=f"ing_base_{idx}")
+
+    if ing["prot100"] is None:
+        st.warning("Pas de valeur de protéines pour cet ingrédient dans ta base.")
+        apport = st.number_input("Protéines (g) — saisie manuelle", 0, 300, 20, 1, key="ing_man")
+    elif base == "pour 100 g":
+        apport = ing["prot100"] * grammes / 100.0
+    else:
+        apport = ing["prot100"] * qte
+
+    c1, c2 = st.columns([1, 2])
+    c1.metric("Protéines", f"{apport:.0f} g")
+    with c2:
+        st.write("")
+        st.caption(f"Calcul : {explication}"
+                   + (f" × {ing['prot100']:g} g/100 g = **{apport:.0f} g**" if base == "pour 100 g"
+                      and ing["prot100"] is not None else ""))
+
+    if st.button("➕ Ajouter au compteur du jour", type="primary", key="ing_add", width="stretch"):
+        libelle = f"{ing['nom']} {qte:g} {unite}"
+        store.add_protein(D.today(), libelle, int(round(apport)), qty=qte)
+        st.success(f"+{int(round(apport))} g de protéines ajoutés.")
+        st.rerun()
+
+
+def _ajout_raccourcis():
+    """Mode 3 : les raccourcis rapides + saisie libre."""
+    st.caption("Pour les aliments que tu manges tous les jours : un appui, c'est compté.")
+    cols = st.columns(2)
+    for i, (label, g) in enumerate(C.PROTEIN_PRESETS):
+        with cols[i % 2]:
+            if st.button(f"{label} · +{g} g", key=f"p_{i}", width="stretch"):
+                store.add_protein(D.today(), label, g)
+                st.rerun()
+    with st.form("custom"):
+        c1, c2 = st.columns([2, 1])
+        label = c1.text_input("Autre aliment / repas", placeholder="Ex. restaurant, repas chez des amis…")
+        g = c2.number_input("Protéines (g)", 0, 200, 30, step=5)
+        if st.form_submit_button("Ajouter", width="stretch") and label:
+            store.add_protein(D.today(), label, g)
+            st.rerun()
+
+
 def page_proteines():
     st.title("🥗 Protéines du jour")
     st.caption(f"Objectif : **{TARGET_P} g/jour** (plancher 130 g). Le levier n°1 pour perdre du gras "
@@ -666,45 +902,38 @@ def page_proteines():
     st.progress(min(1.0, p_today / TARGET_P),
                 text=f"**{p_today} g / {TARGET_P} g**" + (" ✅ objectif atteint" if p_today >= TARGET_P
                 else f" — il reste {TARGET_P - p_today} g"))
+    pb_all = protein_by_day()
     c1, c2, c3 = st.columns(3)
-    c1.metric("Moyenne 7 j", fmt(mean_since(protein_by_day().rename(
-        columns={"entry_date": "log_date", "total": "protein_g"}), "protein_g", 7)
-        if not protein_by_day().empty else None, " g", 0))
-    c2.metric("Moyenne 30 j", fmt(mean_since(protein_by_day().rename(
-        columns={"entry_date": "log_date", "total": "protein_g"}), "protein_g", 30)
-        if not protein_by_day().empty else None, " g", 0))
-    c3.metric("Jours ≥ objectif (30 j)", 
-              int(sum(1 for d_, t in protein_by_day(D.today() - dt.timedelta(days=30)).itertuples(index=False)
-                      if t >= TARGET_P)), "jours")
+    c1.metric("Moyenne 7 j", fmt(mean_since(pb_all.rename(columns={"entry_date": "log_date",
+                                                                  "total": "protein_g"}),
+                                             "protein_g", 7) if not pb_all.empty else None, " g", 0))
+    c2.metric("Moyenne 30 j", fmt(mean_since(pb_all.rename(columns={"entry_date": "log_date",
+                                                                   "total": "protein_g"}),
+                                              "protein_g", 30) if not pb_all.empty else None, " g", 0))
+    c3.metric("Jours ≥ objectif (30 j)",
+              int(sum(1 for _, t_ in protein_by_day(today - dt.timedelta(days=30)).itertuples(index=False)
+                      if t_ >= TARGET_P)), "jours")
 
-    st.markdown("**Ajout rapide** — appuie sur ce que tu viens de manger :")
-    cols = st.columns(2)
-    for i, (label, g) in enumerate(C.PROTEIN_PRESETS):
-        with cols[i % 2]:
-            if st.button(f"{label} · +{g} g", key=f"p_{i}", width="stretch"):
-                store.add_protein(today, label, g)
-                st.rerun()
-
-    with st.form("custom"):
-        c1, c2 = st.columns([2, 1])
-        label = c1.text_input("Autre aliment / repas", placeholder="Ex. restaurant, poulet chez belle-maman…")
-        g = c2.number_input("Protéines (g)", 0, 200, 30, step=5)
-        if st.form_submit_button("Ajouter", width="stretch") and label:
-            store.add_protein(today, label, g)
-            st.rerun()
+    t1, t2, t3 = st.tabs(["🍽️ Repas prévu", "🥕 Ingrédient + quantité", "⚡ Mes raccourcis"])
+    with t1:
+        _ajout_repas_prevu()
+    with t2:
+        _ajout_ingredient()
+    with t3:
+        _ajout_raccourcis()
 
     if not df.empty:
-        today_rows = df[df["entry_date"] == today]
-        if not today_rows.empty:
+        auj = df[df["entry_date"] == today]
+        if not auj.empty:
             st.markdown("**Détail du jour**")
-            for r in today_rows.itertuples():
+            for r in auj.itertuples():
                 c1, c2 = st.columns([5, 1])
                 c1.markdown(f"• {r.item} — **{r.protein_g} g**")
                 if c2.button("✕", key=f"del_{r.id}"):
                     store.delete_protein(r.id)
                     st.rerun()
 
-        pb = protein_by_day(D.today() - dt.timedelta(days=21))
+        pb = protein_by_day(today - dt.timedelta(days=21))
         if not pb.empty:
             pb = pb.rename(columns={"entry_date": "date", "total": "Protéines"})
             st.altair_chart(alt.Chart(pb).mark_bar(color="#0d9488").encode(
@@ -714,158 +943,48 @@ def page_proteines():
 
     with st.expander("🧊 Repas type & batch cooking du dimanche (45 min)"):
         st.markdown("**7 h** — Thé vert, citron, 500 ml d'eau\n\n"
-                    "**10 h 30** — Café + shaker 30 g de whey (24 g) *ou* 40 g de lait en poudre + 200 g de fromage blanc\n\n"
-                    "**12 h 30** — Gamelle : 300 g légumes + 150 g lentilles/pois chiches + 3 œufs + 150 g skyr "
-                    "+ 100 g edamames ou 1 boîte de thon (58 g)\n\n"
+                    "**10 h 30** — Café + shaker 30 g de whey (24 g) *ou* 40 g de lait en poudre "
+                    "+ 200 g de fromage blanc\n\n"
+                    "**12 h 30** — Gamelle : 300 g légumes + 150 g lentilles/pois chiches + 3 œufs "
+                    "+ 150 g skyr + 100 g edamames ou 1 boîte de thon (58 g)\n\n"
                     "**16 h** — Pomme + 200 g fromage blanc + 15-20 g d'amandes (18 g)\n\n"
-                    "**20 h** — 160-180 g de protéine + 300 g légumes + 150 g skyr + 10 g chocolat 85 % (58 g). "
-                    "Féculents uniquement les jours de sport.")
+                    "**20 h** — 160-180 g de protéine + 300 g légumes + 150 g skyr + 10 g chocolat 85 % "
+                    "(58 g). Féculents uniquement les jours de sport.")
         st.markdown("**Batch cooking**")
-        for t, txt in C.BATCH_COOKING:
-            st.markdown(f"- *{t}* — {txt}")
-
+        for tps, txt in C.BATCH_COOKING:
+            st.markdown(f"- *{tps}* — {txt}")
 
 
 # ============================================================================
 #  PAGE — CUISINE & MENUS (passerelle avec l'application gestion-menus)
 # ============================================================================
-TABS_A_ANALYSER = list(dict.fromkeys(
-    IT.TABLES_PLAN + IT.TABLES_RECETTES + IT.TABLES_INGREDIENTS + IT.TABLES_LIAISON))
+def page_planifier():
+    ms = menus_store()
+    if ms is None:
+        R.page_repas(store, menus_store, TARGET_P)
+        return
+    st.session_state.setdefault("_pid", None)
+    ED.page_planifier(ms, TARGET_P)
+
+
+def page_recettes_edition():
+    ms = menus_store()
+    if ms is None:
+        R.page_repas(store, menus_store, TARGET_P)
+        return
+    ED.page_recettes_edition(ms)
+
+
+def page_ingredients():
+    ms = menus_store()
+    if ms is None:
+        R.page_repas(store, menus_store, TARGET_P)
+        return
+    ED.page_ingredients(ms)
 
 
 def page_cuisine():
-    st.title("🍽️ Cuisine & menus")
-    st.caption("Le pont avec ton application de menus : ce que tu as prévu de manger alimente "
-               "ton compteur de protéines, en un appui. Plus besoin de saisir deux fois.")
-
-    if store.kind != "supabase":
-        st.info("**Cette page se branche sur ta base de menus, qui vit dans Supabase.**\n\n"
-                "Elle a besoin des clés Supabase (étape 1.4 du guide) pour lire tes tables "
-                "`recipes`, `planned_meals`, `ingredients`… Tant que ce n'est pas fait, "
-                "tout le reste de l'application fonctionne en mode local — tu ne perds rien.")
-        return
-
-    client = store.client
-    if "it_tables" not in st.session_state:
-        with st.spinner("Analyse de ta base de menus…"):
-            _t = IT.analyser(client, TABS_A_ANALYSER)
-            st.session_state["it_tables"] = _t
-            if _t and not (st.session_state.get("it_map") or lire_map(store)):
-                # détection guidée par les données : on regarde quelle colonne est vraiment remplie
-                st.session_state["it_map"] = IT.affiner_mapping(
-                    client, IT.deviner_mapping(_t), _t)
-    tables = st.session_state["it_tables"]
-
-    mapping = st.session_state.get("it_map") or lire_map(store) or {}
-    if not mapping and tables:
-        mapping = IT.affiner_mapping(client, IT.deviner_mapping(tables), tables)
-        st.session_state["it_map"] = mapping
-
-    # --- résultat de l'analyse
-    if not tables:
-        st.warning("Aucune table de menus détectée. Vérifie que la clé Supabase est bien celle du "
-                   "projet `gestion-menus` (bouton ⟳ en haut à droite après avoir modifié les Secrets).")
-    else:
-        st.success(f"**{len(tables)} table(s) de ta base de menus détectée(s)** : "
-                   + ", ".join("`" + t + "`" for t in tables))
-
-    # --- repas du jour
-    if mapping and tables:
-        st.subheader("Repas prévus aujourd'hui")
-        try:
-            repas = IT.repas_du_jour(client, mapping, D.today())
-        except Exception as e:
-            repas = []
-            st.caption(f"Lecture impossible : {type(e).__name__}")
-        if not repas:
-            st.caption("Aucun repas trouvé pour aujourd'hui. Soit ton planning est vide à cette date, "
-                       "soit la colonne de date n'a pas été reconnue — corrige la correspondance "
-                       "juste en dessous.")
-        for i, r in enumerate(repas):
-            c1, c2, c3 = st.columns([5, 3, 2])
-            libelle = str(r["nom"]) + (f"  ·  *{r['moment']}*" if r.get("moment") else "")
-            c1.markdown(libelle)
-            if r.get("proteines"):
-                c2.markdown(f"≈ **{r['proteines']} g** de protéines")
-                if c3.button("Ajouter", key=f"cu_add_{i}"):
-                    store.add_protein(D.today(), f"{r['nom']} (menu prévu)", int(r["proteines"]))
-                    st.toast(f"+{r['proteines']} g ajoutés au compteur du jour")
-                    st.rerun()
-            else:
-                val = c2.number_input("g", 0, 150, 30, step=5, key=f"cu_man_{i}",
-                                      label_visibility="collapsed")
-                if c3.button("Ajouter", key=f"cu_addm_{i}"):
-                    store.add_protein(D.today(), f"{r['nom']} (menu prévu)", int(val))
-                    st.rerun()
-
-        # --- recettes protéinées
-        rec = IT.recettes_proteinees(client, mapping)
-        if rec:
-            with st.expander(f"🎯 Tes {len(rec)} recettes les plus protéinées"):
-                st.caption("Idéal pour choisir quoi cuisiner les semaines où tu veux monter à "
-                           f"{TARGET_P} g sans forcer sur la viande.")
-                for r in rec:
-                    st.markdown(f"- **{r['nom']}** — ≈ {r['proteines']} g de protéines")
-
-    # --- correspondance des colonnes
-    with st.expander("🔧 Étape 2 — Vérifier / corriger la correspondance des colonnes",
-                     expanded=not bool(tables)):
-        st.caption("L'application devine toute seule où se trouvent les informations dans ta base. "
-                   "Vérifie que c'est juste ; si besoin, corrige et enregistre.")
-        if not tables:
-            st.info("Lance d'abord l'analyse ci-dessus.")
-        else:
-            options = ["— non utilisé —"] + [f"{t}.{c}" for t, cols in tables.items() for c in cols]
-            nouveau = {"tables": dict(mapping.get("tables") or {}), "cols": {}}
-            for cle, (libelle, _) in IT.CHAMPS.items():
-                info = (mapping.get("cols") or {}).get(cle) or {}
-                actuel = f"{info.get('table')}.{info.get('col')}" if info.get("table") and info.get("col") else "— non utilisé —"
-                idx = options.index(actuel) if actuel in options else 0
-                if cle in ("recipe_name", "ingredient_name", "protein_100g", "quantity_g",
-                           "meal_date", "meal_slot"):
-                    choix = st.selectbox(libelle, options, index=idx, key=f"it_{cle}")
-                    if choix == "— non utilisé —":
-                        nouveau["cols"][cle] = {"table": None, "col": None}
-                    else:
-                        t, c = choix.rsplit(".", 1)
-                        nouveau["cols"][cle] = {"table": t, "col": c}
-                else:
-                    nouveau["cols"][cle] = info or {"table": None, "col": None}
-            if st.button("💾 Enregistrer la correspondance", type="primary", width="stretch"):
-                nouveau["tables"] = {}
-                for cle, possibles in (("plan", IT.TABLES_PLAN), ("recettes", IT.TABLES_RECETTES),
-                                       ("ingredients", IT.TABLES_INGREDIENTS),
-                                       ("liaison", IT.TABLES_LIAISON)):
-                    nouveau["tables"][cle] = next((t for t in possibles if t in tables), None)
-                for cle, info in nouveau["cols"].items():
-                    if info.get("table"):
-                        for role, possibles in (("plan", IT.TABLES_PLAN), ("recettes", IT.TABLES_RECETTES),
-                                                ("ingredients", IT.TABLES_INGREDIENTS),
-                                                ("liaison", IT.TABLES_LIAISON)):
-                            if info["table"] in possibles:
-                                nouveau["tables"][role] = info["table"]
-                if ecrire_map(store, nouveau):
-                    st.session_state["it_map"] = nouveau
-                    st.success("Correspondance enregistrée.")
-                    st.rerun()
-                else:
-                    st.warning("Impossible d'enregistrer pour l'instant : la table `sr_integration_map` "
-                               "n'existe pas encore dans ta base. Relance le script `schema.sql` dans "
-                               "Supabase (SQL Editor → Run), puis réessaie. La détection automatique "
-                               "fonctionne quand même en attendant.")
-
-        if st.button("🔄 Relancer l'analyse de ma base"):
-            st.session_state.pop("it_tables", None)
-            st.session_state.pop("it_map", None)
-            st.rerun()
-
-        if tables:
-            with st.expander("🔬 Diagnostic (à copier-coller au coach en cas de souci)"):
-                st.code(IT.diagnostic(tables, mapping), language="text")
-
-    st.divider()
-    st.caption("Rappel : l'application Menus reste ton outil pour composer, planifier et faire les "
-               "courses. Celle-ci lit simplement ce que tu y as prévu.")
+    R.page_repas(store, menus_store, TARGET_P)
 
 
 # ============================================================================
@@ -874,6 +993,15 @@ def page_cuisine():
 def page_courses():
     st.title("🛒 Courses de la semaine")
     st.caption("Une seule sortie par semaine (samedi). Coche au fur et à mesure.")
+
+    # ---- ce que demandent tes menus (calculé depuis ton planning)
+    try:
+        R.bloc_courses_auto(store, menus_store)
+    except Exception as e:
+        st.caption(f"(Liste automatique indisponible pour l'instant : {type(e).__name__})")
+
+    st.divider()
+    st.subheader("✅ Ma liste type — à cocher samedi")
     monday = D.today() - dt.timedelta(days=D.today().weekday())
     week = st.date_input("Semaine du (lundi)", value=monday, format="DD/MM/YYYY")
     state = store.shopping_dict(week)
@@ -973,7 +1101,10 @@ pages = [
     st.Page(page_safe(page_pesee), title="Pesée & tendance", icon="⚖️"),
     st.Page(page_safe(page_seance), title="Séance 30 min", icon="💪"),
     st.Page(page_safe(page_proteines), title="Protéines", icon="🥗"),
-    st.Page(page_safe(page_cuisine), title="Cuisine & menus", icon="🍽️"),
+    st.Page(page_safe(page_cuisine), title="Repas & menus", icon="🍽️"),
+    st.Page(page_safe(page_planifier), title="Planifier", icon="📅"),
+    st.Page(page_safe(page_recettes_edition), title="Mes recettes", icon="🥣"),
+    st.Page(page_safe(page_ingredients), title="Mes ingrédients", icon="🥕"),
     st.Page(page_safe(page_mensurations), title="Mensurations", icon="📏"),
     st.Page(page_safe(page_courses), title="Courses", icon="🛒"),
     st.Page(page_safe(page_reglages), title="Réglages", icon="⚙️"),
@@ -997,7 +1128,8 @@ _test_page = os.environ.get("APP_TEST_PAGE")
 if _test_page:
     {"dashboard": page_dashboard, "pesee": page_pesee, "seance": page_seance,
      "proteines": page_proteines, "mensurations": page_mensurations,
-     "courses": page_courses, "reglages": page_reglages,
-     "cuisine": page_cuisine}[_test_page]()
+     "courses": page_courses, "reglages": page_reglages, "cuisine": page_cuisine,
+     "planifier": page_planifier, "recettes": page_recettes_edition,
+     "ingredients": page_ingredients}[_test_page]()
 else:
     st.navigation(pages).run()
