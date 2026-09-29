@@ -269,25 +269,38 @@ class MenusStore:
             return []
         lignes: list[dict] = []
         debut = 0
+        echec = None
         while True:
             try:
                 q = self.client.table(table).select(colonnes)
                 if ordre:
                     q = q.order(ordre)
-                res = q.range(debut, debut + PAGE_SUPABASE - 1).execute()
+                if debut == 0:
+                    # 1re page : on demande simplement « les N premières lignes »
+                    res = q.limit(PAGE_SUPABASE).execute()
+                else:
+                    res = q.range(debut, debut + PAGE_SUPABASE - 1).execute()
+                lot = res.data or []
             except Exception as e:                       # table absente, droits, réseau…
-                self.erreur = f"{table} : {type(e).__name__} — {e}"
+                echec = f"{table} : {type(e).__name__} — {e}"
                 break
-            lot = res.data or []
+            if not lot:
+                break
             lignes.extend(lot)
             if len(lot) < PAGE_SUPABASE:
                 break
             debut += PAGE_SUPABASE
+        if echec:
+            # IMPORTANT : on ne met JAMAIS une lecture ratée en cache.
+            # C'est ce qui affichait « 0 ligne » alors que la base répondait bien.
+            self.erreur = echec
+            return lignes
         self._cache[table] = lignes
         return lignes
 
     def vider_cache(self):
         self._cache.clear()
+        self.erreur = None
 
     # -- collections
     def ingredients(self) -> list[dict]:
