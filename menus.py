@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import datetime as dt
 import math
+import re
 
 # ---------------------------------------------------------------------------
 #  CONVERSIONS — les unités de ton application
@@ -271,6 +272,174 @@ def calculer_recette(lignes: list[dict], ing_par_id: dict, base_servings=None,
                 estimees=sorted(set(estimees)))
 
 
+# ---------------------------------------------------------------------------
+#  RETROUVER LES MACROS D'UNE ANCIENNE LIGNE DU JOURNAL
+# ---------------------------------------------------------------------------
+#  Quand « Glucides » affiche 0 g alors que des repas sont enregistrés, c'est
+#  que la ligne a été saisie avant l'ajout des colonnes glucides/lipides.
+#  On relit son libellé et on retrouve les valeurs dans la base.
+
+_RE_SUFFIXE = re.compile(
+    r"\s*\((?:menu|\d+(?:[.,]\d+)?\s*parts?|\d+(?:[.,]\d+)?\s*portions?"
+    r"|\d+(?:[.,]\d+)?\s*g servis|\d+(?:[.,]\d+)?\s*%\s*du plat)\)\s*$",
+    re.IGNORECASE)
+_RE_DEBUT_QTE = re.compile(r"^\s*(\d+(?:[.,]\d+)?)\s*(.*)$")
+
+#  ce qui suit un nombre et qui est une unité, pas un aliment
+UNITES_ECRITES = {
+    "g": "g", "gr": "g", "gramme": "g", "grammes": "g", "kg": "kg",
+    "ml": "ml", "cl": "cl", "l": "l", "litre": "l", "litres": "l",
+    "unite": "unité", "unites": "unité", "unité": "unité", "unités": "unité",
+    "tranche": "tranche", "tranches": "tranche", "gousse": "gousse",
+    "gousses": "gousse", "boite": "boîte", "boîtes": "boîte", "boite": "boîte",
+    "sachet": "sachet", "sachets": "sachet", "pot": "pot", "pots": "pot",
+    "verre": "verre", "verres": "verre", "pincee": "pincée", "pincée": "pincée",
+    "c": "c. à c.", "cuillere": "cuillère", "cuillères": "cuillère",
+}
+
+
+def _sans_accent(t: str) -> str:
+    import unicodedata
+    t = str(t or "").lower().replace("œ", "oe").replace("æ", "ae")
+    t = unicodedata.normalize("NFD", t)
+    return "".join(c for c in t if unicodedata.category(c) != "Mn")
+
+
+def _mots_ordonnes(t: str) -> list:
+    """Mots significatifs, dans l'ordre (« fromage blanc » → [fromage, blanc])."""
+    out = []
+    for mot in re.split(r"[^a-z0-9]+", _sans_accent(t)):
+        if len(mot) > 2:
+            out.append(mot[:-1] if len(mot) > 4 and mot.endswith("s") else mot)
+    return out
+
+
+def _mots(t: str) -> set:
+    """Mots utiles d'un libellé (pluriel simplifié : « oeufs » → « oeuf »)."""
+    out = set()
+    for m in re.split(r"[^a-z0-9]+", _sans_accent(t)):
+        if len(m) > 2:
+            out.add(m[:-1] if len(m) > 4 and m.endswith("s") else m)
+    return out
+
+
+def _proche(libelle: str, candidat: str) -> float:
+    """Ressemblance entre un libellé et un nom, de 0 à 1.
+
+    On mesure la part du LIBELLÉ qui est couverte par le nom : « poulet/dinde »
+    face à « Poulet, filet sans peau cru » → la moitié des mots du libellé.
+    """
+    a, b = _mots(libelle), _mots(candidat)
+    if not a or not b:
+        return 0.0
+    score = len(a & b) / len(a)
+    if _sans_accent(candidat).startswith(_sans_accent(libelle)[:12]):
+        score += 0.3
+    return round(min(score, 1.3), 3)
+
+
+def _macros_recette(base: str, qty, recettes, lignes_par_recette, ings, coherents_seuls=True):
+    """Essaie chaque recette ressemblante et garde celle qui colle aux protéines."""
+    parts = max(_nombre(qty) or 1.0, 1.0)
+    essais = []
+    for r in recettes.values():
+        sc = _proche(base, r.get("name") or "")
+        if sc < 0.5:
+            continue
+        c = calculer_recette(lignes_par_recette.get(r["id"], []), ings,
+                             r.get("base_servings"), nom_recette=r.get("name"))
+        essais.append(dict(score=sc, source=f"recette « {r['name']} »",
+                           glucides=round(c["par_part"]["glucides"] * parts, 1),
+                           lipides=round(c["par_part"]["lipides"] * parts, 1),
+                           proteines=round(c["par_part"]["proteines"] * parts, 1),
+                           detail=f"{c['par_part']['glucides']:.0f} g G et "
+                                  f"{c['par_part']['lipides']:.0f} g L par part"))
+    essais.sort(key=lambda x: -x["score"])
+    return essais
+
+
+def _macros_aliment(base: str, ings):
+    """« 180 g poulet / dinde », « 3 œufs durs », « 150 g skyr »…"""
+    m = _RE_DEBUT_QTE.match(base or "")
+    if not m:
+        return []
+    q = _nombre(m.group(1))
+    reste = (m.group(2) or "").strip()
+    if not q or not reste:
+        return []
+    # le premier mot est-il une unité écrite (« g », « tranches »…) ?
+    premier = _sans_accent(reste.split()[0]).strip(".,")
+    unite = UNITES_ECRITES.get(premier)
+    nom = reste.split(" ", 1)[1].strip() if unite and " " in reste else reste
+    if not unite and re.match(r"^(oeuf)", _sans_accent(nom)):
+        unite = "unité"                       # « 3 œufs » : on compte en pièces
+    premiers = _mots_ordonnes(nom)
+    if not premiers:
+        return []
+    essais = []
+    for i in ings.values():
+        cible = _mots_ordonnes(i.get("name") or "")
+        # le mot PRINCIPAL du libellé doit correspondre au mot principal de
+        # l'aliment : « fromage blanc » ne doit pas tomber sur « riz blanc ».
+        if not cible or cible[0] != premiers[0]:
+            continue
+        sc = _proche(nom, i.get("name") or "")
+        if sc < 0.5:
+            continue
+        g = quantite_en_grammes(q, unite or i.get("unit"), i)
+        if not g:
+            continue
+        essais.append(dict(score=sc, source=f"{g:.0f} g de « {nom_court(i)} »",
+                           glucides=round(_nombre(i.get("glucides_100g")) * g / 100.0, 1),
+                           lipides=round(_nombre(i.get("lipides_100g")) * g / 100.0, 1),
+                           proteines=round(_nombre(i.get("proteines_100g")) * g / 100.0, 1),
+                           detail=f"{g:.0f} g reconstitués"))
+    essais.sort(key=lambda x: -x["score"])
+    return essais
+
+
+def deviner_macros(libelle: str, qty, proteines_connues, recettes, lignes_par_recette, ings):
+    """Propose (glucides, lipides) pour une ligne de journal, avec vérification.
+
+    Renvoie None si rien de cohérent n'a été trouvé : on ne devine jamais.
+    La proposition retenue est celle dont les protéines recalculées collent le
+    mieux à celles déjà enregistrées (±25 %, ou ±4 g).
+    """
+    base = _RE_SUFFIXE.sub("", str(libelle or "")).strip() or str(libelle or "")
+    connues = _nombre(proteines_connues)
+
+    # on essaie le libellé tel quel, puis à partir du premier chiffre
+    # (utile si la ligne commence par un mot en trop : « Repas : 180 g poulet »)
+    variantes = [base]
+    m_chiffre = re.search(r"\d", base)
+    if m_chiffre and m_chiffre.start() > 0:
+        variantes.append(base[m_chiffre.start():])
+    essais = []
+    for v in variantes:
+        essais += _macros_recette(v, qty, recettes, lignes_par_recette, ings)
+        essais += _macros_aliment(v, ings)
+    if not essais:
+        return None
+
+    def ecart(e):
+        return abs(e["proteines"] - connues) if connues else 0.0
+
+    # On n'accepte que si les protéines recalculées sont TRÈS proches de celles
+    # enregistrées (12 % ou 2 g). C'est ce qui évite les fausses pistes :
+    # « 200 g fromage blanc » ne tombe pas sur un autre fromage au hasard.
+    valides = [e for e in essais
+               if not connues or (ecart(e) <= max(2.0, 0.12 * connues) and e["score"] >= 0.4)]
+    if valides:
+        valides.sort(key=lambda e: (-e["score"], ecart(e)))
+        e = dict(valides[0])
+        e["coherent"] = True
+        e["confiance"] = "sûre"
+        e["ecart_proteines"] = round(ecart(e), 1)
+        return e
+    # 2) rien de cohérent : on ne propose rien (mieux vaut ne rien écrire)
+    return None
+
+
 def ma_part(calcul: dict, mode: str = "parts", valeur: float = 1.0,
             portion_foyer: float = 1.0) -> dict:
     """Calcule les macros de « ma part » de 3 façons possibles.
@@ -449,6 +618,30 @@ class MenusStore:
         calc["instructions"] = rec.get("instructions")
         calc["id"] = recipe_id
         return calc
+
+    def reparer_macros(self, entrees: list[dict]) -> tuple:
+        """Cherche les glucides/lipides manquants des lignes du journal.
+
+        `entrees` : les lignes de la table protein_entries.
+        Renvoie (propositions, non_trouvees) — rien n'est écrit ici.
+        """
+        recettes = self.recette_par_id()
+        lignes_par_recette = self.lignes_par_recette()
+        ings = self.ing_par_id()
+        trouvees, perdues = [], []
+        for e in entrees or []:
+            deja = _nombre(e.get("carbs_g")) or _nombre(e.get("fat_g"))
+            if deja:
+                continue                       # déjà complète, on n'y touche pas
+            d = deviner_macros(e.get("item"), e.get("qty"), e.get("protein_g"),
+                               recettes, lignes_par_recette, ings)
+            if not d:
+                perdues.append(e)
+                continue
+            trouvees.append(dict(id=e.get("id"), item=e.get("item"),
+                                 proteines_enregistrees=_nombre(e.get("protein_g")),
+                                 date=str(e.get("entry_date") or "")[:10], **d))
+        return trouvees, perdues
 
     def repas_du_jour(self, jour: dt.date | None = None) -> list[dict]:
         """Les repas prévus ce jour-là, avec leurs macros."""

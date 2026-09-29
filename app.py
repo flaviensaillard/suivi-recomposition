@@ -52,7 +52,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 D = dt.date
-VERSION = "2.1"   # affichée dans la barre latérale : permet de vérifier que le déploiement est à jour
+VERSION = "2.2"   # affichée dans la barre latérale : permet de vérifier que le déploiement est à jour
 
 
 # ============================================================================
@@ -124,7 +124,7 @@ def menus_store():
     Sans Supabase configuré : renvoie un extrait de démonstration, pour que tu
     puisses voir la page tout de suite (les chiffres sont alors incomplets).
     """
-    VERSION_STORE = "29-09-2026b"      # à changer à chaque mise à jour du moteur
+    VERSION_STORE = "30-09-2026a"      # à changer à chaque mise à jour du moteur
     ms = st.session_state.get("_menus_store")
     if ms is not None and st.session_state.get("_menus_version") == VERSION_STORE:
         return ms
@@ -801,10 +801,89 @@ def _ajout_raccourcis():
             st.rerun()
 
 
+def _bloc_reparation(store, a_completer: list, nb_jour: int):
+    """Récupère les glucides et lipides des repas enregistrés avant la mise à jour.
+
+    Rien n'est écrit sans que tu aies vu la liste.
+    """
+    n_jour = len(a_completer)
+    with st.container(border=True):
+        st.markdown(f"**{n_jour} repas d'aujourd'hui n'ont pas encore leurs glucides et "
+                    "lipides.**")
+        st.caption("Ils ont été enregistrés avant la mise à jour : les protéines sont justes, "
+                   "mais les deux autres compteurs étaient vides. L'application peut les "
+                   "retrouver dans tes recettes et tes aliments — **et vérifie** que les "
+                   "protéines recalculées correspondent bien à celles déjà enregistrées.")
+        if st.button("🔍 Chercher les valeurs manquantes", key="pr_cherche", width="stretch"):
+            ms = menus_store()
+            if ms is None:
+                st.warning("Tes données de menus ne sont pas accessibles : vérifie les clés "
+                           "Supabase dans les Réglages.")
+            else:
+                with st.spinner("Lecture de tes recettes et de tes aliments…"):
+                    try:
+                        props, perdues = ms.reparer_macros(a_completer)
+                    except Exception as e:
+                        props, perdues = [], a_completer
+                        st.error(f"Recherche impossible ({type(e).__name__}) : {e}")
+                    st.session_state["pr_props"] = props
+                    st.session_state["pr_perdues"] = len(perdues)
+            st.rerun()
+
+        props = st.session_state.get("pr_props")
+        if props is None:
+            return
+        perdues = st.session_state.get("pr_perdues", 0)
+        if not props:
+            st.info("Aucune correspondance trouvée dans tes recettes. Ces repas sont soit des "
+                    "saisies manuelles (raccourcis, restaurant), soit libellés autrement. "
+                    "Tu peux les ressaisir : les nouvelles entrées compteront les trois "
+                    "macros automatiquement.")
+            return
+        st.dataframe(pd.DataFrame([
+            dict(Repas=p["item"], Retrouvé=p["source"], Protéines=f"{p['proteines']:.0f} g",
+                 Glucides=f"{p['glucides']:.0f} g", Lipides=f"{p['lipides']:.0f} g",
+                 Vérification="✅ cohérent" if p["coherent"] else f"⚠️ écart de {p['ecart_proteines']:.0f} g")
+            for p in props]), hide_index=True, width="stretch")
+        n_surs = sum(1 for p in props if p["coherent"])
+        if perdues:
+            st.caption(f"{perdues} autre(s) repas resteront sans valeurs (saisies manuelles ou "
+                       "libellés non reconnus) : tu pourras les ressaisir en un appui.")
+        if st.button(f"✅ Compléter {n_surs} repas sur {len(props)} (seuls les cohérents)",
+                     key="pr_applique", type="primary", width="stretch"):
+            ok, ko, refus = 0, 0, 0
+            for p in props:
+                if not p["coherent"]:
+                    refus += 1
+                    continue
+                try:
+                    if store.maj_macros_protein(p["id"], p["glucides"], p["lipides"]):
+                        ok += 1
+                    else:
+                        ko += 1
+                except Exception:
+                    ko += 1
+            if ko:
+                st.error(
+                    f"{ko} repas n'ont pas pu être mis à jour. Dans ta base, il manque les "
+                    "colonnes `carbs_g` et `fat_g` sur la table `sr_protein_entries`.\n\n"
+                    "C'est la **PARTIE 1** du script **`8_valeurs_manquantes.sql`** "
+                    "(`alter table ... add column if not exists carbs_g / fat_g`) : "
+                    "réouvre ce fichier dans Supabase, copie la partie 1 dans le "
+                    "SQL Editor et clique sur Run, puis reviens ici et réessaie.")
+            if ok:
+                st.session_state.pop("pr_props", None)
+                st.session_state.pop("pr_perdues", None)
+                st.success(f"{ok} repas complétés ✅" + (f" · {refus} laissés de côté "
+                           "(valeurs incertaines)" if refus else ""))
+                st.rerun()
+
+
 def page_proteines():
-    st.title("🥗 Protéines du jour")
-    st.caption(f"Objectif : **{TARGET_P} g/jour** (plancher 130 g). Le levier n°1 pour perdre du gras "
-               "sans perdre de muscle.")
+    st.title("🥗 Nutrition du jour")
+    st.caption(f"Tes trois compteurs du jour. **Protéines : {TARGET_P} g** (plancher 130 g) — "
+               "le levier n°1 pour perdre du gras sans perdre de muscle. "
+               f"Glucides : {TARGET_G} g · Lipides : {TARGET_L} g.")
     today = D.today()
     df = store.protein_df()
     if not df.empty:
@@ -816,25 +895,43 @@ def page_proteines():
                 else f" — il reste {TARGET_P - p_today} g"))
 
     # --- glucides et lipides du jour (mêmes entrées que les protéines)
+    auj0 = df[df["entry_date"] == today] if not df.empty else df
     g_today = l_today = 0.0
-    if not df.empty and "carbs_g" in df.columns:
-        auj0 = df[df["entry_date"] == today]
-        g_today = float(auj0["carbs_g"].fillna(0).sum())
-        l_today = float(auj0["fat_g"].fillna(0).sum()) if "fat_g" in df.columns else 0.0
-    auj_txt = "aujourd'hui"
-    st.markdown(f"**Aujourd'hui ({auj_txt})**")
+    if not auj0.empty:
+        if "carbs_g" in auj0.columns:
+            g_today = float(auj0["carbs_g"].fillna(0).sum())
+        if "fat_g" in auj0.columns:
+            l_today = float(auj0["fat_g"].fillna(0).sum())
+
+    st.markdown("**Aujourd'hui**")
     k1, k2, k3 = st.columns(3)
-    k1.metric("Protéines", fmt(p_today, " g", 0), f"cible {TARGET_P} g", delta_color="normal")
-    k2.metric("Glucides", fmt(g_today, " g", 0), f"cible ≈ {TARGET_G} g")
-    k3.metric("Lipides", fmt(l_today, " g", 0), f"cible ≈ {TARGET_L} g")
+    k1.metric(f"Protéines · cible {TARGET_P} g", fmt(p_today, " g", 0))
+    k2.metric(f"Glucides · cible {TARGET_G} g", fmt(g_today, " g", 0))
+    k3.metric(f"Lipides · cible {TARGET_L} g", fmt(l_today, " g", 0))
+
+    # --- repas saisis AVANT l'ajout des glucides/lipides : on peut les compléter
+    a_completer = []
+    if not auj0.empty:
+        for r in auj0.itertuples():
+            if not (getattr(r, "carbs_g", 0) or getattr(r, "fat_g", 0)):
+                a_completer.append(dict(id=r.id, item=r.item, protein_g=r.protein_g,
+                                        qty=getattr(r, "qty", 1.0),
+                                        entry_date=str(r.entry_date)))
+    if a_completer:
+        _bloc_reparation(store, a_completer, len(auj0))
 
     # comparaison « trop ou pas assez » — ce qui reste à prendre sur la journée
-    ecarts = [("Protéines", p_today, TARGET_P), ("Glucides", g_today, TARGET_G),
-              ("Lipides", l_today, TARGET_L)]
+    rien_g = bool(p_today) and not g_today
+    rien_l = bool(p_today) and not l_today
+    ecarts = [("Protéines", p_today, TARGET_P, False), ("Glucides", g_today, TARGET_G, rien_g),
+              ("Lipides", l_today, TARGET_L, rien_l)]
     lignes = []
-    for nom, val, cible in ecarts:
+    for nom, val, cible, non_renseigne in ecarts:
         reste = cible - val
-        if val <= 0:
+        if val <= 0 and non_renseigne:
+            verdict = "non renseigné — repas saisis avant la mise à jour"
+            val_txt = "—"
+        elif val <= 0:
             verdict = "à compléter — rien d'enregistré pour l'instant"
             val_txt = "0 g"
         elif 0.85 * cible <= val <= 1.15 * cible:
@@ -1031,7 +1128,7 @@ pages = {
         st.Page(page_safe(page_dashboard), title="Tableau de bord", icon="🏠"),
         st.Page(page_safe(page_pesee), title="Pesée & tendance", icon="⚖️"),
         st.Page(page_safe(page_seance), title="Mes séances", icon="💪"),
-        st.Page(page_safe(page_proteines), title="Protéines", icon="🥗"),
+        st.Page(page_safe(page_proteines), title="Nutrition", icon="🥗"),
         st.Page(page_safe(page_mensurations), title="Mensurations", icon="📏"),
     ],
     "⚙️ Réglages": [

@@ -192,6 +192,16 @@ class LocalStore:
         with self._con() as con:
             con.execute("delete from protein_entries where id=? and user_id=?", (int(entry_id), self.user_id))
 
+    def maj_macros_protein(self, entry_id, carbs=0, fat=0):
+        """Renseigne les glucides et lipides d'une ligne du journal."""
+        try:
+            with self._con() as con:
+                con.execute("update protein_entries set carbs_g=?, fat_g=? where id=? and user_id=?",
+                            (int(carbs or 0), int(fat or 0), int(entry_id), self.user_id))
+            return True
+        except Exception:
+            return False
+
     # -------- courses
     def shopping_dict(self, week_of):
         df = self._q("select item_key, checked from shopping_state where user_id=? and week_of=?",
