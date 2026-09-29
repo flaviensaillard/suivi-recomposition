@@ -19,6 +19,7 @@ import pandas as pd
 import streamlit as st
 
 import content as C
+import seances as SE
 import integration as IT
 import editeurs as ED
 import menus as MN
@@ -595,115 +596,9 @@ def rest_timer():
 
 
 def page_seance():
-    st.title("💪 Séance — 30 minutes")
-    st.caption("Format **supersets** : deux exercices enchaînés, 3 tours, repos court entre les tours. "
-               "C'est ce qui permet de tout faire tenir en 30 minutes sans rien perdre en résultats.")
-    daily = load_daily()
-    today = D.today()
-    default = "A" if today.weekday() in (0, 1, 2) else "B"
-    c1, c2, c3 = st.columns([1, 1, 1])
-    with c1:
-        sess = st.radio("Séance", ["A", "B"], index=0 if default == "A" else 1, horizontal=True)
-    with c2:
-        d = st.date_input("Date", value=today, max_value=today, format="DD/MM/YYYY")
-    with c3:
-        rest_default = st.number_input("Repos (s)", 30, 120, step=15, value=60)
-
-    S = C.SESSIONS[sess]
-    cls = "sess-a" if sess == "A" else "sess-b"
-    total_min = 4 + sum(b.get("min", 8) for b in S["blocs"])
-    st.markdown(f"<div class='bloc-card'><span class='{cls}'>{S['nom']}</span><br>"
-                f"<span class='hint'>Créneau habituel : {S['jour']} · format supersets : 4 min d'échauffement + "
-                f"3 blocs × 3 tours ≈ <b>{total_min} min</b>. Enchaîne les deux exercices du bloc sans t'arrêter, "
-                f"puis souffle pendant le repos. Débordement de 2 min ? Coupe le 3ᵉ tour du dernier bloc.</span></div>",
-                unsafe_allow_html=True)
-
-    # chrono de repos
-    b1, b2 = st.columns([1, 1])
-    if b1.button(f"⏱️ Démarrer un repos de {rest_default} s", width="stretch"):
-        st.session_state["rest_until"] = time.time() + int(rest_default)
-        st.session_state["rest_total"] = int(rest_default)
-    if b2.button("⏹️ Stop chrono", width="stretch"):
-        st.session_state["rest_until"] = 0
-    rest_timer()
-
-    with st.expander("🔥 Échauffement — 4 minutes (jamais sauté)", expanded=False):
-        for w in S["warmup"]:
-            st.markdown(f"- {w}")
-        st.caption("Objectif : température corporelle + mobilité + préparation de la barre de traction. "
-                   "C'est ta prévention des blessures pour le rugby.")
-
-    rows_to_save = []
-    for bloc in S["blocs"]:
-        with st.container(border=True):
-            st.markdown(f"**{bloc['bloc']}** · 3 tours · repos {bloc['repos']} s entre les tours"
-                        f" · <span class='hint'>≈ {bloc.get('min', 8)} min</span>", unsafe_allow_html=True)
-            for ex in bloc["exos"]:
-                st.markdown(f"###### {ex['nom']} — cible {ex['cible']}")
-                prev = last_sets(ex["nom"], sess, d)
-                if prev:
-                    st.caption(f"Dernière fois ({prev['date'].strftime('%d/%m')}) : {prev['reps']} reps · "
-                               f"{prev['variant']}")
-                    top = top_of_range(ex["cible"])
-                    if top and all(int(x) >= top for x in re.findall(r"\d+", prev["reps"]) or []):
-                        st.caption("⬆️ Haut de fourchette atteint sur toutes les séries → **monte d'un niveau** "
-                                   "ou ajoute du lest.")
-                var = st.selectbox("Variante (niveau)", ex["variantes"],
-                                   index=min(2, len(ex["variantes"]) - 1), key=f"v{sess}{ex['nom']}{d}",
-                                   label_visibility="collapsed")
-                lest = st.selectbox("Lest", ex["lests"], key=f"l{sess}{ex['nom']}{d}",
-                                    label_visibility="collapsed")
-                cols = st.columns(3)
-                reps = []
-                for i, col in enumerate(cols, start=1):
-                    with col:
-                        reps.append(st.number_input(f"S{i}", min_value=0, max_value=60, value=0, step=1,
-                                                    key=f"r{sess}{ex['nom']}{d}{i}"))
-                for i, r in enumerate(reps, start=1):
-                    if r and r > 0:
-                        load = None
-                        m = re.search(r"(\d+(?:[.,]\d+)?)\s*kg", lest)
-                        if m:
-                            load = float(m.group(1).replace(",", "."))
-                        elif lest.strip().lower() == "poids du corps":
-                            load = 0.0
-                        rows_to_save.append(dict(set_date=d, session=sess, exercise=ex["nom"], set_no=i,
-                                                 reps=int(r), load_kg=load, variant=var.split(" ", 1)[0],
-                                                 rpe=None))
-    with st.form("fin_seance"):
-        c1, c2 = st.columns([1, 2])
-        rpe = c1.slider("RPE global (1-10)", 1, 10, 8)
-        notes = c2.text_input("Notes de séance", "")
-        ok = st.form_submit_button("✅ Terminer et enregistrer la séance", type="primary", width="stretch")
-    if ok:
-        if not rows_to_save:
-            st.warning("Saisis au moins une série avant de valider.")
-        else:
-            store.save_sets(rows_to_save)
-            store.save_workout(dict(session_date=d, session=sess, duration_min=S["minutes"],
-                                    rpe=int(rpe), notes=notes))
-            st.success(f"Séance {sess} enregistrée : {len(rows_to_save)} séries.")
-            st.rerun()
-
-    st.subheader("Historique récent")
-    df = store.sets_df()
-    if df.empty:
-        st.caption("Aucune série enregistrée pour l'instant.")
-    else:
-        df["set_date"] = pd.to_datetime(df["set_date"]).dt.date
-        st.dataframe(df.sort_values(["set_date", "set_no"], ascending=[False, True]).head(40)[
-            ["set_date", "session", "exercise", "set_no", "reps", "load_kg", "variant"]].rename(columns={
-            "set_date": "Date", "session": "Séance", "exercise": "Exercice", "set_no": "Série",
-            "reps": "Reps", "load_kg": "Lest (kg)", "variant": "Niveau"}),
-            hide_index=True, width="stretch", height=300)
-        trac = df[df["exercise"].str.contains("Tractions", case=False, na=False)]
-        if not trac.empty:
-            g = trac.groupby("set_date", as_index=False)["reps"].max().rename(columns={"set_date": "date"})
-            st.caption("📈 **Suivi des tractions** — le meilleur indicateur de muscle préservé : "
-                       "stable ou en hausse = tu ne perds pas de muscle.")
-            st.altair_chart(alt.Chart(g).mark_line(point=True, color="#0d9488").encode(
-                x=alt.X("date:T", title=None), y=alt.Y("reps:Q", title="meilleure série"),
-            ).properties(height=200, width="container"))
+    """Renforcement 30 min (lundi/vendredi) + rugby (jeudi) : noms Freeletics,
+    explications, validation du ressenti et adaptation automatique."""
+    SE.page_seance(store, TARGET_P)
 
 
 # ============================================================================
@@ -1102,7 +997,7 @@ def page_reglages():
 pages = [
     st.Page(page_safe(page_dashboard), title="Tableau de bord", icon="🏠", default=True),
     st.Page(page_safe(page_pesee), title="Pesée & tendance", icon="⚖️"),
-    st.Page(page_safe(page_seance), title="Séance 30 min", icon="💪"),
+    st.Page(page_safe(page_seance), title="Mes séances", icon="💪"),
     st.Page(page_safe(page_proteines), title="Protéines", icon="🥗"),
     st.Page(page_safe(page_cuisine), title="Repas & menus", icon="🍽️"),
     st.Page(page_safe(page_planifier), title="Planifier", icon="📅"),
