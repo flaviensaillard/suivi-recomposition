@@ -17,7 +17,7 @@ from __future__ import annotations
 #  (« éditeur 2.8 »). S'il affiche autre chose, c'est que ce fichier n'a pas
 #  été recopié sur GitHub.
 # ---------------------------------------------------------------------------
-VERSION = "2.8.8"
+VERSION = "2.8.9"
 
 import datetime as dt
 import traceback
@@ -307,12 +307,12 @@ def page_planifier(ms, target_p: float):
 
     st.divider()
 
-    # ---- recherche (accents ignorés) : filtre les listes Recette / Ingrédient
-    #      de tous les jours de la semaine d'un coup
-    recherche_plan = MN.champ_recherche("pl_recherche", "🔍 Rechercher une recette ou un ingrédient",
-                              placeholder="pates, steak, courgete…")
-    if recherche_plan.strip():
-        st.caption("Le filtre s'applique aux listes **Recette** et **Ingrédient** de chaque jour.")
+    # ---- LA RECHERCHE EST DANS CHAQUE LISTE (choix du 30/09) ----
+    #  Avant : une barre « 🔍 Rechercher une recette ou un ingrédient » en haut de
+    #  page, que ce n'était pas ce qu'il voulait. Maintenant : on tape directement
+    #  dans la case posée sur la liste déroulante, le jour concerné.
+    st.caption("Pour chercher : tape directement dans la case au-dessus de la liste "
+               "**Recette** ou **Ingrédient** du repas (les accents ne comptent pas).")
 
     # ---- grille de la semaine
     for i, d in enumerate(jours):
@@ -329,8 +329,11 @@ def page_planifier(ms, target_p: float):
                 libelle = f"{p.get('meal_type') or ''} · **{nom}**"
                 if p.get("ingredient_qty"):
                     _ing = PM._trouve_ing(nom, ing_par_id) or PM._trouve_ing(nom, ingredients)
+                    _portion = None
+                    if _est_convives(p.get("ingredient_unit")):
+                        _portion = _portion_du_repas(ms, _ing)[0]
                     _q = PM._quantite_lisible(p["ingredient_qty"], _ing,
-                                              p.get("ingredient_unit"))
+                                              p.get("ingredient_unit"), _portion)
                     # avant : « Pâtes — 200 » (sans unité). Maintenant : « Pâtes — 200 g »
                     libelle += f" — {_q}" if _q else f" — {p['ingredient_qty']:g}"
                 if p.get("servings"):
@@ -382,16 +385,24 @@ def page_planifier(ms, target_p: float):
             choix, qte, unite, ids_ing = None, None, None, None
 
             if genre == "Recette":
-                noms = MN.filtre_recherche([r.get("name") for r in recettes], recherche_plan)
-                choix = st.selectbox("Recette", ["—"] + noms, key=f"pl_r_{d}")
+                choix, _ = _recherche_dans_liste(
+                    [r.get("name") for r in recettes], None, cle=f"pl_sr_{d}",
+                    label="🔍 Chercher une recette", type_element="recette",
+                    cle_liste=f"pl_r_{d}",
+                    aide="Tape « bolognaise », « curry »… la liste se réduit au fur et à mesure.")
 
             elif genre == "Ingrédient":
                 noms, ids_ing = _choix_ingredients(ms, tout=True)
-                noms = MN.filtre_recherche(noms, recherche_plan)
+                choix, ing_choisi = _recherche_dans_liste(
+                    noms, ids_ing, cle=f"pl_si_{d}", cle_liste=f"pl_i_{d}",
+                    label="🔍 Chercher un ingrédient (tape par ex. « pates »)",
+                    type_element="ingrédient",
+                    aide="Tape « pates » : la liste propose « Pâtes ». La barre du haut de "
+                         "page et l'onglet « Recherche » ont été retirés : la recherche se "
+                         "fait ici, à l'endroit où on choisit.")
                 if not noms:
-                    st.caption("Aucun ingrédient ne correspond à la recherche du haut de page.")
-                choix = st.selectbox("Ingrédient", ["—"] + noms, key=f"pl_i_{d}")
-                ing_choisi = (ids_ing or {}).get(choix)
+                    st.caption("Ta base d'ingrédients est vide : remplis-la page "
+                               "« Recettes & ingrédients ».")
                 fiche = next((i for i in ingredients if _id(i) == ing_choisi), None)
                 # ✅ CHOIX DE L'UNITÉ : la quantité veut enfin dire quelque chose
                 #    (4 unités de steak haché ≠ 4 g). La clé contient l'aliment :
@@ -408,14 +419,25 @@ def page_planifier(ms, target_p: float):
                                       key=f"pl_q_{d}",
                                       help="Le nombre d'unités choisies juste à droite.")
                 unite = q2.selectbox("Unité", options_u, key=cle_u,
-                                     help="« 4 unités » de steak haché = 500 g au magasin "
-                                          "(4 × 125 g). Change l'unité : la liste de courses "
-                                          "et la fiche PDF suivent.")
+                                     help="« unité » = 1 steak haché (125 g pièce). "
+                                          "« convives » = un nombre de personnes : 3 convives "
+                                          "de pâtes = 3 × 80 g = 240 g. La liste de courses et "
+                                          "la fiche PDF suivent l'unité choisie.")
                 if fiche:
-                    total = PM._quantite_lisible(qte, fiche, unite)
-                    cout = _cout_ingredient(fiche, qte, unite)
-                    st.caption(f"→ Ce repas demandera **{total or '—'}** à la liste de courses "
-                               f"({cout})")
+                    # ⭐ unité « convives » : la quantité est un NOMBRE DE PERSONNES.
+                    #   3 convives de steak haché → 3 × 130 g → 390 g sur la liste.
+                    portion, source = (None, "")
+                    if _est_convives(unite):
+                        portion, source = _portion_du_repas(ms, fiche)
+                    total = PM._quantite_lisible(qte, fiche, unite, portion)
+                    cout = _cout_ingredient(fiche, qte, unite, portion)
+                    if portion:
+                        st.caption(f"→ Ce repas demandera **{total or '—'}** à la liste de "
+                                   f"courses ({float(qte):g} convive{'s' if float(qte) > 1 else ''} "
+                                   f"× {portion:g} g par personne — {source}). {cout}")
+                    else:
+                        st.caption(f"→ Ce repas demandera **{total or '—'}** à la liste de "
+                                   f"courses ({cout})")
 
             else:
                 choix = st.text_input("Texte", placeholder="Restaurant, pique-nique…",
@@ -456,7 +478,7 @@ def page_planifier(ms, target_p: float):
             st.warning("Mode aperçu : rien n'est supprimé.")
 
 
-def _cout_ingredient(fiche: dict | None, qte, unite) -> str:
+def _cout_ingredient(fiche: dict | None, qte, unite, portion=None) -> str:
     """Phrase d'explication : « ≈ 750 kcal, 82 g de protéines » pour cet ajout."""
     if not fiche:
         return "aliment inconnu de la base"
@@ -469,7 +491,10 @@ def _cout_ingredient(fiche: dict | None, qte, unite) -> str:
         poids = float(fiche.get("poids_piece_g") or 0) if u in ("unité", "unite") else 0
     except (TypeError, ValueError):
         poids = 0
-    grammes = q * poids if poids else q
+    if _est_convives(u) and portion:          # ⭐ 3 convives → 3 × 130 g = 390 g
+        grammes = q * float(portion)
+    else:
+        grammes = q * poids if poids else q
     k, pr = fiche.get("kcal_100g"), fiche.get("proteines_100g")
     if not grammes or (k is None and pr is None):
         return "valeurs non renseignées dans ta base"
@@ -526,34 +551,49 @@ def _editer_repas(ms, p, nom, cle):
     vient manger à l'improviste ». C'est le rôle de ce petit panneau.
     """
     from_ing = bool(p.get("ingredient_qty")) or str(nom).startswith("[Ing]")
+    #  Les cases sont HORS du formulaire, exprès : dans un formulaire, Streamlit ne
+    #  relance pas la page, donc l'aperçu et le nom de la case « Quantité (unité) »
+    #  ne suivaient pas le choix de l'unité. Seuls les deux boutons restent dedans.
+    st.markdown(f"**✏️ Modifier — {nom}**")
+    e1, e2 = st.columns(2)
+    moment = e1.selectbox("Moment", ["Midi", "Soir"],
+                          index=0 if (p.get("meal_type") or "Midi") == "Midi" else 1,
+                          key=f"pe_m_{cle}")
+    convives = e2.number_input(
+        "Convives", 1, 12,
+        int(p.get("servings") or p.get("nb_persons") or 4), key=f"pe_c_{cle}",
+        help="Le nombre de personnes présentes à ce repas. La liste de courses "
+             "et la fiche PDF recalculent les quantités avec ce nombre.")
+    qte, unite = None, None
+    if from_ing:
+        fiche = _fiche_du_repas(ms, p, nom)
+        actuelle = _unite_courante(p)
+        options_u = MN.unites_proposees(fiche)
+        proposee = actuelle or options_u[0]
+        if proposee not in options_u:
+            options_u = [proposee] + options_u
+        e3, e4 = st.columns(2)
+        deja = st.session_state.get(f"pe_u_{cle}") or proposee
+        qte = e3.number_input(f"Quantité ({deja})", 0.0, 5000.0,
+                              float(p.get("ingredient_qty") or 1.0), step=0.5,
+                              key=f"pe_q_{cle}",
+                              help="La quantité de cet ingrédient seul (4 unités, 200 g…).")
+        unite = e4.selectbox("Unité", options_u, key=f"pe_u_{cle}",
+                             help="« unité » = 1 pièce de l'aliment. « convives » = un nombre "
+                                  "de personnes : 3 convives de pâtes = 3 × 80 g = 240 g.")
+        if fiche:
+            portion, source = (None, "")
+            if _est_convives(unite):
+                portion, source = _portion_du_repas(ms, fiche)
+            total = PM._quantite_lisible(qte, fiche, unite, portion)
+            cout = _cout_ingredient(fiche, qte, unite, portion)
+            if portion:
+                st.caption(f"→ Ce repas demandera **{total or '—'}** "
+                           f"({float(qte):g} convive{'s' if float(qte) > 1 else ''} "
+                           f"× {portion:g} g par personne — {source}). {cout}")
+            else:
+                st.caption(f"→ Ce repas demandera **{total or '—'}** ({cout})")
     with st.form(f"pl_edit_{cle}"):
-        st.markdown(f"**✏️ Modifier — {nom}**")
-        e1, e2, e3 = st.columns(3)
-        moment = e1.selectbox("Moment", ["Midi", "Soir"],
-                              index=0 if (p.get("meal_type") or "Midi") == "Midi" else 1,
-                              key=f"pe_m_{cle}")
-        convives = e2.number_input(
-            "Convives", 1, 12,
-            int(p.get("servings") or p.get("nb_persons") or 4), key=f"pe_c_{cle}",
-            help="Le nombre de personnes présentes à ce repas. La liste de courses "
-                 "et la fiche PDF recalculent les quantités avec ce nombre.")
-        qte, unite = None, None
-        if from_ing:
-            fiche = _fiche_du_repas(ms, p, nom)
-            actuelle = _unite_courante(p)
-            options_u = MN.unites_proposees(fiche)
-            proposee = actuelle or options_u[0]
-            if proposee not in options_u:
-                options_u = [proposee] + options_u
-            e3, e4 = st.columns(2)
-            deja = st.session_state.get(f"pe_u_{cle}") or proposee
-            qte = e3.number_input(f"Quantité ({deja})", 0.0, 5000.0,
-                                  float(p.get("ingredient_qty") or 1.0), step=0.5,
-                                  key=f"pe_q_{cle}",
-                                  help="La quantité de cet ingrédient seul (4 unités, 200 g…).")
-            unite = e4.selectbox("Unité", options_u, key=f"pe_u_{cle}",
-                                 help="L'unité de cette quantité. « unité » de steak haché "
-                                      "= 125 g pièce.")
         b1, b2 = st.columns(2)
         enregistrer = b1.form_submit_button("💾 Enregistrer", width="stretch")
         annuler = b2.form_submit_button("Annuler", width="stretch")
@@ -699,7 +739,8 @@ def _fiche_pdf(ms, jours, planning, recettes_par_id, ing_par_id, pour_foyer: boo
                     v["name"] = court
             recurrents = [dict(r, name=MN.nom_court(r)) for r in recurrents]
             pdf = PM.generate_pdf(semaine, agg, recurrents, recettes_par_id,
-                                  ingredients_dict=ing_par_id, start_date=jours[0])
+                                  ingredients_dict=ing_par_id, start_date=jours[0],
+                                  recipe_ings=ms.lignes_par_recette())
         except Exception as e:
             st.error(f"La fiche n'a pas pu être générée : {type(e).__name__} — {e}")
             return
@@ -744,6 +785,50 @@ def page_recettes_edition(ms):
         _creer_recette(ms)
     else:
         _modifier_recette(ms)
+
+
+def _recherche_dans_liste(libelles, ids, cle: str, label: str,
+                          type_element: str = "ingrédient", aide: str = "",
+                          cle_liste: str | None = None):
+    """⭐ LA LISTE DÉROULANTE CHERCHABLE (demandé le 30/09).
+
+    Il tape « pates » dans la case juste au-dessus de la liste : la liste ne
+    garde alors que ce qui correspond — accents et majuscules ignorés. Il voit
+    donc « Pâtes » en tapant « pates », et il clique dessus.
+
+    Renvoie (libellé choisi, identifiant) — le libellé « — » = rien de choisi.
+    """
+    import streamlit as st
+    terme = st.text_input(label, key=cle, placeholder="pates, steak, courgette…",
+                          help=aide or "Tape les premières lettres, même sans accent : "
+                                       "« pates » trouve « Pâtes », « epinard » trouve "
+                                       "« Épinard ». La liste se réduit au fur et à mesure.")
+    vus = MN.filtre_recherche(libelles, terme)
+    if not vus:
+        st.warning(f"Aucun {type_element} de ta base ne contient « {terme} ». "
+                   "Efface la case pour revoir la liste complète, ou tape moins de lettres.")
+    elif str(terme or "").strip():
+        st.caption(f"{len(vus)} {type_element}{'s' if len(vus) > 1 else ''} sur "
+                   f"{len(libelles)} correspond{'ent' if len(vus) > 1 else ''} à « {terme} ».")
+    choix = st.selectbox(f"{type_element.capitalize()} — clique pour choisir",
+                         ["—"] + list(vus), key=cle_liste or f"{cle}_liste",
+                         help="La liste suit ce que tu tapes dans la case du dessus.")
+    return choix, (ids or {}).get(choix)
+
+
+def _portion_du_repas(ms, fiche):
+    """La portion recommandée par personne pour cet aliment (source incluse)."""
+    if not fiche:
+        return None, ""
+    try:
+        return MN.portion_personne(fiche, ms.lignes(), ms.recette_par_id())
+    except Exception:
+        return MN.portion_personne(fiche)
+
+
+def _est_convives(unite) -> bool:
+    """Vrai si l'unité choisie est « convives » (ou « personnes »)."""
+    return str(unite or "").strip().lower().startswith(("convive", "personne"))
 
 
 def _choix_ingredients(ms, tout: bool = True):

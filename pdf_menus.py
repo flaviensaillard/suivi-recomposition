@@ -213,7 +213,8 @@ def convert_to_unit(quantity: float, unit_source: str, unit_cible: str, poids_pi
 def generate_pdf(planned_meals: List[Dict], aggregated_items: Dict,
                  recurrent_items: List[Dict], recipes_dict: Dict,
                  ingredients_dict: Dict = None,
-                 start_date: date = None) -> bytes:
+                 start_date: date = None,
+                 recipe_ings=None) -> bytes:
     """La fiche A4 de la semaine — tout doit tenir sur une seule feuille.
 
     Mise en page 2.8.4 : chaque texte est mesuré avant d'être écrit et la police
@@ -263,7 +264,17 @@ def generate_pdf(planned_meals: List[Dict], aggregated_items: Dict,
                 # (« Pâtes (200) » → « Pâtes (200 g) »). Corrigé le 30/09.
                 if est_ing and pm.get("ingredient_qty"):
                     ing = _trouve_ing(nom_plat, ingredients_dict or {})
-                    qte_txt = _quantite_lisible(pm["ingredient_qty"], ing)
+                    # ⭐ unité « convives » : « 3 convives » s'affiche « 240 g »
+                    portion = None
+                    if str(pm.get("ingredient_unit") or "").strip().lower().startswith(
+                            ("convive", "personne")):
+                        try:
+                            import menus as MN
+                            portion = MN.portion_personne(ing, recipe_ings, recipes_dict)[0]
+                        except Exception:
+                            portion = None
+                    qte_txt = _quantite_lisible(pm["ingredient_qty"], ing,
+                                                pm.get("ingredient_unit"), portion)
                     nom_plat = f"{nom_plat} ({qte_txt})" if qte_txt else nom_plat
 
                 moment = pm.get("meal_type")
@@ -326,7 +337,7 @@ def _unite_propre(unite) -> str:
     return "unité" if c in ("piece", "pieces", "unite", "unites", "u") else u
 
 
-def _quantite_lisible(qte, ing: dict | None, unite_saisie=None) -> str:
+def _quantite_lisible(qte, ing: dict | None, unite_saisie=None, portion=None) -> str:
     """La quantité d'une ligne « [Ing] », écrite AVEC son unité.
 
     Trois cas, exactement les mêmes règles que la liste de courses :
@@ -348,7 +359,7 @@ def _quantite_lisible(qte, ing: dict | None, unite_saisie=None) -> str:
 
     if ing:
         cible = (ing.get("unite_liste_courses") or ing.get("unit") or "").strip()
-        v = _quantite_ligne_ing(q, ing, cible, unite_saisie)
+        v = _quantite_ligne_ing(q, ing, cible, unite_saisie, portion)
         unite = _unite_propre(cible)
         return _texte_quantite(v if v is not None else q, unite or "g")
 
@@ -453,7 +464,8 @@ COMPTE_UNITES = ("unité", "unite", "pièce", "piece", "tranche", "gousse", "sac
                  "boîte", "boite", "pot", "barquette", "verre", "filet")
 
 
-def _quantite_ligne_ing(qty_source, ing: dict, unite_liste, unite_saisie=None):
+def _quantite_ligne_ing(qty_source, ing: dict, unite_liste, unite_saisie=None,
+                        portion=None):
     """Traduit le nombre saisi sur une ligne « [Ing] » en vraie quantité de courses.
 
     Sur une ligne « [Ing] », on tape un petit nombre entier : « 4 » pour 4 steaks,
@@ -481,6 +493,17 @@ def _quantite_ligne_ing(qty_source, ing: dict, unite_liste, unite_saisie=None):
         c_compte = _cle_aliment(cible) in (
             "unite", "piece", "tranche", "gousse", "boite", "sachet", "pot",
             "barquette", "botte", "filet", "verre", "portion")
+        # ⭐ UNITÉ « CONVIVES » : 3 convives × la portion d'UNE personne.
+        #    3 convives de steak haché (130 g) → 390 g, puis l'unité d'achat.
+        if u_saisie in ("convives", "convive", "personne", "personnes", "par personne"):
+            g_par_personne = portion
+            if g_par_personne is None:
+                import menus as MN
+                g_par_personne = MN.portion_personne(ing)[0]
+            total_g = q * float(g_par_personne)
+            if c_compte and poids_piece > 0:
+                return convert_to_unit(total_g, "g", cible, poids_piece)
+            return convert_to_unit(total_g, "g", cible, None)
         if u_saisie in ("unité", "unite"):
             if c_compte:
                 return q                     # 3 unités restent 3 unités
@@ -540,8 +563,15 @@ def construire_agregat(week_meals, recipes_dict, ingredients_dict, recipe_ings,
             elif ing is not None and not ing.get("exclude_from_list"):
                 unite_liste = ing.get("unite_liste_courses") or ing.get("unit")
                 qty_source = pm.get("ingredient_qty") or pm.get("servings") or 1
+                portion = None
+                if str(pm.get("ingredient_unit") or "").strip().lower().startswith(("convive", "personne")):
+                    try:
+                        import menus as MN
+                        portion = MN.portion_personne(ing, recipe_ings, recipes_dict)[0]
+                    except Exception:
+                        portion = None
                 qty = _quantite_ligne_ing(qty_source, ing, unite_liste,
-                                          pm.get("ingredient_unit"))
+                                          pm.get("ingredient_unit"), portion)
                 if ing["id"] not in aggregated:
                     # nom COURT (son nom à lui s'il l'a simplifié : « Boeuf haché »
                     # et non « Boeuf, steak haché 15% MG cuit »), comme dans la

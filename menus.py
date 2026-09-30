@@ -19,7 +19,7 @@ Ce module en déduit, sans aucune saisie :
 Aucune écriture ici : que de la lecture et du calcul. Tu peux tester sans risque.
 """
 
-VERSION = "2.8.8"        # affiché dans la barre de gauche (contrôle des fichiers à jour)
+VERSION = "2.8.9"        # affiché dans la barre de gauche (contrôle des fichiers à jour)
 
 import datetime as dt
 import math
@@ -336,7 +336,7 @@ def unites_proposees(ing: dict | None) -> list:
               "botte", "filet", "verre", "portion")
     masse = ("g", "gramme", "grammes", "kg", "kilo", "kilos")
     volume = ("ml", "cl", "l", "litre", "litres")
-    choix = [u]
+    choix = [u, "convives"]     # unite "convives" = portion par personne
     if bas in grands:
         choix += ["unité", "tranche", "gousse", "boîte", "sachet", "pot", "portion"]
     if bas in masse or (bas in ("", "?") and not poids):
@@ -355,6 +355,117 @@ def unites_proposees(ing: dict | None) -> list:
             vus.add(c.lower())
             propre.append(c)
     return propre
+
+
+# ===========================================================================
+#  UNITÉ « CONVIVES » — combien acheter pour N personnes  (demandé le 30/09)
+#
+#  Il choisit « convives » comme unité et écrit 3 : l'application multiplie par
+#  la portion recommandée pour UNE personne, puis traduit dans l'unité de la
+#  liste de courses (g, kg, unités…).
+#
+#  D'où viennent les portions ? Dans l'ordre :
+#    1. les repères ci-dessous (grammages par personne du guide courant) ;
+#    2. sinon, la MOYENNE de ses propres recettes (ses quantités pour 4 parts ÷ 4) ;
+#    3. sinon la portion du rayon (200 g de légumes, 130 g de viande…).
+#  La source est écrite dans l'aperçu : il sait toujours d'où vient le chiffre.
+# ===========================================================================
+PORTION_PERSONNE_G = {                 # portions « repère » par mot-clé
+    "oeuf": 110,                       # 2 œufs
+    "steak": 130, "boeuf": 130, "veau": 130, "porc": 130, "agneau": 130,
+    "poulet": 130, "dinde": 130, "escalope": 130, "saucisse": 120, "chipolata": 120,
+    "cordon bleu": 100, "nugget": 100, "lardon": 50, "jambon": 50, "saucisson": 40,
+    "poisson": 130, "cabillaud": 130, "saumon": 130, "colin": 130, "merlu": 130,
+    "maquereau": 120, "sardine": 100, "thon": 100, "crevette": 100, "tofu": 130,
+    "gnocchi": 150, "raviole": 150, "quenelle": 150, "nouille": 80, "lasagne": 200,
+    "lentille": 70, "pois chiche": 70, "flageolet": 70, "haricot sec": 70,
+    "polenta": 80, "pomme de terre": 200, "patate douce": 200,
+    "riz": 80, "semoule": 80, "quinoa": 80, "boulgour": 80, "pate": 80,
+    "comte": 40, "emmental": 40, "parmesan": 25, "chevre": 40, "mozzarella": 60,
+    "feta": 40, "fromage blanc": 150, "fromage": 40, "yaourt": 125, "skyr": 150,
+    "creme": 50, "beurre": 10, "huile": 10, "margarine": 10,
+    "lait": 200, "jus": 200, "soda": 250, "cafe": 200, "the": 200, "boisson": 250,
+    "pain de mie": 60, "pain": 60, "baguette": 60, "biscotte": 30, "cereale": 40,
+    "sucre": 20, "confiture": 20, "miel": 20, "chocolat": 20, "biscuit": 30,
+    "amande": 20, "noix": 20, "cacahuete": 20, "compote": 100, "fruit": 150,
+    "salade": 100, "crudite": 100, "tomate": 150, "concombre": 100, "carotte": 150,
+    "courgette": 200, "aubergine": 200, "haricot vert": 150, "epinard": 150,
+    "champignon": 150, "brocoli": 150, "betterave": 100, "oignon": 50, "petits pois": 150,
+    "soupe": 250, "gratin": 250, "quiche": 200, "pizza": 200, "tarte": 150,
+    "croque": 150, "sauce": 30, "mayonnaise": 20, "ketchup": 20, "moutarde": 10,
+    "vinaigre": 10, "sel": 3, "poivre": 2, "epice": 2, "ail": 3, "persil": 5,
+    "herbe": 5, "bouillon": 5, "levure": 3, "farine": 60, "maizena": 10,
+}
+PORTION_RAYON_G = {                    # si aucun mot-clé ne correspond
+    "Boucherie & Poissonnerie": 130,
+    "Fruits & Légumes": 200,
+    "Frais & Produits Laitiers": 40,
+    "Épicerie Salée": 80,
+    "Épicerie Sucrée": 25,
+    "Surgelés": 150,
+    "Boissons": 250,
+    "Autre": 100,
+}
+PORTION_DEFAUT_G = 100                 # rien de connu : 100 g par personne
+
+
+def portion_personne(ing: dict | None, lignes=None, recettes=None) -> tuple:
+    """Portion recommandée pour UNE personne : (grammes, « d'où ça vient »).
+
+    1. le repère par mot-clé (« steak » → 130 g, « pâtes » → 80 g…) ;
+    2. sinon la moyenne de ses recettes (ses quantités pour 4 parts ÷ 4) ;
+    3. sinon la portion du rayon (200 g de légumes, 130 g de viande…).
+    """
+    ing = ing or {}
+    nom = _sans_accent(f"{ing.get('nom_affiche') or ''} {ing.get('name') or ''}")
+    # on cherche des MOTS ENTIERS (sinon « Boeuf » contenait « oeuf » !) ;
+    # le mot qui arrive LE PLUS À GAUCHE gagne, le plus long en cas d'égalité
+    # (« Thon à la tomate » → thon, pas tomate ; « Pain de mie » → pain de mie)
+    trouves = []
+    for mot in PORTION_PERSONNE_G:
+        m = re.search(r"\b" + _sans_accent(mot) + r"s?\b", nom)
+        if m:
+            trouves.append((m.start(), -len(mot), mot))
+    if trouves:
+        mot = min(trouves)[2]
+        return float(PORTION_PERSONNE_G[mot]), f"repère « {mot} »"
+    if lignes and recettes:                       # 2) ses propres recettes
+        # « lignes » arrive en dictionnaire par recette (application) ou en liste
+        # plate (fiche PDF) : on accepte les deux.
+        liste = (list(lignes) if isinstance(lignes, (list, tuple))
+                 else [l for v in lignes.values() for l in (v or [])])
+        tot, nb = 0.0, 0
+        for l in liste:
+            if str(l.get("ingredient_id")) != str(ing.get("id")):
+                continue
+            rec = (recettes or {}).get(l.get("recipe_id")) or {}
+            parts = _nombre(rec.get("base_servings")) or 4.0
+            try:
+                import pdf_menus as PM
+                g = PM.convert_to_unit(_nombre(l.get("quantity")),
+                                       l.get("unit") or ing.get("unit"),
+                                       "g", ing.get("poids_piece_g"))
+            except Exception:
+                g = _nombre(l.get("quantity"))
+            if g and parts:
+                tot += float(g) / float(parts)
+                nb += 1
+        if nb and tot > 0:
+            return tot / nb, f"moyenne de tes recettes ({nb} recette{'s' if nb > 1 else ''})"
+    rayon = ing.get("category") or "Autre"
+    return float(PORTION_RAYON_G.get(rayon, PORTION_DEFAUT_G)), f"portion du rayon {rayon}"
+
+
+def portion_en_unites(portion_g: float, ing: dict | None) -> str:
+    """« 110 g » → « ≈ 2 unités » quand l'aliment se compte (œufs…)."""
+    ing = ing or {}
+    try:
+        poids = float(ing.get("poids_piece_g") or 0)
+    except (TypeError, ValueError):
+        poids = 0.0
+    if poids > 0:
+        return f"≈ {portion_g / poids:.1f} unité".replace(".0", "")
+    return f"{portion_g:g} g"
 
 
 def unite_propre(unite) -> str:
@@ -883,6 +994,7 @@ class MenusStore:
         """
         recettes = self.recette_par_id()
         lignes = self.lignes_par_recette()
+        lignes_all = [l for lst in lignes.values() for l in (lst or [])]   # pour les portions
         ings = self.ing_par_id()
         portion = portion_foyer(adultes, enfants, coef_enfant) if pour_foyer else None
 
@@ -920,10 +1032,17 @@ class MenusStore:
                 if cle and not ing.get("exclude_from_list"):
                     unite_liste = ing.get("unite_liste_courses") or ing.get("unit") or "g"
                     qte_saisie = m.get("ingredient_qty") or m.get("servings") or 1
+                    # ⭐ unité « convives » : « 3 convives » de pâtes = 3 × 80 g.
+                    #   La portion par personne vient des repères (voir plus haut),
+                    #   ou de la moyenne de ses recettes.
+                    u_saisie = m.get("ingredient_unit")
+                    portion_pers = None            # ⚠️ nom distinct : « portion » = le foyer
+                    if str(u_saisie or "").strip().lower().startswith(("convive", "personne")):
+                        portion_pers = portion_personne(ing, lignes_all, recettes)[0]
                     try:
                         import pdf_menus as PM
                         q = PM._quantite_ligne_ing(qte_saisie, ing, unite_liste,
-                                                   m.get("ingredient_unit"))
+                                                   u_saisie, portion_pers)
                     except Exception:
                         q = _nombre(qte_saisie)
                     if cle not in besoin:
