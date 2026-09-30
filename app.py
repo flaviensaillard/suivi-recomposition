@@ -30,7 +30,7 @@ from db import LocalStore, SupaStore
 
 #  Le numéro de version du lot de fichiers déposé sur GitHub : les 4 fichiers
 #  (celui-ci, editeurs.py, menus.py, pdf_menus.py, repas_plats.py) le portent.
-VERSION = "2.9.1"
+VERSION = "2.9.2"
 
 
 # ---------------------------------------------------------------------------

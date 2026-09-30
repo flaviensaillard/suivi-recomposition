@@ -19,7 +19,7 @@ Ce module en déduit, sans aucune saisie :
 Aucune écriture ici : que de la lecture et du calcul. Tu peux tester sans risque.
 """
 
-VERSION = "2.9.1"        # affiché dans la barre de gauche (contrôle des fichiers à jour)
+VERSION = "2.9.2"        # affiché dans la barre de gauche (contrôle des fichiers à jour)
 
 import datetime as dt
 import math
@@ -312,20 +312,45 @@ def champ_recherche(cle_etat: str, label: str = "🔍 Rechercher",
                               "« epinard » trouve « Épinard ».")
 
 
+def _liste_deroulante(label: str, options: list, index: int = 0, key: str = "",
+                      help: str = ""):
+    """La liste déroulante compacte (une seule ligne à l'écran).
+
+    On demande la recherche « floue » à Streamlit quand elle existe (elle
+    comprend les petites fautes et, sur les versions récentes, les accents) ;
+    si la version de Streamlit est plus ancienne, on la crée sans ce réglage :
+    l'application ne doit jamais s'arrêter pour ça.
+    """
+    import inspect
+
+    import streamlit as st
+    reglages = {"index": index, "key": key}
+    if help:
+        reglages["help"] = help
+    try:                                   # Streamlit récent : recherche tolérante
+        if "filter_mode" in inspect.signature(st.selectbox).parameters:
+            reglages["filter_mode"] = "fuzzy"
+    except (TypeError, ValueError):
+        pass
+    try:
+        return st.selectbox(label, options, **reglages)
+    except TypeError:                      # version ancienne : on refait sans
+        reglages.pop("filter_mode", None)
+        return st.selectbox(label, options, **reglages)
+
+
 # ===========================================================================
-#  LE MODULE DE RECHERCHE — IL N'Y EN A QU'UN (demandé le 30/09)
+#  LE MODULE DE RECHERCHE — IL N'Y EN A QU'UN (30/09)
 #
 #  « Je ne veux pas avoir deux modules de recherches, je veux seulement
 #   "chercher une recette/ingrédient" et que ça ne tienne pas compte des
 #   accents lors de ma saisie. Et je veux ça partout dans l'application. »
 #
-#  Avant : une case de recherche + une liste déroulante qui avait SA PROPRE
-#  recherche (celle de Streamlit). Celle-ci refuse les accents : en tapant
-#  « pates » dedans, elle répondait « No results ».
-#
-#  Maintenant : UNE seule case de recherche, et en dessous la liste des choix
-#  — de simples boutons ronds, sans aucune recherche cachée. On tape, la liste
-#  se réduit, on clique. Accents et majuscules n'ont aucune importance.
+#  Version du 30/09 (soir) : la liste des résultats redevient une **liste
+#  déroulante**, comme avant — mais c'est TOUJOURS la case 🔍 qui cherche,
+#  et elle ignore les accents. Une ligne seulement à l'écran : on tape
+#  « pates », la liste se réduit à « Pâtes / Pâtes à lasagnes », on ouvre et
+#  on choisit. Plus de 25 lignes qui prennent tout l'écran.
 # ===========================================================================
 def chercheur(label: str, options, cle: str, terme: str | None = None,
               valeur: str | None = None, nombre: int = 20,
@@ -333,14 +358,15 @@ def chercheur(label: str, options, cle: str, terme: str | None = None,
               type_element: str = "choix", encadre: bool = True,
               cle_liste: str | None = None, horizontal: bool = False,
               garder_valeur: bool = True) -> str | None:
-    """LE module de recherche unique : « 🔍 Chercher … » + la liste des choix.
+    """LE module de recherche unique : « 🔍 Chercher … » + une liste déroulante.
 
-    Renvoie le libellé choisi, ou None tant que rien n'est cliqué.
+    Renvoie le libellé choisi.
 
     - `terme`    : si on le fournit, la case de recherche est déjà ailleurs
                    (une seule case peut filtrer plusieurs listes à la fois) ;
-    - `valeur`   : ce qui était déjà choisi avant (la liste le montre coché) ;
-    - `nombre`   : combien de lignes afficher d'un coup pour une longue liste.
+    - `valeur`   : ce qui était déjà choisi avant (la liste s'ouvre dessus) ;
+    - `nombre`   : combien de propositions garder dans la liste déroulante
+                   quand on n'a rien tapé (le reste arrive avec « ➕ »).
     """
     import streamlit as st
     options = [str(o) for o in (options or [])]
@@ -356,37 +382,75 @@ def chercheur(label: str, options, cle: str, terme: str | None = None,
                 placeholder="pates, steak, courgette…")
         terme = str(terme or "")
         trouves = filtre_recherche(options, terme)
+        rien_trouve = bool(terme.strip()) and not trouves
         if terme.strip():
-            if not trouves:
+            if rien_trouve:
                 st.warning(f"Rien ne correspond à « {terme} ». Efface la case 🔍 pour revoir "
                            f"les {len(options)} choix.")
-                return None
-            st.caption(f"**{len(trouves)}** {type_element}(s) sur {len(options)} "
-                       f"correspondent à « {terme} » — accents et majuscules ignorés.")
-            vus = trouves                      # une recherche courte : on montre tout
+            else:
+                st.caption(f"**{len(trouves)}** {type_element}(s) sur {len(options)} "
+                           f"correspondent à « {terme} » — accents et majuscules ignorés.")
+            vus = list(trouves)                # une recherche courte : on montre tout
         else:
             if aide:
                 st.caption(aide)
             fenetre = int(st.session_state.get(f"{cle}_n") or nombre)
             vus = trouves[:fenetre]
-        #  ⚠️ CE QUI EST DÉJÀ CHOISI RESTE TOUJOURS VISIBLE : sans ça, une ligne
-        #  perdait son ingrédient dès qu'on vidait la case 🔍 (le choix se
+        #  ⚠️ CE QUI EST DÉJÀ CHOISI RESTE TOUJOURS DANS LA LISTE : sans ça, une
+        #  ligne perdait son ingrédient dès qu'on vidait la case 🔍 (le choix se
         #  trouvait plus loin dans la longue liste et disparaissait).
+        #
+        #  Le « choix déjà fait » vient soit de l'appelant (`valeur`), soit de la
+        #  mémoire de Streamlit : quand on vide la case 🔍, c'est le second qui
+        #  sauve la mise.
         deja = str(valeur) if (garder_valeur and valeur is not None
                                and str(valeur) in options) else None
-        if deja and deja not in vus:
-            vus = [deja] + vus               # en TÊTE, et sans rien perdre de la recherche
-        defaut = vus.index(deja) if (deja and deja in vus) else 0
-        #  clé STABLE (pas de la recherche en cours) : Streamlit garde le choix
-        #  quand la liste se réduit puis revient — vérifié
-        choix = st.radio(label, vus, index=defaut, horizontal=horizontal,
-                         key=cle_liste or cle,
-                         help="Clique ta ligne. Cette liste ne cherche pas : c'est la case "
-                              "🔍 juste au-dessus qui cherche, sans tenir compte des accents.")
-        if len(trouves) > len(vus):
-            if st.button(f"➕ Afficher {min(nombre, len(trouves) - len(vus))} lignes de plus "
-                         f"({len(vus)} sur {len(trouves)})", key=f"{cle}_plus"):
-                st.session_state[f"{cle}_n"] = len(vus) + nombre
+        #  ce que Streamlit a retenu du dernier choix (filet de sécurité : une
+        #  recherche qui ne trouve RIEN ne doit jamais l'effacer)
+        etat_sur = None
+        if garder_valeur:
+            etat_sur = st.session_state.get(cle_liste or cle)
+            etat_sur = str(etat_sur) if (etat_sur is not None
+                                         and str(etat_sur) in options) else None
+        if deja is None and garder_valeur and not terme.strip():
+            #  Pas de recherche en cours : on remet en tête ce que l'utilisateur avait
+            #  choisi (mémoire de Streamlit). Pendant une recherche, au contraire, on
+            #  montre d'abord ce qui correspond à ce qu'il tape — s'il retombe sur son
+            #  ancien choix, il est de toute façon dans les résultats.
+            etat = st.session_state.get(cle_liste or cle)
+            if etat is not None and str(etat) in options:
+                deja = str(etat)
+        #  « — » = rien de choisi pour l'instant : dans ce cas on n'empêche pas la
+        #  liste de montrer d'abord le résultat de la recherche.
+        vide = deja is None or deja.strip() in ("", "-", "—")
+        if deja and not vide:
+            if deja not in vus:
+                vus = [deja] + vus           # en TÊTE : la ligne garde son ingrédient
+            defaut = vus.index(deja)         # et la liste s'ouvre dessus
+        else:
+            if deja in vus:
+                vus = [o for o in vus if o != deja]   # « — » : le 1ᵉʳ résultat passe devant
+            defaut = 0
+        if not vus:                          # plus rien à montrer : on garde le choix
+            garde = deja or etat_sur               # actuel, sinon on perd la sélection
+            vus = [garde] if garde else options[:1]
+        #  LA LISTE DÉROULANTE (une seule hauteur d'écran, comme avant).
+        #  Sa recherche interne, elle, ne sert à rien : c'est la case 🔍
+        #  au-dessus qui cherche et qui ignore les accents.
+        choix = _liste_deroulante(
+            label, vus, index=defaut, key=cle_liste or cle,
+            help="Ouvre la liste et choisis ta ligne. Pour la trouver sans te tromper "
+                 "d'accent, tape dans la case 🔍 juste au-dessus : « pates » y trouve "
+                 "« Pâtes », « epinard » y trouve « Épinard ». Cette liste-ci ne garde "
+                 "que ce que tu as cherché.")
+        if rien_trouve:                      # rien ne correspond : les appelants s'arrêtent,
+            return None                      # mais la liste ci-dessous garde le choix actuel
+        #  combien de choix sont VRAIMENT montrés (le choix actuel ne compte pas)
+        montres = len([o for o in vus if not (deja and not vide and o == deja)])
+        if len(trouves) > montres:
+            if st.button(f"➕ Voir {min(nombre, len(trouves) - montres)} choix de plus "
+                         f"({montres} sur {len(trouves)})", key=f"{cle}_plus"):
+                st.session_state[f"{cle}_n"] = montres + nombre
                 st.rerun()
         return choix
 

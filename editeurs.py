@@ -17,7 +17,7 @@ from __future__ import annotations
 #  (« éditeur 2.8 »). S'il affiche autre chose, c'est que ce fichier n'a pas
 #  été recopié sur GitHub.
 # ---------------------------------------------------------------------------
-VERSION = "2.9.1"
+VERSION = "2.9.2"
 
 import datetime as dt
 import traceback
@@ -389,7 +389,8 @@ def page_planifier(ms, target_p: float):
                     [r.get("name") for r in recettes], None, cle=f"pl_sr_{d}",
                     label="🔍 Chercher une recette", type_element="recette",
                     cle_liste=f"pl_r_{d}",
-                    aide="Tape « bolognaise », « curry »… la liste se réduit au fur et à mesure.")
+                    aide="Tape « bolognaise », « curry »… la liste déroulante ne garde que "
+                         "ce qui correspond.")
 
             elif genre == "Ingrédient":
                 noms, ids_ing = _choix_ingredients(ms, tout=True)
@@ -397,9 +398,9 @@ def page_planifier(ms, target_p: float):
                     noms, ids_ing, cle=f"pl_si_{d}", cle_liste=f"pl_i_{d}",
                     label="🔍 Chercher un ingrédient (tape par ex. « pates »)",
                     type_element="ingrédient",
-                    aide="Tape « pates » : la liste propose « Pâtes ». La barre du haut de "
-                         "page et l'onglet « Recherche » ont été retirés : la recherche se "
-                         "fait ici, à l'endroit où on choisit.")
+                    aide="Tape « pates » : la liste déroulante juste en dessous ne garde "
+                         "que « Pâtes » et « Pâtes à lasagnes ». C'est la seule recherche "
+                         "de l'application, et elle ignore les accents.")
                 if not noms:
                     st.caption("Ta base d'ingrédients est vide : remplis-la page "
                                "« Recettes & ingrédients ».")
@@ -792,8 +793,8 @@ def _recherche_dans_liste(libelles, ids, cle: str, label: str,
                           cle_liste: str | None = None):
     """LE module de recherche (il n'y en a qu'un dans toute l'application).
 
-    Il tape « pates » dans la case 🔍 : la liste des choix juste en dessous ne
-    garde que ce qui correspond — accents et majuscules ignorés — puis il clique.
+    Il tape « pates » dans la case 🔍 : la liste déroulante juste en dessous ne
+    garde que ce qui correspond — accents et majuscules ignorés — puis il choisit.
     Aucune autre recherche ne se cache dans la liste (avant, la liste déroulante
     de Streamlit avait la sienne et répondait « No results » à « pates »).
 
