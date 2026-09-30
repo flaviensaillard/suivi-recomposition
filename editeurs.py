@@ -17,7 +17,7 @@ from __future__ import annotations
 #  (« éditeur 2.8 »). S'il affiche autre chose, c'est que ce fichier n'a pas
 #  été recopié sur GitHub.
 # ---------------------------------------------------------------------------
-VERSION = "2.9.3"
+VERSION = "1.0"
 
 import datetime as dt
 import traceback
@@ -120,8 +120,9 @@ def bloc_diagnostic(ms):
                        "droits ou de nom : envoie-moi la capture.")
 
         st.divider()
-        st.caption("**Rappel** : la page doit afficher 3492 ingrédients, 104 recettes, "
-                   "161 lignes et 79 repas si ta base est complète.")
+        st.caption("Ces nombres sont lus **en direct** dans ta base : c'est ta référence. "
+                   "S'ils changent d'une fois sur l'autre, c'est qu'un fichier n'a pas été "
+                   "recopié sur GitHub.")
 
 
 def mode_ecriture(ms) -> bool:
@@ -173,6 +174,14 @@ def _erreur(action: str, e: Exception, details: dict | None = None):
                    "où ça bloque. Utilise aussi « 🧪 Diagnostic » en bas de la page Planifier.")
 
 
+def _nb_base(ms) -> int:
+    """Le nombre d'aliments de RÉFÉRENCE de ta base (lu en direct, jamais écrit en dur)."""
+    try:
+        return sum(1 for i in ms.ingredients() if not _est_a_moi(i))
+    except Exception:
+        return 0
+
+
 def nom_affiche(ing: dict) -> str:
     """Nom court et familier si on l'a (« Boeuf haché » plutôt que le nom Ciqual)."""
     return ing.get("nom_affiche") or ing.get("name") or "?"
@@ -204,9 +213,9 @@ def compteur_doublons(ingredients: list) -> dict:
 def liste_ingredients(ms, tout: bool = False) -> list[dict]:
     """Tes ingrédients + ceux utilisés dans les recettes.
 
-    `tout=True` ajoute les 3 339 aliments de la base française (ils servent aux
-    valeurs nutritionnelles). Par défaut on ne montre que les tiens : sinon la
-    liste est noyée sous 3 300 lignes d'aliments de référence.
+    `tout=True` ajoute les aliments de RÉFÉRENCE (ils donnent les valeurs
+    nutritionnelles). Par défaut on ne montre que les tiens : sinon la liste est
+    noyée sous des centaines de lignes de référence.
     """
     if tout:
         return sorted(ms.ingredients(), key=lambda x: _sans_accent(nom_affiche(x)))
@@ -245,10 +254,9 @@ def page_planifier(ms, target_p: float):
     st.caption("Ta semaine de repas. Un repas peut être une **recette**, un **ingrédient seul** "
                "(ex. un fruit) ou du **texte libre** (ex. « Restaurant »).")
     if st.session_state.pop("pl_sql_manquant", False):
-        st.warning("Ton repas est bien enregistré, mais **l'unité n'a pas pu l'être** : "
-                   "lance le fichier **`23_unite_par_repas.sql`** (dossier 2_SQL du zip) "
-                   "sur Supabase, puis recharge la page. En attendant, l'application "
-                   "recalcule l'unité automatiquement.")
+        st.warning("Ton repas est enregistré, mais **l'unité n'a pas pu l'être** : ta base "
+                   "n'a pas encore la colonne prévue pour ça. En attendant, l'application "
+                   "recalcule l'unité automatiquement. Dis-le moi si tu la vois encore.")
 
     recettes = liste_recettes(ms)
     # TOUTE la base : tes ingrédients + les aliments de la base française
@@ -311,9 +319,6 @@ def page_planifier(ms, target_p: float):
     #  Avant : une barre « 🔍 Rechercher une recette ou un ingrédient » en haut de
     #  page, que ce n'était pas ce qu'il voulait. Maintenant : on tape directement
     #  dans la case posée sur la liste déroulante, le jour concerné.
-    st.caption("Pour chercher : tape directement dans la case au-dessus de la liste "
-               "**Recette** ou **Ingrédient** du repas (les accents ne comptent pas).")
-
     # ---- grille de la semaine
     for i, d in enumerate(jours):
         repas = repas_du_jour(d)
@@ -381,7 +386,6 @@ def page_planifier(ms, target_p: float):
             convives = f2.number_input("Convives", 1, 12, 4, key=f"pl_c_{d}",
                                        help="Le nombre de personnes présentes : les quantités "
                                             "de la liste de courses en tiennent compte.")
-            t2.caption("Chaque case réagit tout de suite — rien à valider avant de choisir.")
             choix, qte, unite, ids_ing = None, None, None, None
 
             if genre == "Recette":
@@ -415,7 +419,9 @@ def page_planifier(ms, target_p: float):
                 deja_choisie = st.session_state.get(cle_u) or options_u[0]
                 qte = None
                 q1.empty()                       # on réécrit le champ avec le bon libellé
-                qte = q1.number_input(f"Quantité ({deja_choisie})", 0.0, 5000.0, 1.0, step=0.5,
+                qte = q1.number_input(f"Quantité ({deja_choisie})", 0.0, 5000.0,
+                                      float(MN.borne(st.session_state.get(f"pl_q_{d}"), 0.0,
+                                                     5000.0, 1.0)), step=0.5,
                                       key=f"pl_q_{d}",
                                       help="Le nombre d'unités choisies juste à droite.")
                 unite = q2.selectbox("Unité", options_u, key=cle_u,
@@ -561,7 +567,8 @@ def _editer_repas(ms, p, nom, cle):
                           key=f"pe_m_{cle}")
     convives = e2.number_input(
         "Convives", 1, 12,
-        int(p.get("servings") or p.get("nb_persons") or 4), key=f"pe_c_{cle}",
+        int(MN.borne(p.get("servings") or p.get("nb_persons") or 4, 1, 12, 4)),
+        key=f"pe_c_{cle}",
         help="Le nombre de personnes présentes à ce repas. La liste de courses "
              "et la fiche PDF recalculent les quantités avec ce nombre.")
     qte, unite = None, None
@@ -575,8 +582,8 @@ def _editer_repas(ms, p, nom, cle):
         e3, e4 = st.columns(2)
         deja = st.session_state.get(f"pe_u_{cle}") or proposee
         qte = e3.number_input(f"Quantité ({deja})", 0.0, 5000.0,
-                              float(p.get("ingredient_qty") or 1.0), step=0.5,
-                              key=f"pe_q_{cle}",
+                              float(MN.borne(p.get("ingredient_qty") or 1.0, 0.0, 5000.0, 1.0)),
+                              step=0.5, key=f"pe_q_{cle}",
                               help="La quantité de cet ingrédient seul (4 unités, 200 g…).")
         unite = e4.selectbox("Unité", options_u, key=f"pe_u_{cle}",
                              help="« unité » = 1 pièce de l'aliment. « convives » = un nombre "
@@ -825,8 +832,8 @@ def _choix_ingredients(ms, tout: bool = True):
     On travaille par IDENTIFIANT (et non par nom) : c'est ce qui garantit que
     l'ingrédient choisi est exactement celui enregistré dans la recette.
 
-    `tout=True` propose TOUTE la base (tes ingrédients + les 3 200 aliments de
-    la base française) ; `tout=False` ne montre que les tiens.
+    `tout=True` propose TOUTE la base (tes ingrédients + les aliments de
+    référence) ; `tout=False` ne montre que les tiens.
     """
     libelles: list[str] = []
     ids: dict[str, str] = {}
@@ -902,7 +909,8 @@ def _lignes_recette(ms, prefixe: str, actuelles: list | None = None,
         elif choix_ligne == "—":
             ligne["ingredient_id"] = None
         ligne["quantity"] = c2.number_input(
-            "Qté", 0.0, 100000.0, float(ligne.get("quantity") or 100), step=10.0,
+            "Qté", 0.0, 100000.0,
+            float(MN.borne(ligne.get("quantity"), 0.0, 100000.0, 100.0)), step=10.0,
             key=f"{prefixe}_q_{cle}", label_visibility="collapsed")
         ku = f"{prefixe}_u_{cle}"
         if ku not in st.session_state:
@@ -967,15 +975,13 @@ def _editeur_etapes(prefixe: str, instructions: str) -> list[str]:
 
 
 def _creer_recette(ms):
-    st.caption("Choisis les ingrédients **dans toute ta base** : tes ingrédients, "
-               "le Skyr et les amandes grillées que tu viens d'ajouter, et les "
-               "3 200 aliments de la base française.")
     c1, c2 = st.columns([3, 1])
-    nom = c1.text_input("Nom de la recette", key="cr_nom")
+    nom = c1.text_input("Nom de la recette", key="cr_nom",
+                        placeholder="Ex. Poulet au curry")
     parts = c2.number_input("Parts", 1, 20, 4, key="cr_parts")
-    tout = st.checkbox("🌍 Proposer aussi la base française (3 200 aliments)",
+    tout = st.checkbox(f"🌍 Inclure les aliments de référence ({_nb_base(ms)})",
                        value=True, key="cr_tout",
-                       help="Décoche pour ne voir que TES ingrédients.")
+                       help="Décoche pour ne voir que tes propres ingrédients.")
     st.markdown("**Ingrédients**")
     lignes = _lignes_recette(ms, "cr", tout=tout)
     st.markdown("**Préparation**")
@@ -1042,10 +1048,11 @@ def _modifier_recette(ms):
     c5.metric("Parts", f"{calc['parts']:g}")
     if calc.get("inconnues"):
         st.warning("Sans valeurs nutritionnelles dans ta base (comptés pour 0) : "
-                   + ", ".join(calc["inconnues"]) + " → lance `7_nutrition.sql`.", icon="⚠️")
+                   + ", ".join(calc["inconnues"]), icon="⚠️")
     if calc.get("estimees"):
-        st.info("Quantités déduites automatiquement (une portion par personne) pour : "
-                + ", ".join(calc["estimees"]) + ". Corrige-les ci-dessous si besoin.", icon="ℹ️")
+        st.info("Quantités déduites automatiquement (une portion par personne) : "
+                + ", ".join(calc["estimees"][:6]) + ". Corrige-les ci-dessous si besoin.",
+                icon="ℹ️")
 
     f1, f2 = st.columns([3, 1])
     nom = f1.text_input("Nom", value=choix, key=f"{prefixe}_nom")
@@ -1059,9 +1066,9 @@ def _modifier_recette(ms):
     st.caption("La **❌** supprime la ligne **tout de suite** (c'est enregistré dans ta base). "
                "Tu peux aussi **changer l'ingrédient** de chaque ligne : choisis-en un autre "
                "dans la liste.")
-    tout = st.checkbox("🌍 Proposer aussi la base française (3 200 aliments)",
+    tout = st.checkbox(f"🌍 Inclure les aliments de référence ({_nb_base(ms)})",
                        value=True, key=f"{prefixe}_tout",
-                       help="Décoche pour ne voir que TES ingrédients.")
+                       help="Décoche pour ne voir que tes propres ingrédients.")
     actuelles = [{"ligne_id": _id(l), "ingredient_id": l.get("ingredient_id"),
                   "quantity": l.get("quantity"), "unit": l.get("unit")}
                  for l in lignes_actuelles]
@@ -1119,10 +1126,9 @@ def _modifier_recette(ms):
 #  3. INGRÉDIENTS
 # ---------------------------------------------------------------------------
 def page_ingredients(ms):
-    st.title("🥕 Mes ingrédients")
-    st.caption("Tes ingrédients (ceux que tu utilises) et ceux de tes recettes. "
-               "La base française de 3 339 aliments est là pour les valeurs nutritionnelles — "
-               "tu n'as pas à la gérer.")
+    st.title("🥕 Ingrédients")
+    st.caption("Tes ingrédients, et les aliments de référence qui donnent les valeurs "
+               "nutritionnelles (ceux-là ne se modifient pas).")
 
     onglet = st.radio("Action", ["📋 Consulter", "➕ Ajouter", "✏️ Modifier"],
                       horizontal=True, label_visibility="collapsed")
@@ -1180,16 +1186,13 @@ def page_ingredients(ms):
                         COL_RECUR: bool(i.get("is_recurrent"))})
         noms_doubles = sum(1 for c in doublons.values() if c > 1)
         if noms_doubles and filtre != "⚠️ Doublons":
-            st.warning(f"⚠️ **{noms_doubles} nom(s) existent en plusieurs lignes** "
-                       f"(ex. deux « Aubergine »). Choisis **Afficher → ⚠️ Doublons** pour "
-                       "les voir, et lance le script **`10_doublons.sql`** dans Supabase "
-                       "pour regrouper les vraies paires.")
-        st.caption(f"{len(vus)} ligne(s) affichée(s) sur {len(ms.ingredients())} au total "
-                   f"— valeurs pour 100 g. "
-                   f"Les deux dernières colonnes se cochent **directement dans le tableau** : "
-                   f"**🚪 Fond de placard** = tu l'as toujours à la maison, il sort de la "
-                   f"liste de courses · **🔁 Récurrent** = à racheter chaque semaine "
-                   f"(il apparaît dans la liste même hors menus).")
+            st.warning(f"⚠️ **{noms_doubles} nom(s) apparaissent sur plusieurs lignes.** "
+                       "Choisis **Afficher → ⚠️ Doublons** pour les voir : les vrais "
+                       "doublons peuvent être regroupés (dis-le moi).")
+        st.caption(f"{len(vus)} ligne(s) sur {len(ms.ingredients())} · valeurs pour 100 g. "
+                   f"Les deux dernières colonnes se cochent **dans le tableau** : "
+                   f"**🚪 Fond de placard** (hors liste de courses) · "
+                   f"**🔁 Récurrent** (à racheter chaque semaine).")
         if not vus:
             st.info("Aucun ingrédient avec ce filtre.")
             return
@@ -1291,13 +1294,18 @@ def page_ingredients(ms):
                                  index=RAYONS.index(ing.get("category"))
                                  if ing.get("category") in RAYONS else 0)
             poids = c4.number_input("Poids d'une unité (g)", 0.0, 5000.0,
-                                    float(ing.get("poids_piece_g") or 0), step=10.0)
+                                    float(MN.borne(ing.get("poids_piece_g"), 0.0, 5000.0, 0.0)),
+                                    step=10.0)
             c5, c6, c7 = st.columns(3)
-            kcal = c5.number_input("kcal / 100 g", 0.0, 1000.0, float(ing.get("kcal_100g") or 0))
-            prot = c6.number_input("Protéines / 100 g", 0.0, 100.0, float(ing.get("proteines_100g") or 0))
-            gluc = c7.number_input("Glucides / 100 g", 0.0, 100.0, float(ing.get("glucides_100g") or 0))
+            kcal = c5.number_input("kcal / 100 g", 0.0, 1000.0,
+                                   float(MN.borne(ing.get("kcal_100g"), 0.0, 1000.0, 0.0)))
+            prot = c6.number_input("Protéines / 100 g", 0.0, 100.0,
+                                   float(MN.borne(ing.get("proteines_100g"), 0.0, 100.0, 0.0)))
+            gluc = c7.number_input("Glucides / 100 g", 0.0, 100.0,
+                                   float(MN.borne(ing.get("glucides_100g"), 0.0, 100.0, 0.0)))
             c8, c9, c10 = st.columns(3)
-            lip = c8.number_input("Lipides / 100 g", 0.0, 100.0, float(ing.get("lipides_100g") or 0))
+            lip = c8.number_input("Lipides / 100 g", 0.0, 100.0,
+                                  float(MN.borne(ing.get("lipides_100g"), 0.0, 100.0, 0.0)))
             hors = c9.checkbox("Fond de placard", value=bool(ing.get("exclude_from_list")))
             recur = c10.checkbox("Récurrent", value=bool(ing.get("is_recurrent")))
             if st.form_submit_button("💾 Enregistrer", type="primary", width="stretch"):

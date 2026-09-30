@@ -1,71 +1,127 @@
-# 🎯 LES 5 FICHIERS À REMPLACER — version **2.8.8** (unité au choix)
+# ⚖️ **ÉQUILIBRE** — version **1.0**
+## « Suivi Recomposition » change de nom, et devient une application finie
 
-Ta capture d'écran montre l'ancienne version (2.8.7) : la case **Unité** n'y est pas encore.
-Voici **uniquement les fichiers qui ont changé**, rien d'autre à toucher.
+**Six fichiers à déposer sur GitHub** (les 5 programmes + le logo), **puis F5**.
+C'est tout. Aucun fichier SQL à lancer pour cette mise à jour.
 
 ---
 
-## 1️⃣ GitHub — dépose ces **5 fichiers** dans ton dépôt `suivi-recomposition`
+## 🆕 Ce qui change dans cette 1.0
 
-*(glisse-dépose sur la page du dépôt comme d'habitude : Add file → Upload files)*
+### ① Le nom et le logo
+L'application s'appelle **Équilibre** — la balance, parce que c'est ton objectif :
+perdre le gras **sans** perdre le muscle. Nouvelle icône (la balance) dans la barre
+de gauche, dans l'onglet du navigateur et **sur l'écran de ton téléphone**.
+
+### ② Les Réglages sortent du sous-dossier
+Fini le dossier « ⚙️ Réglages » avec un seul élément dedans : **Réglages** est
+maintenant **au même niveau** que Nutrition, Mensurations… et **toujours en dernier**.
+
+```
+👨‍👩‍👧‍👦 Menus & courses (partagé)     👤 Mon suivi (personnel)
+   🍽️ Repas & menus                     🏠 Tableau de bord
+   📅 Planifier la semaine              ⚖️ Pesée & tendance
+   🥣 Recettes                          💪 Mes séances
+   🥕 Ingrédients                       🥗 Nutrition
+                                        📏 Mensurations
+                                        ⚙️ Réglages   ← ici, en dernier
+```
+
+### ③ Le bouton « Ouvrir Menus & recettes » est supprimé
+Tu ne l'utilisais pas : il a disparu de la barre de gauche.
+
+### ④ La version PC, retravaillée
+- **Page plus large** (1 080 px au lieu de 900) : les chiffres respirent, les
+  tableaux ne sont plus tassés.
+- **« Modifier / Créer » ressemblent à de vrais boutons** : celui qui est actif est
+  encadré en vert — on voit tout de suite où on est.
+- **Le « appuyez sur Entrée » a disparu** : tout réagit *pendant* la frappe.
+- **Les tableaux et les cadres** sont arrondis et lisibles.
+- **La page Nutrition est réorganisée** : en haut ce qui sert tous les jours
+  (tes compteurs, tes 3 façons d'ajouter un repas), et les moyennes 7 / 30 jours
+  descendent dans un cadre replié en bas — c'était du texte qui t'obligeait à
+  scroller avant d'atteindre les boutons utiles.
+- **La page d'accueil** affiche chaque plat sur une ligne claire
+  (`Midi · 4 personnes · 420 kcal et 32 g de protéines par part`), et un lien
+  direct vers ce que ça demande à tes courses.
+- **Réglages** : un seul bouton « 🗓️ Tout d'un coup (ZIP) » ou **chaque table en
+  CSV direct**, plus le nombre de lignes affiché d'un coup d'œil.
+
+### ⑤ Le ménage dans les textes
+Toutes les phrases d'outil ont été enlevées des pages : plus de
+« lance le script 7_nutrition.sql », plus de « Streamlit garde les fichiers en
+mémoire », plus de « bug corrigé en 2.8.4 ». Il ne reste que ce qui **te sert
+pendant que tu utilises l'application**.
+Les nombres ne sont plus écrits en dur : l'application **compte tes aliments en
+direct** (le fameux « 3 200 aliments » s'adapte tout seul).
+
+### ⑥ Deux bugs corrigés (trouvés par le nouveau test de solidité)
+- **Réglages** : si une ancienne valeur enregistrée sortait des bornes (par
+  exemple 0 kcal), **la page entière refusait de s'afficher**. Corrigé : toutes
+  les valeurs de la base sont désormais ramenées dans les bornes — 15 endroits.
+- **Journal incomplet** : si une colonne manquait dans une ancienne base, la page
+  s'arrêtait. Corrigé : colonnes garanties, lecture sans risque partout.
+
+---
+
+## 1️⃣ GitHub — dépose ces **6 fichiers** dans `suivi-recomposition`
+
+**Add file → Upload files** → glisse les 6 fichiers du dossier
+(*pas de sous-dossier, pas de zip à ouvrir*) → **Commit changes** : « Équilibre 1.0 ».
 
 | Fichier | Ce qu'il apporte |
 |---|---|
-| **editeurs.py** | ⭐ **la case « Unité »** dans Planifier la semaine + l'aperçu + ✏️ Modifier |
-| **menus.py** | la liste des unités adaptée à chaque aliment + « Quantité (unité) » |
-| **pdf_menus.py** | la fiche PDF respecte l'unité choisie |
-| **repas_plats.py** | l'accueil (« Aujourd'hui ») affiche l'unité choisie |
-| **app.py** | le numéro de version (bandeau 2.8.8) |
+| **app.py** | le nom, le logo, la mise en page PC, les Réglages remontés |
+| **menus.py** | les textes + les garde-fous de calcul |
+| **editeurs.py** | les écrans Planifier / Recettes / Ingrédients affinés |
+| **repas_plats.py** | la page d'accueil « Repas & menus » |
+| **pdf_menus.py** | la fiche PDF + son numéro de version |
+| **equilibre.png** | ⭐ **le logo** (nouveau : il n'y en avait pas avant) |
 
-⚠️ **Les 5 ensemble** : ils vont par paire (editeurs ↔ menus ↔ pdf_menus).
-Les 11 autres fichiers `.py` de ton dépôt **ne changent pas** : ne les touche pas.
+Les 11 autres fichiers `.py` de ton dépôt **ne changent pas**.
 
-Commit : **MAJ 2.8.8** → Commit changes.
+> ⚠️ **Le logo est un fichier en plus** : c'est le seul de cette mise à jour.
+> Si tu l'oublies, l'application marche quand même — elle affiche juste ⚖️ au lieu
+> de la balance dessinée.
 
----
+## 2️⃣ Streamlit — **F5**
 
-## 2️⃣ Supabase — le fichier SQL n°23 (dans le dossier `2_SQL`)
-
-**`23_unite_par_repas.sql`** → SQL Editor → New query → colle → **Run**.
-🔎 Ligne 3 = **`--  >>> VERSION CORRIGÉE « 2.8.8 » — fichier 23 <<<`**
-En bas : **« OUI ✅ »** = c'est bon. Il ne touche à aucune donnée, relançable.
-
-*(Il sert à **retenir** l'unité choisie. Si tu ne le lances pas, tout marche quand même :
-l'unité est recalculée automatiquement et l'application te le dit une fois.)*
-
----
-
-## 3️⃣ Streamlit — **Manage app → ⋮ → Reboot app**, puis **F5**
-
-Bandeau à vérifier : **éditeur 2.8.8 · menus 2.8.8**.
-
----
-
-## 🔎 CE QUE TU DOIS VOIR MAINTENANT
-
-Dans **📅 Planifier la semaine → Type = Ingrédient**, trois cases sur deux lignes :
+En bas de la barre de gauche tu dois lire :
 
 ```
-Ingrédient   [ Cordon bleu                       ▾ ]
-Quantité (unité)  [ 1,00 ]        Unité  [ unité ▾ ]
-→ Ce repas demandera 1 unité à la liste de courses (≈ 226 kcal · 15 g de protéines)
+Équilibre  v1.0
+éditeur 1.0 · menus 1.0
 ```
 
-- Le mot entre parenthèses **suit ton choix** : « Quantité (unité) », « Quantité (g) »,
-  « Quantité (kg) »… Plus jamais « 1, mais 1 quoi ? ».
-- La case **Unité** propose **les unités qui ont du sens pour l'aliment** :
-  - **Cordon bleu** → unité, tranche, gousse, boîte, sachet, pot, portion
-  - **Pâtes, Riz** → g, kg
-  - **Lait, Crème** → ml, cl, l
-  - **Steak haché** (125 g la pièce) → **unité** en premier : 4 = 4 steaks = 500 g
-- Chaque changement **recalcule l'aperçu tout de suite**.
-- **➕ Ajouter ce repas** enregistre **ton unité**, et **✏️ Modifier** la repropose.
+Si tu lis encore **2.9.3** : **Manage app → ⋮ → Reboot app**, puis **F5**.
+
+## 3️⃣ Sur ton téléphone (2 minutes, pour le logo)
+Ouvre l'adresse de l'application dans Chrome → **⋮** → *Ajouter à l'écran d'accueil*.
+Tu auras la balance en icône, et l'application s'ouvrira en plein écran.
+
+**Aucun fichier SQL à lancer.** Tes recettes, tes menus, tes courses, tes séances,
+tes objectifs et tes données ne bougent pas d'un chiffre.
 
 ---
 
-## 🧪 Tests (faits avant de t'envoyer ce dossier)
+## 🧪 Tests (faits avant de t'envoyer ce dossier — **32 verts, 0 échec**)
 
-- L'unité : page · base · liste de courses · fiche PDF · ✏️ Modifier · SQL absent → **34/34 ✅**
-- Type / modification / convives → **25/25 ✅** · tes noms (« Steak haché ») → **14/14 ✅**
-- Unités + recherche sans accent → **60/60 ✅** · fiche PDF → **33/33 ✅**
-- Toutes les pages de l'application **passent ✅**
+- **Toute la batterie** (widget, recherche, unités, convives, courses, PDF,
+  séances, tableaux, objectifs, noms de courses, jours, éditeurs) → **repassée
+  intégralement ✅**
+- **La liste qui cherche** pilotée dans un navigateur simulé → **29/29 ✅**
+  · filtre identique à l'application (JS = Python) → **26/26 ✅**
+- **Le widget est vraiment servi** par Streamlit (HTTP 200, 16 040 octets) → **14/14 ✅**
+- 🆕 **Solidité** : base vide, objectifs à zéro, colonnes manquantes, recette sans
+  parts, aliment sans valeurs, planning en 2030 → **22/22 ✅**
+  *(c'est ce test qui a débusqué les deux bugs corrigés ci-dessus)*
+- Les 10 pages s'ouvrent sans erreur, avec la vraie base (158 aliments, 104 recettes,
+  79 repas) → **10/10 ✅**
+
+## 🆘 Si quelque chose cloche
+
+| Ce que tu vois | Ce que tu fais |
+|---|---|
+| l'ancien écran, version 2.9.3 | **Reboot app** (Manage app → ⋮) puis **F5** |
+| pas de logo, juste ⚖️ | vérifie que **equilibre.png** est bien sur GitHub, à côté de `app.py` |
+| un texte bizarre ou une erreur | envoie-moi une capture : le cadre « Détail » contient tout ce qu'il me faut |

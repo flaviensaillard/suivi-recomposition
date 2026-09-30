@@ -12,13 +12,13 @@ le moteur de la version 2.0 (elles donnent les mêmes résultats).
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date, datetime, timedelta
-from typing import Any, Dict, List, Optional
+from datetime import date, timedelta
+from typing import Any, Dict, List
 import base64
 import difflib
 import re
 
-VERSION = "2.9.3"        # la version du lot de fichiers déposé sur GitHub
+VERSION = "1.0"        # la version du lot de fichiers déposé sur GitHub
 import streamlit as st
 import streamlit.components.v1 as components
 from fpdf import FPDF

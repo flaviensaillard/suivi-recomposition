@@ -19,10 +19,9 @@ Ce module en déduit, sans aucune saisie :
 Aucune écriture ici : que de la lecture et du calcul. Tu peux tester sans risque.
 """
 
-VERSION = "2.9.3"        # affiché dans la barre de gauche (contrôle des fichiers à jour)
+VERSION = "1.0"        # affiché dans la barre de gauche (contrôle des fichiers à jour)
 
 import datetime as dt
-import math
 import re
 
 # ---------------------------------------------------------------------------
@@ -732,7 +731,7 @@ def _ecrire_le_widget() -> str:
     """Écrit la page du widget dans un dossier temporaire et renvoie le dossier."""
     import os
     import tempfile
-    dossier = os.path.join(tempfile.gettempdir(), "suivi_recomposition_liste")
+    dossier = os.path.join(tempfile.gettempdir(), "equilibre_liste")
     os.makedirs(dossier, exist_ok=True)
     chemin = os.path.join(dossier, "index.html")
     try:
@@ -1001,6 +1000,22 @@ def portion_en_unites(portion_g: float, ing: dict | None) -> str:
     if poids > 0:
         return f"≈ {portion_g / poids:.1f} unité".replace(".0", "")
     return f"{portion_g:g} g"
+
+
+def borne(valeur, mini, maxi, defaut=None):
+    """Ramène une valeur dans les bornes d'une case.
+
+    Les valeurs viennent de la base : elles peuvent être absentes, vides ou hors
+    bornes (0, 300 g…). Sans ce garde-fou, Streamlit refuse de dessiner la page
+    entière (« value 0 is less than the min_value 80 »). Vérifié le 30/09.
+    """
+    try:
+        v = float(valeur)
+    except (TypeError, ValueError):
+        v = None
+    if v is None or v != v:                      # aucune valeur, ou NaN
+        return mini if defaut is None else defaut
+    return min(max(v, float(mini)), float(maxi))
 
 
 def unite_propre(unite) -> str:

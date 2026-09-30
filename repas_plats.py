@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import datetime as dt
 
-VERSION = "2.9.3"        # la version du lot de fichiers déposé sur GitHub
+VERSION = "1.0"        # la version du lot de fichiers déposé sur GitHub
 import streamlit as st
 
 import menus as MN
@@ -85,8 +85,8 @@ def _fiche_recette(ms, calc: dict, nom_recette: str, ing_par_id: dict, recipe_id
 
 def page_plats_a_preparer(ms, jours_visibles: int = 10):
     """L'onglet principal de « Repas & menus » : les plats à préparer."""
-    st.caption("Les plats de tes menus, avec un lien direct vers la recette. "
-               "Ouvre **📖 Voir la recette** pour les ingrédients et la préparation.")
+    st.caption("Ce que tu manges, jour par jour. Déroule **📖 Voir la recette** "
+               "pour les ingrédients, les quantités et la préparation.")
 
     aujourdhui = dt.date.today()
     quand = st.selectbox("Période", [
@@ -167,21 +167,28 @@ def page_plats_a_preparer(ms, jours_visibles: int = 10):
             with st.container(border=True):
                 gauche, droite = st.columns([3, 1])
                 gauche.markdown(f"**{nom}**")
-                gauche.caption(" · ".join(x for x in [
-                    moment,
-                    f"{nb_personnes:g} personnes" if nb_personnes else None,
-                ] if x))
                 calc = None
                 if rid and rid in recettes:
                     calc = MN.calculer_recette(lignes_par_recette.get(rid, []), ings,
                                                rec.get("base_servings"), nom_recette=rec.get("name"))
-                    if calc:
-                        droite.caption(f"{calc['par_part']['kcal']:.0f} kcal / part\n\n"
-                                       f"{calc['par_part']['proteines']:.0f} g de protéines")
+                details = [moment, f"{nb_personnes:g} personnes" if nb_personnes else None]
+                if calc:
+                    details.append(f"**{calc['par_part']['kcal']:.0f} kcal** et "
+                                   f"**{calc['par_part']['proteines']:.0f} g de protéines** par part")
+                gauche.caption(" · ".join(x for x in details if x))
+                if calc:
+                    droite.caption(f"{calc['total']['kcal']:.0f} kcal au total  \n"
+                                   f"{calc['parts']:g} parts")
                 with st.expander("📖 Voir la recette"):
                     _fiche_recette(ms, calc, nom, ings, rid,
                                    rec.get("instructions"))
             nb_plats += 1
 
-    st.caption(f"{nb_plats} plat(s) à préparer sur la période choisie. "
-               "La ➕ des courses se fait dans **Planifier la semaine**.")
+    st.caption(f"{nb_plats} plat(s) sur la période choisie.")
+    page_courses = st.session_state.get("_page_planifier")
+    if page_courses is not None:
+        try:
+            st.page_link(page_courses, label="🧾 Voir ce que ça demande à mes courses",
+                         icon="🧾")
+        except Exception:
+            pass

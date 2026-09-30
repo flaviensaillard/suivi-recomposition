@@ -1,15 +1,18 @@
 # -*- coding: utf-8 -*-
 """
-Suivi Recomposition — application mobile de suivi
-Stack : Streamlit (interface) + Supabase (base de données cloud) + GitHub (code)
-Fonctionne aussi 100 % hors ligne en mode local (SQLite) tant que Supabase n'est pas configuré.
+ÉQUILIBRE — suivi de recomposition corporelle et de menus.
 
-Lancement :  streamlit run app.py
+Stack : Streamlit (interface) + Supabase (base de données cloud) + GitHub (code)
+Fonctionne aussi 100 % hors ligne en mode local (SQLite) tant que Supabase
+n'est pas configuré.
+
+    streamlit run app.py
 """
 from __future__ import annotations
 
 import datetime as dt
 import io
+import os as _os
 import re
 import time
 import zipfile
@@ -17,6 +20,8 @@ import zipfile
 import altair as alt
 import pandas as pd
 import streamlit as st
+
+import sys as _sys   # pour surveiller les modules chargés
 
 import content as C
 import seances as SE
@@ -28,9 +33,10 @@ import repas as R
 import tableaux as T
 from db import LocalStore, SupaStore
 
-#  Le numéro de version du lot de fichiers déposé sur GitHub : les 4 fichiers
+#  Le numéro de version du lot de fichiers déposé sur GitHub : les 5 fichiers
 #  (celui-ci, editeurs.py, menus.py, pdf_menus.py, repas_plats.py) le portent.
-VERSION = "2.9.3"
+VERSION = "1.0"
+APP = "Équilibre"
 
 
 # ---------------------------------------------------------------------------
@@ -73,7 +79,7 @@ def _mise_a_jour_sans_redemarrage():
     demarrage = _heure_de_demarrage()
     #  ce qu'on a DÉJÀ rechargé pendant cette exécution de l'application
     #  (sinon on rechargerait en boucle à chaque clic)
-    marque = _os.path.join(tempfile.gettempdir(), f"suivi_recomp_{_os.getpid()}.json")
+    marque = _os.path.join(tempfile.gettempdir(), f"equilibre_{_os.getpid()}.json")
     try:
         deja = _json.load(open(marque, encoding="utf-8"))
     except Exception:
@@ -128,25 +134,74 @@ if FICHIERS_RECHARGES:
 # ============================================================================
 #  CONFIGURATION
 # ============================================================================
-st.set_page_config(page_title="Suivi Recomposition", page_icon="💪",
+#  Le logo (déposé à côté de ce fichier sur GitHub) : s'il n'est pas là,
+#  l'application se rabat sur la balance ⚖️ — elle ne plantera jamais pour ça.
+LOGO = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "equilibre.png")
+ICONE = LOGO if _os.path.exists(LOGO) else "⚖️"
+
+st.set_page_config(page_title=APP, page_icon=ICONE,
                    layout="centered", initial_sidebar_state="collapsed")
 
+# ---------------------------------------------------------------------------
+#  MISE EN PAGE (ordinateur d'abord, téléphone ensuite)
+#  Objectif : peu de texte, des chiffres qui se lisent d'un coup d'œil, aucune
+#  phrase technique à l'écran, et une page qui tient sans scroller pour rien.
+# ---------------------------------------------------------------------------
 st.markdown("""
 <style>
-  .block-container{padding-top:1.6rem; padding-bottom:3rem; max-width:900px}
-  h1{font-size:1.5rem !important} h2{font-size:1.2rem !important} h3{font-size:1.05rem !important}
-  [data-testid="stMetricValue"]{font-size:1.5rem}
-  .stButton>button{white-space:normal; text-align:left}
-  @media (max-width:640px){
-    .stButton>button{width:100%; padding:.55rem .7rem; font-size:.95rem}
-    .block-container{padding-left:.8rem; padding-right:.8rem}
-  }
+  /* --- la page : large mais pas étirée, et bien respirante --------------- */
+  .block-container{padding-top:2.4rem; padding-bottom:4rem; max-width:1080px}
+  h1{font-size:1.55rem !important; margin:0 0 .35rem 0 !important; padding:0 !important}
+  h2{font-size:1.16rem !important; margin:1.2rem 0 .4rem 0 !important}
+  h3{font-size:1.02rem !important; margin:.9rem 0 .3rem 0 !important}
+  p, li{line-height:1.55}
+  hr{margin:1.1rem 0 !important}
+
+  /* --- les chiffres clés ------------------------------------------------ */
+  [data-testid="stMetricValue"]{font-size:1.42rem; line-height:1.25}
+  [data-testid="stMetricLabel"]{font-size:.82rem}
+  [data-testid="stMetricDelta"]{font-size:.78rem}
+
+  /* --- les boutons : arrondis, jamais coupés --------------------------- */
+  .stButton>button{white-space:normal; text-align:center; border-radius:8px;
+                   font-weight:500}
+
+  /* --- les choix horizontaux (« Modifier / Créer ») : de vrais onglets --- */
+  div[role="radiogroup"]{gap:.3rem; flex-wrap:wrap}
+  div[role="radiogroup"] > label{background:#f4f7fa; border:1px solid #e6ebf1;
+      border-radius:9px; padding:.3rem .65rem; margin:0 .2rem .2rem 0; transition:.12s}
+  div[role="radiogroup"] > label:hover{border-color:#c9d6e0}
+  div[role="radiogroup"] > label:has(input:checked){background:#e6f4f1; border-color:#0d9488}
+  div[role="radiogroup"] > label p{font-size:.92rem}
+
+  /* --- les tableaux ---------------------------------------------------- */
+  [data-testid="stDataFrame"], [data-testid="stDataEditor"]{font-size:.86rem}
+
+  /* --- les cadres ------------------------------------------------------ */
+  .stExpander{border-radius:10px !important}
+  [data-testid="stVerticalBlockBorderWrapper"]{border-radius:12px}
+  [data-testid="stForm"]{border:1px solid #e6ebf1; border-radius:12px; padding:1rem 1.1rem}
+
+  /* --- le petit texte d'aide ------------------------------------------- */
+  [data-testid="stCaptionContainer"] p{font-size:.86rem; color:#5b6b7c}
+
+  /* --- « appuie sur Entrée » : inutile, tout réagit tout de suite ------- */
+  [data-testid="InputInstructions"]{display:none !important}
+
+  .hint{color:#5b6b7c; font-size:.85rem}
   .bloc-card{background:#f4f7fa; border:1px solid #dfe6ec; border-radius:12px;
              padding:.8rem 1rem; margin:.3rem 0 .9rem 0}
   .bloc-title{font-weight:700; color:#0f2a43; font-size:1rem}
-  .hint{color:#5b6b7c; font-size:.85rem}
   .sess-a{color:#0d9488; font-weight:700}
   .sess-b{color:#1b4b6b; font-weight:700}
+
+  /* --- téléphone ------------------------------------------------------- */
+  @media (max-width:640px){
+    .block-container{padding:1rem .8rem 3rem .8rem}
+    h1{font-size:1.35rem !important}
+    .stButton>button{width:100%; padding:.55rem .7rem; font-size:.95rem}
+    [data-testid="stMetricValue"]{font-size:1.25rem}
+  }
 </style>
 """, unsafe_allow_html=True)
 
@@ -205,8 +260,10 @@ def problemes_secrets(cfg) -> list:
 
 
 def login_page(store: SupaStore):
-    st.title("💪 Suivi Recomposition")
-    st.caption("Connexion à ton espace (Supabase)")
+    if _os.path.exists(LOGO):
+        st.image(LOGO, width=96)
+    st.title(APP)
+    st.caption("Connexion à ton espace")
     mode = st.radio("Action", ["Se connecter", "Créer un compte"], horizontal=True, label_visibility="collapsed")
     with st.form("login"):
         email = st.text_input("Email")
@@ -236,7 +293,7 @@ def menus_store():
     Sans Supabase configuré : renvoie un extrait de démonstration, pour que tu
     puisses voir la page tout de suite (les chiffres sont alors incomplets).
     """
-    VERSION_STORE = "30-09-2026p"      # à changer à chaque mise à jour du moteur
+    VERSION_STORE = "30-09-2026q"      # à changer à chaque mise à jour du moteur
     ms = st.session_state.get("_menus_store")
     force = st.session_state.get("_menus_store_forcee")     # magasin imposé (tests)
     if ms is not None and (force or st.session_state.get("_menus_version") == VERSION_STORE):
@@ -330,15 +387,74 @@ def _enregistrer_profil(data: dict):
 # ============================================================================
 #  OUTILS
 # ============================================================================
+def _val(ligne, cle, defaut=None):
+    """Lit une valeur d'une ligne sans jamais planter (colonne absente, case vide…)."""
+    if ligne is None:
+        return defaut
+    try:
+        v = ligne.get(cle)
+    except Exception:
+        return defaut
+    if v is None:
+        return defaut
+    try:
+        if pd.isna(v):
+            return defaut
+    except (TypeError, ValueError):
+        pass
+    return v
+
+
+def _dernier(daily, cur, champ, defaut):
+    """La valeur à proposer : celle du jour, sinon la plus récente, sinon un défaut."""
+    v = _val(cur, champ)
+    if v is not None:
+        return v
+    try:
+        if not daily.empty and champ in daily.columns:
+            serie = pd.to_numeric(daily[champ], errors="coerce").dropna()
+            if not serie.empty:
+                return serie.iloc[-1]
+    except Exception:
+        pass
+    return defaut
+
+
+COLS_DAILY = ("log_date", "weight_kg", "body_fat_pct", "steps", "sleep_h", "protein_g",
+              "kcal", "activity", "energy", "notes")
+COLS_MES = ("meas_date", "waist_cm", "hips_cm", "chest_cm", "neck_cm", "arm_cm",
+            "thigh_cm", "photos", "notes")
+
+
+def _colonnes(df: pd.DataFrame, attendues) -> pd.DataFrame:
+    """Garantit que les colonnes existent : une colonne absente ne fait plus planter
+    une page (cas d'une base plus ancienne)."""
+    for c in attendues:
+        if c not in df.columns:
+            df[c] = None
+    return df
+
+
 def load_daily() -> pd.DataFrame:
     df = store.daily_df()
     if df.empty:
-        return pd.DataFrame(columns=["log_date", "weight_kg", "body_fat_pct", "steps",
-                                     "sleep_h", "protein_g", "kcal", "activity", "energy", "notes"])
-    df["log_date"] = pd.to_datetime(df["log_date"]).dt.date
+        return pd.DataFrame(columns=list(COLS_DAILY))
+    df = _colonnes(df, COLS_DAILY)
+    df["log_date"] = pd.to_datetime(df["log_date"], errors="coerce").dt.date
     for c in ("weight_kg", "body_fat_pct", "sleep_h"):
         df[c] = pd.to_numeric(df[c], errors="coerce")
     return df.sort_values("log_date").reset_index(drop=True)
+
+
+def load_meas() -> pd.DataFrame:
+    """Les mensurations, avec toutes les colonnes attendues (jamais d'erreur)."""
+    df = _colonnes(store.meas_df(), COLS_MES)
+    if df.empty:
+        return df
+    df["meas_date"] = pd.to_datetime(df["meas_date"], errors="coerce").dt.date
+    for c in ("waist_cm", "hips_cm", "chest_cm", "neck_cm", "arm_cm", "thigh_cm"):
+        df[c] = pd.to_numeric(df[c], errors="coerce")
+    return df.sort_values("meas_date").reset_index(drop=True)
 
 
 def rolling(df: pd.DataFrame, col: str, n=7) -> pd.DataFrame:
@@ -482,9 +598,7 @@ def page_safe(fonction):
 def page_dashboard():
     st.title("🏠 Tableau de bord")
     daily = load_daily()
-    meas = store.meas_df()
-    if not meas.empty:
-        meas["meas_date"] = pd.to_datetime(meas["meas_date"]).dt.date
+    meas = load_meas()
     prot = protein_by_day()
     phase, kcal_t = C.phase_for(D.today())
 
@@ -510,7 +624,7 @@ def page_dashboard():
     c4.metric("Protéines (7 j)", fmt(p_avg, " g", 0), f"cible {TARGET_P} g")
 
     # progression vers l'objectif
-    if w_avg:
+    if w_avg and abs(START_W - TARGET_W) > 0.01:
         done = START_W - w_avg
         total = START_W - TARGET_W
         st.progress(max(0.0, min(1.0, done / total)),
@@ -579,40 +693,47 @@ def page_dashboard():
 #  PAGE 2 — PESÉE DU JOUR
 # ============================================================================
 def page_pesee():
-    st.title("⚖️ Pesée du matin")
-    st.caption("À jeun, après les toilettes, nu, même balance, même heure. Le chiffre du jour ne compte pas : "
-               "c'est la **moyenne 7 jours** qui pilote les décisions.")
+    st.title("⚖️ Pesée & tendance")
+    st.caption("À jeun, même balance, même heure. C'est la **moyenne 7 jours** qui pilote "
+               "les décisions — pas le chiffre du jour.")
     daily = load_daily()
     today = D.today()
     existing = daily[daily["log_date"] == today]
     cur = existing.iloc[0] if not existing.empty else None
 
+    ACTIVITES = ["Repos", "Séance A", "Séance B", "Rugby", "Marche", "Musique", "Autre"]
+    deja = _val(cur, "activity")
     with st.form("pesee"):
         c1, c2 = st.columns(2)
         with c1:
             d = st.date_input("Date", value=today, max_value=today, format="DD/MM/YYYY")
             poids = st.number_input("Poids (kg)", min_value=50.0, max_value=140.0, step=0.1,
-                                    format="%.1f", value=float(cur["weight_kg"]) if cur is not None
-                                    and pd.notna(cur["weight_kg"]) else (float(daily["weight_kg"].dropna().iloc[-1])
-                                    if not daily["weight_kg"].dropna().empty else 80.0))
-            bf = st.number_input("Masse grasse balance (%)", min_value=3.0, max_value=55.0, step=0.1,
-                                 format="%.1f", value=float(cur["body_fat_pct"]) if cur is not None
-                                 and pd.notna(cur["body_fat_pct"]) else 18.8,
-                                 help="Balance à impédance (Tefal) : utile en tendance, pas en valeur absolue.")
+                                    format="%.1f",
+                                    value=float(MN.borne(
+                                        _dernier(daily, cur, "weight_kg", 80.0),
+                                        50.0, 140.0, 80.0)))
+            bf = st.number_input("Masse grasse balance (%)", min_value=3.0, max_value=55.0,
+                                 step=0.1, format="%.1f",
+                                 value=float(MN.borne(
+                                     _dernier(daily, cur, "body_fat_pct", 18.8),
+                                     3.0, 55.0, 18.8)),
+                                 help="Balance à impédance (Tefal) : utile en tendance, "
+                                      "pas en valeur absolue.")
             pas = st.number_input("Pas", min_value=0, max_value=40000, step=250,
-                                  value=int(cur["steps"]) if cur is not None and pd.notna(cur["steps"]) else 10000)
+                                  value=int(MN.borne(_dernier(daily, cur, "steps", 10000),
+                                                     0, 40000, 10000)))
         with c2:
-            sommeil = st.number_input("Sommeil (h)", min_value=3.0, max_value=12.0, step=0.5, format="%.1f",
-                                      value=float(cur["sleep_h"]) if cur is not None and pd.notna(cur["sleep_h"]) else 7.5)
-            activite = st.selectbox("Activité du jour", ["Repos", "Séance A", "Séance B", "Rugby",
-                                                        "Marche", "Musique", "Autre"],
-                                    index=(["Repos", "Séance A", "Séance B", "Rugby", "Marche", "Musique", "Autre"]
-                                           .index(cur["activity"]) if cur is not None and cur["activity"] in
-                                           ["Repos", "Séance A", "Séance B", "Rugby", "Marche", "Musique", "Autre"] else 0))
-            energie = st.slider("Énergie (1-10)", 1, 10, int(cur["energy"]) if cur is not None
-                                and pd.notna(cur["energy"]) else 7)
-            notes = st.text_area("Notes (faim, humeur, écart…)", value="" if cur is None else (cur["notes"] or ""),
-                                 height=80)
+            sommeil = st.number_input("Sommeil (h)", min_value=3.0, max_value=12.0, step=0.5,
+                                      format="%.1f",
+                                      value=float(MN.borne(
+                                          _dernier(daily, cur, "sleep_h", 7.5),
+                                          3.0, 12.0, 7.5)))
+            activite = st.selectbox("Activité du jour", ACTIVITES,
+                                    index=ACTIVITES.index(deja) if deja in ACTIVITES else 0)
+            energie = st.slider("Énergie (1-10)", 1, 10,
+                                int(MN.borne(_dernier(daily, cur, "energy", 7), 1, 10, 7)))
+            notes = st.text_area("Notes (faim, humeur, écart…)",
+                                 value=str(_val(cur, "notes") or ""), height=80)
         ok = st.form_submit_button("💾 Enregistrer la journée", type="primary", width="stretch")
     if ok:
         store.save_daily(dict(log_date=d, weight_kg=poids, body_fat_pct=bf, steps=int(pas),
@@ -639,8 +760,7 @@ def page_pesee():
             color="#d97706", strokeDash=[5, 4]).encode(y="y:Q"))
 
     if not daily.empty:
-        st.markdown("**Mes 14 derniers jours** — *clique dans une case pour corriger "
-                    "une erreur de saisie*")
+        st.markdown("**Mes 14 derniers jours** — *clique dans une case pour corriger*")
         last = daily.sort_values("log_date", ascending=False).head(14)[
             ["log_date", "weight_kg", "body_fat_pct", "steps", "sleep_h", "activity", "energy"]]
         last = last.set_index(last["log_date"].astype(str))
@@ -672,11 +792,9 @@ def page_pesee():
 # ============================================================================
 def page_mensurations():
     st.title("📏 Mensurations")
-    st.caption("Le **tour de taille au nombril** est ta vraie mesure de perte de gras — bien plus fiable que la balance. "
+    st.caption("Le **tour de taille au nombril** est ta vraie mesure de perte de gras. "
                "Lundi matin, à jeun, sans serrer, ventre relâché.")
-    meas = store.meas_df()
-    if not meas.empty:
-        meas["meas_date"] = pd.to_datetime(meas["meas_date"]).dt.date
+    meas = load_meas()
     today = D.today()
     last_meas = None if meas.empty else meas.iloc[-1]
 
@@ -684,26 +802,34 @@ def page_mensurations():
         c1, c2 = st.columns(2)
         with c1:
             d = st.date_input("Date", value=today, max_value=today, format="DD/MM/YYYY")
-            taille = st.number_input("Tour de taille — nombril (cm)", 50.0, 160.0, step=0.1, format="%.1f",
-                                     value=float(last_meas["waist_cm"]) if last_meas is not None
-                                     and pd.notna(last_meas["waist_cm"]) else 90.0)
+            taille = st.number_input("Tour de taille — nombril (cm)", 50.0, 160.0, step=0.1,
+                                     format="%.1f",
+                                     value=float(MN.borne(
+                                         _dernier(meas, last_meas, "waist_cm", 90.0),
+                                         50.0, 160.0, 90.0)))
             hanches = st.number_input("Hanches (cm)", 50.0, 160.0, step=0.1, format="%.1f",
-                                      value=float(last_meas["hips_cm"]) if last_meas is not None
-                                      and pd.notna(last_meas.get("hips_cm")) else 98.0)
+                                      value=float(MN.borne(
+                                          _dernier(meas, last_meas, "hips_cm", 98.0),
+                                          50.0, 160.0, 98.0)))
             poitrine = st.number_input("Poitrine (cm)", 50.0, 160.0, step=0.1, format="%.1f",
-                                       value=float(last_meas["chest_cm"]) if last_meas is not None
-                                       and pd.notna(last_meas.get("chest_cm")) else 102.0)
+                                       value=float(MN.borne(
+                                           _dernier(meas, last_meas, "chest_cm", 102.0),
+                                           50.0, 160.0, 102.0)))
         with c2:
             cou = st.number_input("Tour de cou (cm)", 25.0, 60.0, step=0.1, format="%.1f",
-                                  value=float(last_meas["neck_cm"]) if last_meas is not None
-                                  and pd.notna(last_meas.get("neck_cm")) else 39.0,
-                                  help="Sert au calcul Marine — deuxième estimation du % de graisse.")
+                                  value=float(MN.borne(
+                                      _dernier(meas, last_meas, "neck_cm", 39.0),
+                                      25.0, 60.0, 39.0)),
+                                  help="Sert au calcul Marine — deuxième estimation du % "
+                                       "de graisse.")
             bras = st.number_input("Bras contracté (cm)", 20.0, 60.0, step=0.1, format="%.1f",
-                                   value=float(last_meas["arm_cm"]) if last_meas is not None
-                                   and pd.notna(last_meas.get("arm_cm")) else 36.0)
+                                   value=float(MN.borne(
+                                       _dernier(meas, last_meas, "arm_cm", 36.0),
+                                       20.0, 60.0, 36.0)))
             cuisse = st.number_input("Cuisse (cm)", 30.0, 90.0, step=0.1, format="%.1f",
-                                     value=float(last_meas["thigh_cm"]) if last_meas is not None
-                                     and pd.notna(last_meas.get("thigh_cm")) else 57.0)
+                                     value=float(MN.borne(
+                                         _dernier(meas, last_meas, "thigh_cm", 57.0),
+                                         30.0, 90.0, 57.0)))
             photos = st.checkbox("Photos face / profil / dos faites", value=False)
         notes = st.text_input("Observations", value="")
         ok = st.form_submit_button("💾 Enregistrer", type="primary", width="stretch")
@@ -767,7 +893,7 @@ def rest_timer():
     until = st.session_state.get("rest_until", 0)
     if until <= time.time():
         return
-    total = st.session_state.get("rest_total", 60)
+    total = st.session_state.get("rest_total", 60) or 60
     left = int(round(until - time.time()))
     st.progress(max(0.0, min(1.0, 1 - left / total)), text=f"⏱️ Repos en cours — **{left} s**  (chrono {total} s)")
 
@@ -859,17 +985,19 @@ def _ajout_repas_prevu():
                     help="« Parts » = nombre de parts de la recette. Le défaut proposé "
                          "est une estimation, change-le quand tu veux.")
     if mode == "Parts":
-        val = st.number_input("Parts", 0.25, 6.0, float(defaut), 0.25, format="%.2f",
-                              key="pr_v_parts")
+        val = st.number_input("Parts", 0.25, 6.0,
+                              float(MN.borne(defaut, 0.25, 6.0, 1.0)), 0.25,
+                              format="%.2f", key="pr_v_parts")
         md = "parts"
     elif mode == "% du plat":
         val = st.number_input("% du plat", 5, 100,
-                              int(round(100 / (calc["parts"] or 1))), 5, key="pr_v_pct")
+                              int(MN.borne(100 / (calc["parts"] or 1), 5, 100, 25)),
+                              5, key="pr_v_pct")
         md = "pourcent"
     else:
         val = st.number_input("Poids servi (g)", 10, 2000,
-                              int(round(calc["poids_g"] / (calc["parts"] or 1))), 10,
-                              key="pr_v_g")
+                              int(MN.borne(calc["poids_g"] / (calc["parts"] or 1),
+                                           10, 2000, 250)), 10, key="pr_v_g")
         md = "poids"
 
     mp = MN.ma_part(calc, md, val, MN.portion_foyer())
@@ -973,7 +1101,8 @@ def _ajout_ingredient():
         sugg = ing["poids_piece"] or IT.poids_piece_suggere(ing["nom"])
         with c2:
             poids_piece = st.number_input("Poids d'une unité (g)", 1.0, 2000.0,
-                                          float(sugg), 5.0, key=f"ing_pp_{idx}")
+                                          float(MN.borne(sugg, 1.0, 2000.0, 50.0)), 5.0,
+                                          key=f"ing_pp_{idx}")
         with c3:
             qte = st.number_input("Quantité", 0.25, 200.0, 1.0, 0.25, key=f"ing_qp_{idx}")
     else:
@@ -1120,17 +1249,17 @@ def _bloc_reparation(store, a_completer: list, nb_jour: int):
 
 
 def page_proteines():
-    st.title("🥗 Nutrition du jour")
-    st.caption(f"Tes trois compteurs du jour. **Protéines : {TARGET_P} g** (le plancher à ne "
-               "jamais descendre — c'est le levier n°1 pour perdre du gras sans perdre de muscle). "
-               f"Glucides : {TARGET_G} g · Lipides : {TARGET_L} g · Calories : {TARGET_KCAL} kcal.")
+    st.title("🥗 Nutrition")
+    st.caption(f"**Protéines : {TARGET_P} g** — le plancher à ne jamais descendre. "
+               f"Glucides : {TARGET_G} g · Lipides : {TARGET_L} g · "
+               f"Calories : {TARGET_KCAL} kcal.")
     today = D.today()
     df = store.protein_df()
     if not df.empty:
         df["entry_date"] = pd.to_datetime(df["entry_date"]).dt.date
     p_today = 0 if df.empty else int(df[df["entry_date"] == today]["protein_g"].sum())
 
-    st.progress(min(1.0, p_today / TARGET_P),
+    st.progress(min(1.0, p_today / TARGET_P) if TARGET_P else 0.0,
                 text=f"**{p_today} g / {TARGET_P} g**" + (" ✅ objectif atteint" if p_today >= TARGET_P
                 else f" — il reste {TARGET_P - p_today} g"))
 
@@ -1192,6 +1321,9 @@ def page_proteines():
         elif 0.85 * cible <= val <= 1.15 * cible:
             verdict = "✅ dans la cible"
             val_txt = f"{val:.0f} {unite}"
+        elif not cible:
+            verdict = "aucune cible fixée"
+            val_txt = f"{val:.0f} {unite}"
         elif val < cible:
             verdict = f"🔻 il manque {reste:.0f} {unite} ({val / cible:.0%} de la cible)"
             val_txt = f"{val:.0f} {unite}"
@@ -1204,18 +1336,6 @@ def page_proteines():
     st.caption("Ces lignes viennent de tes saisies du jour (menu, ingrédient, raccourcis). "
                "Remplis-les via **Repas & menus** ou l'onglet **Repas prévu** ci-dessous : "
                "le compteur se met à jour tout seul.")
-    pb_all = protein_by_day()
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Moyenne 7 j", fmt(mean_since(pb_all.rename(columns={"entry_date": "log_date",
-                                                                  "total": "protein_g"}),
-                                             "protein_g", 7) if not pb_all.empty else None, " g", 0))
-    c2.metric("Moyenne 30 j", fmt(mean_since(pb_all.rename(columns={"entry_date": "log_date",
-                                                                   "total": "protein_g"}),
-                                              "protein_g", 30) if not pb_all.empty else None, " g", 0))
-    c3.metric("Jours ≥ objectif (30 j)",
-              int(sum(1 for _, t_ in protein_by_day(today - dt.timedelta(days=30)).itertuples(index=False)
-                      if t_ >= TARGET_P)), "jours")
-
     t1, t2, t3 = st.tabs(["🍽️ Repas prévu", "🥕 Ingrédient + quantité", "⚡ Mes raccourcis"])
     with t1:
         _ajout_repas_prevu()
@@ -1253,13 +1373,27 @@ def page_proteines():
                      "**ici** : les totaux du jour et les calories se recalculent aussitôt. "
                      "Coche 🗑️ pour supprimer la ligne.")
 
-        pb = protein_by_day(today - dt.timedelta(days=21))
-        if not pb.empty:
-            pb = pb.rename(columns={"entry_date": "date", "total": "Protéines"})
-            st.altair_chart(alt.Chart(pb).mark_bar(color="#0d9488").encode(
-                x=alt.X("date:T", title=None), y=alt.Y("Protéines:Q", title="g/jour"),
-            ).properties(height=200, width="container") + alt.Chart(
-                pd.DataFrame({"y": [TARGET_P]})).mark_rule(color="#d97706", strokeDash=[5, 4]).encode(y="y:Q"))
+    with st.expander("📈 Mes moyennes (7 jours · 30 jours · jours réussis)"):
+        pb_all = protein_by_day()
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Moyenne 7 j", fmt(mean_since(
+            pb_all.rename(columns={"entry_date": "log_date", "total": "protein_g"}),
+            "protein_g", 7) if not pb_all.empty else None, " g", 0))
+        c2.metric("Moyenne 30 j", fmt(mean_since(
+            pb_all.rename(columns={"entry_date": "log_date", "total": "protein_g"}),
+            "protein_g", 30) if not pb_all.empty else None, " g", 0))
+        c3.metric("Jours ≥ objectif (30 j)",
+                  int(sum(1 for _, t_ in protein_by_day(today - dt.timedelta(days=30)).itertuples(index=False)
+                          if t_ >= TARGET_P)), "jours")
+        if not df.empty:
+            pb = protein_by_day(today - dt.timedelta(days=21))
+            if not pb.empty:
+                pb = pb.rename(columns={"entry_date": "date", "total": "Protéines"})
+                st.altair_chart(alt.Chart(pb).mark_bar(color="#0d9488").encode(
+                    x=alt.X("date:T", title=None), y=alt.Y("Protéines:Q", title="g/jour"),
+                ).properties(height=200, width="container") + alt.Chart(
+                    pd.DataFrame({"y": [TARGET_P]})).mark_rule(color="#d97706",
+                                                               strokeDash=[5, 4]).encode(y="y:Q"))
 
     with st.expander("🧊 Repas type & batch cooking du dimanche (45 min)"):
         st.markdown("**7 h** — Thé vert, citron, 500 ml d'eau\n\n"
@@ -1289,7 +1423,6 @@ def page_planifier():
 
 def _bandeau_fichiers_a_jour():
     """Avertit si les fichiers posés sur GitHub ne sont pas ceux de cette version."""
-    import sys as _sys
     manquants = []
     for nom, fichier in (("editeurs", "editeurs.py"), ("menus", "menus.py"),
                          ("pdf_menus", "pdf_menus.py"), ("repas_plats", "repas_plats.py")):
@@ -1302,23 +1435,13 @@ def _bandeau_fichiers_a_jour():
     if not manquants:
         return
     st.error(
-        "⚠️ **Un fichier chargé par l'application est encore celui d'avant : " +
-        " et ".join(manquants) + "**\n\n"
-        "C'est pour ça que la croix ❌ ne fonctionne pas : le fichier de l'éditeur est celui "
-        "d'avant.\n\n"
-        "**À faire (5 minutes) :**\n"
-        "1. Va sur **github.com** → ton dépôt **suivi-recomposition** → bouton **Add file** → "
-        "**Upload files**.\n"
-        "2. Fais glisser **tous les fichiers `.py`** du dossier `1_a_copier_dans_GITHUB` "
-        "(le plus important : `editeurs.py`).\n"
-        f"3. En bas : « Mise à jour {VERSION} » → **Commit changes**.\n"
-        "4. Sur **share.streamlit.io** : **Manage app → ⋮ → Reboot app**, puis **F5** dans le "
-        "navigateur.\n\n"
-        "⚠️ **Un simple F5 ne suffit pas** : Streamlit garde en mémoire les fichiers chargés au "
-        "démarrage. Sans le *Reboot*, le haut de la page se met bien à jour mais `editeurs.py` "
-        "et `menus.py` restent ceux d'avant.\n\n"
-        "Juste après, en bas de la barre de gauche, tu dois lire : "
-        f"**éditeur {VERSION} · menus {VERSION}**.")
+        "⚠️ **Un fichier encore en mémoire est celui d'avant : " + " et ".join(manquants)
+        + "**\n\n"
+        f"À faire : **github.com** → dépôt **suivi-recomposition** → **Add file → "
+        f"Upload files** → dépose les fichiers de la mise à jour {VERSION} → "
+        "**Commit changes**. Puis **Manage app → ⋮ → Reboot app** et **F5**.\n\n"
+        f"En bas de la barre de gauche, tu dois alors lire **éditeur {VERSION} · "
+        f"menus {VERSION}**.")
 
 
 def page_recettes_edition():
@@ -1346,12 +1469,14 @@ def page_cuisine():
 #  PAGE 7 — RÉGLAGES / DONNÉES
 # ============================================================================
 def page_reglages():
-    st.title("⚙️ Réglages & données")
+    st.title("⚙️ Réglages")
+    flash = st.session_state.pop("_flash_profil", None)
+    if flash:
+        (st.success if flash.startswith("✅") else st.warning)(flash)
     st.caption(f"Stockage actuel : **{store.label}**")
     if store.kind == "local":
-        st.info("**Mode local** : tes données sont dans un fichier SQLite sur cet appareil — aucune synchronisation "
-                "entre ton PC et ton téléphone. Pour passer sur Supabase (gratuit) : suis le README du dépôt, "
-                "puis renseigne `.streamlit/secrets.toml`.")
+        st.warning("**Mode local** : tes données restent sur cet appareil (pas de synchronisation "
+                   "entre le PC et le téléphone).")
     else:
         if st.button("Se déconnecter"):
             store.sign_out()
@@ -1362,45 +1487,74 @@ def page_reglages():
     st.subheader("Mon profil et mes objectifs")
     st.caption(f"Objectifs actuels : **{TARGET_KCAL} kcal** · **{TARGET_P} g de protéines** · "
                f"**{TARGET_G} g de glucides** · **{TARGET_L} g de lipides**")
+    #  Les valeurs sont RAMENÉES dans les bornes de chaque case : sans ça, une
+    #  valeur enregistrée hors bornes (0, ou 70 g de protéines) faisait planter
+    #  la page entière (vérifié par le test de solidité du 30/09).
+    def bornes(valeur, mini, maxi, defaut):
+        try:
+            return min(max(float(valeur), float(mini)), float(maxi))
+        except (TypeError, ValueError):
+            return defaut
+
     with st.form("profil"):
         c1, c2 = st.columns(2)
         nom = c1.text_input("Prénom", value=str(prof("display_name", "")))
-        taille_p = c2.number_input("Taille (cm)", 140.0, 220.0, HEIGHT, step=0.5)
+        taille_p = c2.number_input("Taille (cm)", 140.0, 220.0,
+                                   bornes(HEIGHT, 140, 220, 185.0), step=0.5)
         c3, c4 = st.columns(2)
-        dep = c3.number_input("Poids de départ (kg)", 40.0, 200.0, START_W, step=0.5)
-        obj = c4.number_input("Poids objectif (kg)", 40.0, 200.0, TARGET_W, step=0.5)
+        dep = c3.number_input("Poids de départ (kg)", 40.0, 200.0,
+                              bornes(START_W, 40, 200, 80.0), step=0.5)
+        obj = c4.number_input("Poids objectif (kg)", 40.0, 200.0,
+                              bornes(TARGET_W, 40, 200, 75.0), step=0.5)
         c5, c6 = st.columns(2)
-        prot = c5.number_input("Protéines cibles (g/jour)", 80, 250, TARGET_P, step=5)
-        carb = c6.number_input("Glucides cibles (g/jour)", 40, 400, TARGET_G, step=5)
+        prot = c5.number_input("Protéines cibles (g/jour)", 80, 250,
+                               int(bornes(TARGET_P, 80, 250, 130)), step=5)
+        carb = c6.number_input("Glucides cibles (g/jour)", 40, 400,
+                               int(bornes(TARGET_G, 40, 400, 140)), step=5)
         c7, c8 = st.columns(2)
-        lip = c7.number_input("Lipides cibles (g/jour)", 20, 150, TARGET_L, step=5)
-        kcal = c8.number_input("Calories cibles (kcal/jour)", 1000, 4000, TARGET_KCAL, step=50)
+        lip = c7.number_input("Lipides cibles (g/jour)", 20, 150,
+                              int(bornes(TARGET_L, 20, 150, 50)), step=5)
+        kcal = c8.number_input("Calories cibles (kcal/jour)", 1000, 4000,
+                               int(bornes(TARGET_KCAL, 1000, 4000, 1700)), step=50)
         tdee = st.number_input("Dépense estimée (kcal/jour)", 1500, 4000,
-                               int(prof("tdee_kcal", C.TDEE)), step=50)
+                               int(bornes(prof("tdee_kcal", C.TDEE), 1500, 4000, 2400)),
+                               step=50)
         if st.form_submit_button("💾 Enregistrer le profil", type="primary", width="stretch"):
             ok, msg = _enregistrer_profil(dict(
                 display_name=nom, height_cm=taille_p, start_weight_kg=dep,
                 target_weight_kg=obj, target_protein_g=int(prot), target_carbs_g=int(carb),
                 target_fat_g=int(lip), target_kcal=int(kcal), tdee_kcal=int(tdee),
                 phase=C.phase_for(D.today())[0]))
-            if ok:
-                st.success("Profil enregistré. Recharge la page pour appliquer "
-                           "(F5 sur l'ordinateur, ↻ sur le téléphone).")
-            else:
-                st.warning(msg)
+            #  le message survit au rechargement : on le range et on l'affiche
+            #  en haut de la page juste après (sinon il disparaissait aussitôt)
+            st.session_state["_flash_profil"] = (
+                "✅ Profil enregistré — les nouveaux objectifs sont déjà appliqués."
+                if ok else f"⚠️ {msg}")
             st.rerun()
 
-    st.subheader("Export de mes données")
+    # ---- export : chaque table à part (CSV direct) ou tout d'un coup (ZIP) ----
+    st.subheader("Mes données")
     data = store.export_all()
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        for name, df in data.items():
-            z.writestr(f"{name}.csv", df.to_csv(index=False))
-    st.download_button("⬇️ Télécharger un ZIP de sauvegarde (CSV)", buf.getvalue(),
-                       file_name=f"suivi_{D.today().isoformat()}.zip", mime="application/zip",
-                       width="stretch")
-    for name, df in data.items():
-        st.caption(f"{name} : {len(df)} lignes")
+    st.caption(" · ".join(f"{nom} : {len(df)}" for nom, df in data.items()))
+    c1, c2 = st.columns([3, 2])
+    with c1:
+        table = st.selectbox("Quelle table ?", list(data.keys()), key="exp_table")
+        st.download_button(
+            f"⬇️ Télécharger « {table} » en CSV",
+            data[table].to_csv(index=False).encode("utf-8-sig"),
+            file_name=f"equilibre_{table}_{D.today().isoformat()}.csv",
+            mime="text/csv", width="stretch")
+    with c2:
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+            for name, df in data.items():
+                z.writestr(f"{name}.csv", df.to_csv(index=False))
+        st.write("")
+        st.download_button(
+            "🗂️ Tout d'un coup (ZIP)", buf.getvalue(),
+            file_name=f"equilibre_{D.today().isoformat()}.zip",
+            mime="application/zip", width="stretch",
+            help="Sauvegarde complète, un fichier CSV par table.")
 
     with st.expander("🗑️ Supprimer une entrée"):
         daily = load_daily()
@@ -1413,27 +1567,20 @@ def page_reglages():
                 store.delete_daily(d)
                 st.rerun()
 
-    with st.expander("🔧 Comment ça marche / déploiement"):
+    with st.expander("🔧 Comment ça marche"):
         st.markdown(
-            "- **Code** : GitHub (versionné, gratuit, privé si tu veux)\n"
-            "- **Données** : Supabase — Postgres gratuit, protégé par RLS (chacun ne voit que ses lignes)\n"
-            "- **Interface** : Streamlit, hébergée gratuitement sur Streamlit Community Cloud\n"
-            "- **Mobile** : ouvre l'URL de l'app dans Chrome/Safari → *Ajouter à l'écran d'accueil* "
-            "→ elle se lance comme une appli, plein écran\n\n"
-            "Tout le détail de l'installation est dans le `README.md` du projet.")
+            "- **Tes données** : Supabase (Postgres), protégé — toi seul y accèdes.\n"
+            "- **Le code** : GitHub. **L'interface** : Streamlit.\n"
+            "- **Sur le téléphone** : ouvre l'adresse de l'application dans Chrome ou Safari → "
+            "*Ajouter à l'écran d'accueil* : elle se lance plein écran, comme une application.")
 
 
 # ============================================================================
 #  NAVIGATION
 # ============================================================================
-# Barre latérale regroupée en 2 espaces bien séparés (demande du 29/09) :
-#   👤 ce qui est PERSONNEL (tes données à toi, jamais partagées)
-#   👨‍👩‍👧‍👦 ce qui est PARTAGÉ (recettes, menus, courses : utiles à toute la famille)
-# Plus les réglages, à part.
-# --------------------------------------------------------------------------
-#  L'ORDRE ICI EST L'ORDRE DE LA BARRE LATÉRALE.
-#  « Menus & courses » d'abord, « Mon suivi » ensuite (demande du 29/09),
-#  et l'application s'ouvre directement sur « Repas & menus » (default=True).
+# Deux espaces, et rien d'autre :
+#   👨‍👩‍👧‍👦 PARTAGÉ   — les recettes, les menus, les courses (utiles à la famille)
+#   👤 PERSONNEL — ton suivi à toi, avec les réglages tout en bas (1.0)
 # --------------------------------------------------------------------------
 pages = {
     "👨‍👩‍👧‍👦 Menus & courses (partagé)": [
@@ -1448,8 +1595,8 @@ pages = {
         st.Page(page_safe(page_seance), title="Mes séances", icon="💪"),
         st.Page(page_safe(page_proteines), title="Nutrition", icon="🥗"),
         st.Page(page_safe(page_mensurations), title="Mensurations", icon="📏"),
-    ],
-    "⚙️ Réglages": [
+        #  les réglages ne sont plus dans un sous-dossier : ils sont au même
+        #  niveau que les autres pages, mais toujours en dernier (demandé le 30/09)
         st.Page(page_safe(page_reglages), title="Réglages", icon="⚙️"),
     ],
 }
@@ -1457,36 +1604,31 @@ pages = {
 # proposer un lien « 📖 Voir la recette » sur chaque plat à préparer.
 try:
     st.session_state["_page_recettes"] = pages["👨‍👩‍👧‍👦 Menus & courses (partagé)"][2]
+    #  la page d'accueil s'en sert pour le raccourci « 🧾 Voir ce que ça demande
+    #  à mes courses » (30/09)
+    st.session_state["_page_planifier"] = pages["👨‍👩‍👧‍👦 Menus & courses (partagé)"][1]
 except Exception:
     pass
 
 if FICHIERS_RECHARGES:
     st.sidebar.success("♻️ Fichiers rechargés à l'instant : "
-                       + ", ".join(sorted(set(FICHIERS_RECHARGES)))
-                       + " — c'est la nouvelle version qui tourne.")
+                       + ", ".join(sorted(set(FICHIERS_RECHARGES))))
+
+#  Le logo de l'application, en haut de la barre de gauche.
+if _os.path.exists(LOGO) and hasattr(st, "logo"):
+    try:
+        st.logo(LOGO, size="large")
+    except Exception:
+        pass
 
 _v_editeur = getattr(ED, "VERSION", "ancien")
 _v_menus = getattr(MN, "VERSION", "ancien")
-st.sidebar.markdown(f"**Suivi Recomposition** <span class='hint'>v{VERSION}</span>  \n"
-                    f"<span class='hint'>éditeur {_v_editeur} · menus {_v_menus}</span>  \n"
-                    f"<span class='hint'>{store.label}</span>",
-                    unsafe_allow_html=True)
-st.sidebar.caption(f"Objectif : {TARGET_W:.0f} kg · {TARGET_P} g de protéines/jour")
-st.sidebar.caption("👤 = **tes** données (elles restent privées)  \n"
-                   "👨‍👩‍👧‍👦 = **partagé** avec ta femme (recettes, menus, courses)")
-
-# Lien facultatif vers l'application de menus (à déclarer dans les Secrets, section [apps])
-try:
-    _menus_url = st.secrets.get("apps", {}).get("menus_url")
-except Exception:
-    _menus_url = None
-if _menus_url:
-    st.sidebar.link_button("🍽️ Ouvrir Menus & recettes", _menus_url, width="stretch")
+st.sidebar.markdown(f"**{APP}** <span class='hint'>v{VERSION}</span>", unsafe_allow_html=True)
+st.sidebar.caption(f"éditeur {_v_editeur} · menus {_v_menus}  \n{store.label}")
+st.sidebar.caption(f"Objectif : **{TARGET_W:.0f} kg** · **{TARGET_P} g** de protéines/jour")
 
 # Hook de test (utilisé par test_app.py pour vérifier chaque page sans navigateur)
-import os
-
-_test_page = os.environ.get("APP_TEST_PAGE")
+_test_page = _os.environ.get("APP_TEST_PAGE")
 if _test_page:
     {"dashboard": page_dashboard, "pesee": page_pesee, "seance": page_seance,
      "proteines": page_proteines, "mensurations": page_mensurations,
