@@ -202,6 +202,8 @@ def _pluriel(qty, unite: str) -> str:
     u = (unite or "").strip()
     if not u:
         return ""
+    if u.lower() in ("pièce", "piece"):
+        u = "unité"                      # « pièce » et « unité » = la même chose
     try:
         q = float(qty)
     except (TypeError, ValueError):

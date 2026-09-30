@@ -19,7 +19,7 @@ Ce module en déduit, sans aucune saisie :
 Aucune écriture ici : que de la lecture et du calcul. Tu peux tester sans risque.
 """
 
-VERSION = "2.8.5"        # affiché dans la barre de gauche (contrôle des fichiers à jour)
+VERSION = "2.8.6"        # affiché dans la barre de gauche (contrôle des fichiers à jour)
 
 import datetime as dt
 import math
@@ -302,6 +302,20 @@ def unite_propre(unite) -> str:
     if c in ("piece", "pieces", "unite", "unites", "unite(s)", "piece(s)", "u"):
         return "unité"
     return u
+
+
+def _convertir(q, u_source, u_cible, poids=None) -> float:
+    """Convertit une quantité vers l'unité de la liste de courses.
+
+    « 6 unités » de pommes de terre (100 g l'unité) → 600 g. Sans ça, on
+    additionnait des grammes avec des unités (« 310 unités »). Jamais None.
+    """
+    try:
+        import pdf_menus as PM
+        v = PM.convert_to_unit(q, u_source, u_cible, poids)
+        return float(v) if v is not None else float(q or 0)
+    except Exception:
+        return float(q or 0)
 
 
 def nom_court(ing: dict | None) -> str:
@@ -812,18 +826,54 @@ class MenusStore:
                 continue
             repas_comptes += 1
             rec = recettes[rid]
+            nom_rec = str(rec.get("name") or "")
             parts = _nombre(rec.get("base_servings")) or 1.0
             coef = (portion / parts) if portion else 1.0
+            # ligne « [Ing] Steak haché » : le nombre saisi est un nombre d'unités
+            # (4 steaks), pas 4 g. On le traduit avec la fiche de l'aliment, comme
+            # le fait la fiche PDF → 4 × 125 g = 500 g. Et on garde SON nom.
+            if nom_rec.startswith("[Ing] "):
+                ligne = (lignes.get(rid) or [{}])[0]
+                ing = ings.get(ligne.get("ingredient_id")) or ings.get(m.get("ingredient_id")) or {}
+                cle = ligne.get("ingredient_id") or m.get("ingredient_id")
+                if cle and not ing.get("exclude_from_list"):
+                    unite_liste = ing.get("unite_liste_courses") or ing.get("unit") or "g"
+                    qte_saisie = m.get("ingredient_qty") or m.get("servings") or 1
+                    try:
+                        import pdf_menus as PM
+                        q = PM._quantite_ligne_ing(qte_saisie, ing, unite_liste)
+                    except Exception:
+                        q = _nombre(qte_saisie)
+                    if cle not in besoin:
+                        besoin[cle] = dict(id=cle, nom=nom_court(ing),
+                                       nom_complet=ing.get("name"),
+                                       unite=unite_liste, unite_declaree=ing.get("unit"),
+                                       quantite=0.0, rayon=ing.get("category") or "Autre",
+                                           quantite_recommandee=ing.get("quantite_recommandee"),
+                                           unite_recommandee=ing.get("unite_recommandee"),
+                                           poids_piece_g=ing.get("poids_piece_g"), recettes=[])
+                    besoin[cle]["quantite"] += _nombre(q)
+                    if nom_rec not in besoin[cle]["recettes"]:
+                        besoin[cle]["recettes"].append(nom_rec)
+                continue
             for l in lignes.get(rid, []):
                 ing = ings.get(l.get("ingredient_id")) or {}
                 if ing.get("exclude_from_list"):
                     continue
-                q = _nombre(l.get("quantity")) * coef
                 u = l.get("unit") or ing.get("unit")
                 cle = l.get("ingredient_id")
+                # on ramène TOUJOURS à l'unité de la liste de courses : « 6 unités »
+                # de pommes de terre (100 g l'unité) deviennent 600 g. Sinon on
+                # additionnait des grammes et des unités (« Pomme de terre : 310
+                # unités »). Corrigé le 30/09 — la liste dit enfin la même chose
+                # que la fiche PDF.
+                unite_liste = ing.get("unite_liste_courses") or ing.get("unit") or u
+                q = _convertir(_nombre(l.get("quantity")), u, unite_liste,
+                               ing.get("poids_piece_g")) * coef
                 if cle not in besoin:
-                    besoin[cle] = dict(nom=nom_court(ing), nom_complet=ing.get("name"),
-                                       unite=u, unite_declaree=ing.get("unit"),
+                    besoin[cle] = dict(id=cle, nom=nom_court(ing),
+                                       nom_complet=ing.get("name"),
+                                       unite=unite_liste, unite_declaree=ing.get("unit"),
                                        quantite=0.0, rayon=ing.get("category") or "Autre",
                                        quantite_recommandee=ing.get("quantite_recommandee"),
                                        unite_recommandee=ing.get("unite_recommandee"),
@@ -838,13 +888,36 @@ class MenusStore:
         #   Ils n'ont pas de quantité calculée : on prend alors la QUANTITÉ
         #   RECOMMANDÉE de la fiche (« 1 boîte », « 200 ml ») — sinon la liste
         #   affichait « 0 g » pour tous les articles du fond de placard.
+        # --- SES NOMS À LUI -------------------------------------------------
+        #  Une ligne de planning « [Ing] Steak haché » doit apparaître sous ce
+        #  nom-là dans la liste de courses (« Steak haché »), et non sous le nom
+        #  de la ligne de base (« Boeuf haché ») : au magasin, ce n'est pas la
+        #  même chose. C'est lui qui l'a écrit, c'est son mot qui gagne.
+        noms_a_lui: dict = {}
+        for m in self.planning():
+            rec = recettes.get(m.get("recipe_id")) or {}
+            nom_rec = str(rec.get("name") or "")
+            if not nom_rec.startswith("[Ing] "):
+                continue
+            sien = nom_rec[6:].strip()
+            if not sien:
+                continue
+            ident = m.get("ingredient_id")
+            if not ident:
+                for l in lignes.get(m.get("recipe_id"), []):
+                    ident = l.get("ingredient_id")
+                    break
+            if ident:
+                noms_a_lui.setdefault(str(ident), sien)
+
         for ing in self.ingredients():
             if ing.get("is_recurrent") and not ing.get("exclude_from_list"):
                 cle = ing.get("id")
                 q_rec = _nombre(ing.get("quantite_recommandee")) or 0.0
                 u_rec = (ing.get("unite_recommandee") or ing.get("unit")
                          if q_rec else ing.get("unit"))
-                besoin.setdefault(cle, dict(nom=nom_court(ing), nom_complet=ing.get("name"),
+                besoin.setdefault(cle, dict(id=cle, nom=nom_court(ing),
+                                            nom_complet=ing.get("name"),
                                             unite=u_rec, unite_declaree=ing.get("unit"),
                                             quantite=q_rec, rayon=ing.get("category") or "Autre",
                                             quantite_recommandee=ing.get("quantite_recommandee"),
@@ -852,6 +925,17 @@ class MenusStore:
                                             poids_piece_g=ing.get("poids_piece_g"),
                                             recettes=[]))
                 besoin[cle]["recurrent"] = True
+
+        # son nom à lui remplace le nom de la base (Steak haché, pas Boeuf haché)
+        for cle, v in besoin.items():
+            sien = noms_a_lui.get(str(cle))
+            if sien:
+                v["nom_complet"] = v.get("nom_complet") or v.get("nom")
+                v["nom"] = sien
+            # dans « utilisé par », on n'écrit pas le préfixe technique « [Ing] »,
+            # et on ne répète pas le nom de l'article lui-même
+            v["recettes"] = [n[6:].strip() if n.startswith("[Ing] ") else n for n in v["recettes"]]
+            v["recettes"] = [n for n in v["recettes"] if n.lower() != (v.get("nom") or "").lower()]
 
         # arrondi « achetable »
         for v in besoin.values():
@@ -1009,5 +1093,6 @@ def fmt_quantite(v: dict) -> str:
     if q >= 1000 and ul in ("g", "gr", "gramme", "grammes"):
         base = (f"{q/1000:.2f}".rstrip("0").rstrip(".").replace(".", ",") + " kg")
     if nb:
-        return f"{base} ({nb} pièce{'s' if nb > 1 else ''})"
+        # demande du 30/09 : on écrit « unités », jamais « pièces »
+        return f"{base} ({nb} unité{'s' if nb > 1 else ''})"
     return base

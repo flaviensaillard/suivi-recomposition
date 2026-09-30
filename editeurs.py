@@ -17,7 +17,7 @@ from __future__ import annotations
 #  (« éditeur 2.8 »). S'il affiche autre chose, c'est que ce fichier n'a pas
 #  été recopié sur GitHub.
 # ---------------------------------------------------------------------------
-VERSION = "2.8.5"
+VERSION = "2.8.6"
 
 import datetime as dt
 import traceback
@@ -473,7 +473,10 @@ def _fiche_pdf(ms, jours, planning, recettes_par_id, ing_par_id, pour_foyer: boo
                     v["qty"] = float(v.get("qty") or 0)
                     v["unit"] = ""
                     continue
-                ing = next((i for i in ing_par_id.values() if i.get("name") == v["name"]), None)
+                ing = ing_par_id.get(v.get("ingredient_id"))
+                if ing is None:
+                    ing = next((i for i in ing_par_id.values()
+                                if i.get("name") == v["name"]), None)
                 # ⚠️ l'agrégat utilise « qty »/« unit » : arrondi_achat attend
                 # « quantite »/« unite » → sans cette traduction, les arrondis de la
                 # liste de courses n'étaient PAS appliqués dans la fiche PDF
@@ -488,7 +491,10 @@ def _fiche_pdf(ms, jours, planning, recettes_par_id, ing_par_id, pour_foyer: boo
                 v["qty"] = arr.get("quantite", v.get("qty")) or 0.0
                 v["unit"] = arr.get("unite") or v.get("unit")
                 pieces = arr.get("pieces")
-                court = MN.nom_court(ing) if ing else (v.get("nom") or v["name"])
+                # « Steak haché » (son nom, saisi dans le planning) plutôt que
+                # « Boeuf haché » (le nom de la fiche de base)
+                court = (v.get("nom_personnel") or v.get("nom")
+                         or (MN.nom_court(ing) if ing else None) or v["name"])
                 if pieces and pieces > 1:
                     v["name"] = f"{court} ({pieces} unités)"
                 else:                              # 1 pièce : inutile de l'écrire

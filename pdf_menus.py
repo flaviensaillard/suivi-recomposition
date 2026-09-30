@@ -514,9 +514,21 @@ def construire_agregat(week_meals, recipes_dict, ingredients_dict, recipe_ings):
                 qty_source = pm.get("ingredient_qty") or pm.get("servings") or 1
                 qty = _quantite_ligne_ing(qty_source, ing, unite_liste)
                 if ing["id"] not in aggregated:
-                    aggregated[ing["id"]] = {"name": ing["name"], "qty": 0,
+                    # nom COURT (son nom à lui s'il l'a simplifié : « Boeuf haché »
+                    # et non « Boeuf, steak haché 15% MG cuit »), comme dans la
+                    # liste de l'application
+                    aggregated[ing["id"]] = {"name": ing.get("nom_affiche") or ing["name"],
+                                             "qty": 0,
                                              "unit": unite_liste,
-                                             "category": ing.get("category", "Autre")}
+                                             "category": ing.get("category", "Autre"),
+                                             "ingredient_id": ing["id"]}
+                # son nom à lui : sur une ligne « [Ing] Steak haché », la liste de
+                # courses doit dire « Steak haché » (ce qu'il achète), pas
+                # « Boeuf haché » (le nom de la fiche de base). Corrigé le 30/09.
+                if nom.startswith("[Ing] "):
+                    sien = get_display_name(rec).strip()
+                    if sien:
+                        aggregated[ing["id"]].setdefault("nom_personnel", sien)
                 aggregated[ing["id"]]["qty"] += qty or 0
         elif not nom.startswith("[Txt] "):
             ratio = (pm.get("servings") or 1) / (rec.get("base_servings") or 1)
@@ -531,9 +543,14 @@ def construire_agregat(week_meals, recipes_dict, ingredients_dict, recipe_ings):
                 qty = convert_to_unit((ri.get("quantity") or 0) * ratio, ri_unit, unite_liste,
                                       ing.get("poids_piece_g"))
                 if ing["id"] not in aggregated:
-                    aggregated[ing["id"]] = {"name": ing["name"], "qty": 0,
+                    # nom COURT (son nom à lui s'il l'a simplifié : « Boeuf haché »
+                    # et non « Boeuf, steak haché 15% MG cuit »), comme dans la
+                    # liste de l'application
+                    aggregated[ing["id"]] = {"name": ing.get("nom_affiche") or ing["name"],
+                                             "qty": 0,
                                              "unit": unite_liste,
-                                             "category": ing.get("category", "Autre")}
+                                             "category": ing.get("category", "Autre"),
+                                             "ingredient_id": ing["id"]}
                 aggregated[ing["id"]]["qty"] += qty or 0
     recurrent = [i for i in ingredients_dict.values() if i.get("is_recurrent")]
     return aggregated, recurrent
