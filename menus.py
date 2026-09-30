@@ -19,7 +19,7 @@ Ce module en déduit, sans aucune saisie :
 Aucune écriture ici : que de la lecture et du calcul. Tu peux tester sans risque.
 """
 
-VERSION = "2.8.7"        # affiché dans la barre de gauche (contrôle des fichiers à jour)
+VERSION = "2.8.8"        # affiché dans la barre de gauche (contrôle des fichiers à jour)
 
 import datetime as dt
 import math
@@ -288,6 +288,73 @@ def selecteur_recherche(label: str, options, cle_etat: str):
                    "pour revoir toute la liste.")
         return None
     return st.selectbox(label, trouves, key=cle_etat)
+
+
+#  Unités proposées quand il ajoute un ingrédient à un repas (30/09)
+UNITES_SAISIE = ["unité", "g", "kg", "ml", "cl", "l", "tranche", "gousse",
+                 "tranche(s)", "boîte", "sachet", "barquette", "pot", "botte",
+                 "filet", "verre", "c. à soupe", "c. à café", "pincée", "portion"]
+
+
+def unite_par_defaut(ing: dict | None) -> str:
+    """L'unité proposée pour un ingrédient — celle qu'on écrit naturellement.
+
+    • un aliment qui se compte (œuf, cordon bleu, tranche de jambon) → « unité » ;
+    • un aliment vendu au poids mais qu'on compte (steak haché 125 g, courgette
+      200 g) → « unité » aussi : quand il tape « 4 », il pense 4 steaks, et
+      l'application convertit en 500 g pour la liste de courses ;
+    • le reste → son unité d'achat (g, ml, boîte…).
+    """
+    ing = ing or {}
+    u = unite_propre(ing.get("unite_liste_courses") or ing.get("unit")) or "g"
+    if u.lower() in ("g", "gr", "gramme", "grammes", "kg", "ml", "cl", "l"):
+        try:
+            poids = float(ing.get("poids_piece_g") or 0)
+        except (TypeError, ValueError):
+            poids = 0.0
+        if 25 <= poids <= 400:
+            return "unité"
+    return u
+
+
+def unites_proposees(ing: dict | None) -> list:
+    """Les unités qui ont du SENS pour cet aliment (rien d'inutile proposé).
+
+    • steak haché (vendu au poids, 125 g la pièce) → unité, g, kg…
+    • pâtes → g, kg (+ cuillères) : « 3 unités de pâtes » ne veut rien dire
+    • cordon bleu → unité, tranche… : on n'achète pas des grammes de cordon bleu
+    La première de la liste est celle qu'on propose par défaut.
+    """
+    ing = ing or {}
+    u = unite_par_defaut(ing)
+    bas = _sans_accent(u).strip()
+    try:
+        poids = float(ing.get("poids_piece_g") or 0)
+    except (TypeError, ValueError):
+        poids = 0.0
+    grands = ("unite", "tranche", "gousse", "boite", "sachet", "pot", "barquette",
+              "botte", "filet", "verre", "portion")
+    masse = ("g", "gramme", "grammes", "kg", "kilo", "kilos")
+    volume = ("ml", "cl", "l", "litre", "litres")
+    choix = [u]
+    if bas in grands:
+        choix += ["unité", "tranche", "gousse", "boîte", "sachet", "pot", "portion"]
+    if bas in masse or (bas in ("", "?") and not poids):
+        choix += ["g", "kg"]
+    if bas in volume:
+        choix += ["ml", "cl", "l"]
+    if poids > 0:                        # on peut toujours dire « 4 unités »
+        choix += ["unité", "g"]
+    if bas not in volume and poids <= 0 and bas not in masse:
+        choix += ["g", "kg"]
+    choix += ["c. à soupe", "c. à café", "pincée"]
+    vus, propre = set(), []
+    for c in choix:
+        c = unite_propre(c)
+        if c and c.lower() not in vus:
+            vus.add(c.lower())
+            propre.append(c)
+    return propre
 
 
 def unite_propre(unite) -> str:
@@ -855,7 +922,8 @@ class MenusStore:
                     qte_saisie = m.get("ingredient_qty") or m.get("servings") or 1
                     try:
                         import pdf_menus as PM
-                        q = PM._quantite_ligne_ing(qte_saisie, ing, unite_liste)
+                        q = PM._quantite_ligne_ing(qte_saisie, ing, unite_liste,
+                                                   m.get("ingredient_unit"))
                     except Exception:
                         q = _nombre(qte_saisie)
                     if cle not in besoin:

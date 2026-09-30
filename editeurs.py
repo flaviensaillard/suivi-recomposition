@@ -17,7 +17,7 @@ from __future__ import annotations
 #  (« éditeur 2.8 »). S'il affiche autre chose, c'est que ce fichier n'a pas
 #  été recopié sur GitHub.
 # ---------------------------------------------------------------------------
-VERSION = "2.8.7"
+VERSION = "2.8.8"
 
 import datetime as dt
 import traceback
@@ -244,6 +244,11 @@ def page_planifier(ms, target_p: float):
     st.title("📅 Planifier mes menus")
     st.caption("Ta semaine de repas. Un repas peut être une **recette**, un **ingrédient seul** "
                "(ex. un fruit) ou du **texte libre** (ex. « Restaurant »).")
+    if st.session_state.pop("pl_sql_manquant", False):
+        st.warning("Ton repas est bien enregistré, mais **l'unité n'a pas pu l'être** : "
+                   "lance le fichier **`23_unite_par_repas.sql`** (dossier 2_SQL du zip) "
+                   "sur Supabase, puis recharge la page. En attendant, l'application "
+                   "recalcule l'unité automatiquement.")
 
     recettes = liste_recettes(ms)
     # TOUTE la base : tes ingrédients + les aliments de la base française
@@ -324,7 +329,8 @@ def page_planifier(ms, target_p: float):
                 libelle = f"{p.get('meal_type') or ''} · **{nom}**"
                 if p.get("ingredient_qty"):
                     _ing = PM._trouve_ing(nom, ing_par_id) or PM._trouve_ing(nom, ingredients)
-                    _q = PM._quantite_lisible(p["ingredient_qty"], _ing)
+                    _q = PM._quantite_lisible(p["ingredient_qty"], _ing,
+                                              p.get("ingredient_unit"))
                     # avant : « Pâtes — 200 » (sans unité). Maintenant : « Pâtes — 200 g »
                     libelle += f" — {_q}" if _q else f" — {p['ingredient_qty']:g}"
                 if p.get("servings"):
@@ -361,37 +367,65 @@ def page_planifier(ms, target_p: float):
                 st.caption("Rien de prévu.")
 
             # ---- ajout
-            #  ⚠️ LE CHOIX DU TYPE EST HORS DU FORMULAIRE, et c'est volontaire :
-            #  dans un formulaire, Streamlit ne relance PAS la page quand on change
-            #  une case. En passant de « Recette » à « Ingrédient » ou « Texte
-            #  libre », l'ancien champ restait donc affiché et on ne pouvait ni
-            #  choisir un ingrédient ni écrire un texte (bug signalé le 30/09).
+            #  TOUTES LES CASES SONT HORS FORMULAIRE, exprès : dans un formulaire,
+            #  Streamlit ne relance pas la page quand on change une case. Le type,
+            #  l'ingrédient et l'unité ne réagissaient donc pas (bugs du 30/09).
             t1, t2 = st.columns([2, 2])
             genre = t1.selectbox("Type", ["Recette", "Ingrédient", "Texte libre"],
                                  key=f"pl_g_{d}")
-            t2.caption("Change le type : le champ juste en dessous s'adapte tout de suite.")
-            ids_ing = None
-            with st.form(f"pl_add_{d}", clear_on_submit=True):
-                f1, f2 = st.columns([2, 1])
-                moment = f1.selectbox("Moment", ["Midi", "Soir"], key=f"pl_m_{d}")
-                convives = f2.number_input("Convives", 1, 12, 4, key=f"pl_c_{d}")
-                choix, qte = None, None
-                if genre == "Recette":
-                    noms = MN.filtre_recherche([r.get("name") for r in recettes], recherche_plan)
-                    choix = st.selectbox("Recette", ["—"] + noms, key=f"pl_r_{d}")
-                elif genre == "Ingrédient":
-                    noms, ids_ing = _choix_ingredients(ms, tout=True)
-                    noms = MN.filtre_recherche(noms, recherche_plan)
-                    if not noms:
-                        st.caption("Aucun ingrédient ne correspond à la recherche du haut de page.")
-                    choix = st.selectbox("Ingrédient", ["—"] + noms, key=f"pl_i_{d}")
-                    qte = st.number_input("Quantité", 0.0, 5000.0, 1.0, step=0.5, key=f"pl_q_{d}")
-                else:
-                    choix = st.text_input("Texte", placeholder="Restaurant, pique-nique…",
-                                          key=f"pl_t_{d}")
-                if st.form_submit_button("➕ Ajouter ce repas", width="stretch"):
-                    _ajouter_repas(ms, d, moment, convives, genre, choix, qte, recettes,
-                                   ingredients, ids_ing if genre == "Ingrédient" else None)
+            f1, f2 = st.columns([2, 1])
+            moment = f1.selectbox("Moment", ["Midi", "Soir"], key=f"pl_m_{d}")
+            convives = f2.number_input("Convives", 1, 12, 4, key=f"pl_c_{d}",
+                                       help="Le nombre de personnes présentes : les quantités "
+                                            "de la liste de courses en tiennent compte.")
+            t2.caption("Chaque case réagit tout de suite — rien à valider avant de choisir.")
+            choix, qte, unite, ids_ing = None, None, None, None
+
+            if genre == "Recette":
+                noms = MN.filtre_recherche([r.get("name") for r in recettes], recherche_plan)
+                choix = st.selectbox("Recette", ["—"] + noms, key=f"pl_r_{d}")
+
+            elif genre == "Ingrédient":
+                noms, ids_ing = _choix_ingredients(ms, tout=True)
+                noms = MN.filtre_recherche(noms, recherche_plan)
+                if not noms:
+                    st.caption("Aucun ingrédient ne correspond à la recherche du haut de page.")
+                choix = st.selectbox("Ingrédient", ["—"] + noms, key=f"pl_i_{d}")
+                ing_choisi = (ids_ing or {}).get(choix)
+                fiche = next((i for i in ingredients if _id(i) == ing_choisi), None)
+                # ✅ CHOIX DE L'UNITÉ : la quantité veut enfin dire quelque chose
+                #    (4 unités de steak haché ≠ 4 g). La clé contient l'aliment :
+                #    l'unité proposée suit donc l'ingrédient choisi.
+                q1, q2 = st.columns([1, 1])
+                qte = q1.number_input("Quantité", 0.0, 5000.0, 1.0, step=0.5,
+                                      key=f"pl_q_{d}",
+                                      help="Le nombre de l'unité choisie juste à droite.")
+                options_u = MN.unites_proposees(fiche)
+                unite = q2.selectbox("Unité", options_u, key=f"pl_u_{d}_{ing_choisi or 'x'}",
+                                     help="« 4 unités » de steak haché = 500 g au magasin. "
+                                          "Change l'unité et tout suit.")
+                if fiche:
+                    total = PM._quantite_lisible(qte, fiche, unite)
+                    cout = _cout_ingredient(fiche, qte, unite)
+                    st.caption(f"→ Ce repas demandera **{total or '—'}** à la liste de courses "
+                               f"({cout})")
+
+            else:
+                choix = st.text_input("Texte", placeholder="Restaurant, pique-nique…",
+                                      key=f"pl_t_{d}")
+
+            if st.button("➕ Ajouter ce repas", key=f"pl_add_btn_{d}", type="primary",
+                         width="stretch"):
+                # on vide les cases du jour pour le repas suivant (l'équivalent du
+                # « clear_on_submit » d'avant), puis on enregistre
+                for cle in [f"pl_r_{d}", f"pl_i_{d}", f"pl_q_{d}", f"pl_t_{d}"]:
+                    st.session_state.pop(cle, None)
+                for cle in [k for k in list(st.session_state.keys())
+                            if isinstance(k, str) and k.startswith(f"pl_u_{d}_")]:
+                    st.session_state.pop(cle, None)
+                _ajouter_repas(ms, d, moment, convives, genre, choix, qte, recettes,
+                               ingredients, ids_ing if genre == "Ingrédient" else None,
+                               unite=unite)
 
     # ---- diagnostic (en bas de page)
     bloc_diagnostic(ms)
@@ -415,6 +449,68 @@ def page_planifier(ms, target_p: float):
             st.warning("Mode aperçu : rien n'est supprimé.")
 
 
+def _cout_ingredient(fiche: dict | None, qte, unite) -> str:
+    """Phrase d'explication : « ≈ 750 kcal, 82 g de protéines » pour cet ajout."""
+    if not fiche:
+        return "aliment inconnu de la base"
+    try:
+        q = float(qte or 0)
+    except (TypeError, ValueError):
+        return "quantité à préciser"
+    u = str(unite or "").lower()
+    try:
+        poids = float(fiche.get("poids_piece_g") or 0) if u in ("unité", "unite") else 0
+    except (TypeError, ValueError):
+        poids = 0
+    grammes = q * poids if poids else q
+    k, pr = fiche.get("kcal_100g"), fiche.get("proteines_100g")
+    if not grammes or (k is None and pr is None):
+        return "valeurs non renseignées dans ta base"
+    bouts = []
+    if k is not None:
+        bouts.append(f"≈ {float(k) * grammes / 100:,.0f} kcal".replace(",", " "))
+    if pr is not None:
+        bouts.append(f"{float(pr) * grammes / 100:,.0f} g de protéines".replace(",", " "))
+    return " · ".join(bouts)
+
+
+def _fiche_du_repas(ms, p, nom) -> dict | None:
+    """La fiche de l'aliment d'un repas « [Ing] X » (pour l'unité et les valeurs)."""
+    try:
+        ings = ms.ing_par_id()
+    except Exception:
+        ings = {}
+    fiche = PM._trouve_ing(nom, ings)
+    if fiche is None:
+        rid = p.get("recipe_id")
+        for l in (ms.lignes_par_recette().get(rid) or []):
+            fiche = ings.get(l.get("ingredient_id"))
+            break
+    return fiche
+
+
+def _unite_courante(p) -> str:
+    """L'unité enregistrée sur un repas (vide = calcul automatique)."""
+    return str(p.get("ingredient_unit") or "").strip()
+
+
+def _ecrire_repas(ms, table, charge: dict, unite, viser):
+    """Enregistre un repas AVEC son unité, même si le SQL 23 n'a pas encore été
+    lancé : dans ce cas on réenregistre sans l'unité (le repas n'est jamais perdu)
+    et on prévient gentiment."""
+    try:
+        viser(dict(charge, ingredient_unit=unite)).execute()
+        return True
+    except Exception as e:
+        msg = str(e).lower()
+        if "ingredient_unit" in msg or "column" in msg or "schema" in msg:
+            viser(dict(charge)).execute()
+            # le message doit SURVIVRE au rechargement de la page (sinon il disparaît)
+            st.session_state["pl_sql_manquant"] = True
+            return False
+        raise
+
+
 def _editer_repas(ms, p, nom, cle):
     """Modifier un repas DÉJÀ prévu : moment, nombre de convives, quantité.
 
@@ -434,12 +530,22 @@ def _editer_repas(ms, p, nom, cle):
             int(p.get("servings") or p.get("nb_persons") or 4), key=f"pe_c_{cle}",
             help="Le nombre de personnes présentes à ce repas. La liste de courses "
                  "et la fiche PDF recalculent les quantités avec ce nombre.")
-        qte = None
+        qte, unite = None, None
         if from_ing:
+            fiche = _fiche_du_repas(ms, p, nom)
+            actuelle = _unite_courante(p)
+            options_u = MN.unites_proposees(fiche)
+            proposee = actuelle or options_u[0]
+            if proposee not in options_u:
+                options_u = [proposee] + options_u
+            e3, e4 = st.columns(2)
             qte = e3.number_input("Quantité", 0.0, 5000.0,
                                   float(p.get("ingredient_qty") or 1.0), step=0.5,
                                   key=f"pe_q_{cle}",
                                   help="La quantité de cet ingrédient seul (4 steaks, 200 g…).")
+            unite = e4.selectbox("Unité", options_u, key=f"pe_u_{cle}",
+                                 help="L'unité de cette quantité. « unité » de steak haché "
+                                      "= 125 g pièce.")
         b1, b2 = st.columns(2)
         enregistrer = b1.form_submit_button("💾 Enregistrer", width="stretch")
         annuler = b2.form_submit_button("Annuler", width="stretch")
@@ -453,20 +559,24 @@ def _editer_repas(ms, p, nom, cle):
         charge = {"meal_type": moment, "servings": convives, "nb_persons": convives}
         if from_ing and qte is not None:
             charge["ingredient_qty"] = qte
+            charge["ingredient_unit"] = unite
         pid = _id(p)
-        q = ms.client.table("planned_meals").update(charge)
-        if pid:
-            q.eq("id", pid).execute()
-        else:                                # pas d'id : on cible par son contenu
-            q.eq("date_menu", p.get("date_menu")).eq("meal_type", p.get("meal_type")).eq(
-                "recipe_id", p.get("recipe_id")).execute()
+
+        def viser(c):
+            q = ms.client.table("planned_meals").update(c)
+            if pid:
+                return q.eq("id", pid)
+            return q.eq("date_menu", p.get("date_menu")).eq(
+                "meal_type", p.get("meal_type")).eq("recipe_id", p.get("recipe_id"))
+
+        _ecrire_repas(ms, "planned_meals", charge, unite, viser)
         st.session_state.pop("pl_edit", None)
         _recharger(ms, f"Repas modifié ({convives} convives). "
                        "La liste de courses et la fiche PDF sont recalculées.")
 
 
 def _ajouter_repas(ms, jour, moment, convives, genre, choix, qte, recettes, ingredients,
-                   ids_ing: dict | None = None):
+                   ids_ing: dict | None = None, unite=None):
     if not _table(ms, "planned_meals"):
         st.warning("Mode aperçu : l'ajout n'est pas enregistré. Renseigne tes clés Supabase "
                    "pour que tout soit sauvegardé.")
@@ -504,10 +614,20 @@ def _ajouter_repas(ms, jour, moment, convives, genre, choix, qte, recettes, ingr
                 _inserer(ms, "recipe_ingredients", {
                     "recipe_id": rid, "ingredient_id": _id(ing), "quantity": 1,
                     "unit": ing.get("unit")})
-            _inserer(ms, "planned_meals", {
-                "day": jour_fr, "date_menu": jour.isoformat(), "meal_type": moment,
-                "recipe_id": rid, "servings": convives, "nb_persons": convives,
-                "ingredient_qty": qte}, identifiant=False)
+            charge = {"day": jour_fr, "date_menu": jour.isoformat(),
+                      "meal_type": moment, "recipe_id": rid,
+                      "servings": convives, "nb_persons": convives,
+                      "ingredient_qty": qte}
+
+            def viser_ing(c):
+                return ms.client.table("planned_meals").insert(c)
+
+            if unite:
+                # l'unité choisie part avec le repas (SQL 23) ; si la colonne n'existe
+                # pas encore, le repas est quand même enregistré (voir _ecrire_repas)
+                _ecrire_repas(ms, "planned_meals", charge, unite, viser_ing)
+            else:
+                viser_ing(charge).execute()
         else:
             nom_rec = f"[Txt] {choix.strip()}"
             rid = _inserer(ms, "recipes", {

@@ -326,7 +326,7 @@ def _unite_propre(unite) -> str:
     return "unité" if c in ("piece", "pieces", "unite", "unites", "u") else u
 
 
-def _quantite_lisible(qte, ing: dict | None) -> str:
+def _quantite_lisible(qte, ing: dict | None, unite_saisie=None) -> str:
     """La quantité d'une ligne « [Ing] », écrite AVEC son unité.
 
     Trois cas, exactement les mêmes règles que la liste de courses :
@@ -348,7 +348,7 @@ def _quantite_lisible(qte, ing: dict | None) -> str:
 
     if ing:
         cible = (ing.get("unite_liste_courses") or ing.get("unit") or "").strip()
-        v = _quantite_ligne_ing(q, ing, cible)
+        v = _quantite_ligne_ing(q, ing, cible, unite_saisie)
         unite = _unite_propre(cible)
         return _texte_quantite(v if v is not None else q, unite or "g")
 
@@ -453,7 +453,7 @@ COMPTE_UNITES = ("unité", "unite", "pièce", "piece", "tranche", "gousse", "sac
                  "boîte", "boite", "pot", "barquette", "verre", "filet")
 
 
-def _quantite_ligne_ing(qty_source, ing: dict, unite_liste):
+def _quantite_ligne_ing(qty_source, ing: dict, unite_liste, unite_saisie=None):
     """Traduit le nombre saisi sur une ligne « [Ing] » en vraie quantité de courses.
 
     Sur une ligne « [Ing] », on tape un petit nombre entier : « 4 » pour 4 steaks,
@@ -469,6 +469,28 @@ def _quantite_ligne_ing(qty_source, ing: dict, unite_liste):
         q = float(qty_source)
     except (TypeError, ValueError):
         return None
+    # unité choisie à la main dans « Planifier la semaine » : elle commande tout
+    u_saisie = str(unite_saisie or "").strip().lower()
+    if u_saisie and u_saisie not in ("auto", "automatique", "—"):
+        try:
+            poids_piece = float(ing.get("poids_piece_g") or 0)
+        except (TypeError, ValueError):
+            poids_piece = 0.0
+        cible = unite_liste or ing.get("unit") or "g"
+        # l'unité d'achat se COMPTE-t-elle ? (« unité », « tranche », « boîte »…)
+        c_compte = _cle_aliment(cible) in (
+            "unite", "piece", "tranche", "gousse", "boite", "sachet", "pot",
+            "barquette", "botte", "filet", "verre", "portion")
+        if u_saisie in ("unité", "unite"):
+            if c_compte:
+                return q                     # 3 unités restent 3 unités
+            if poids_piece > 0:              # vendu au poids : 4 steaks → 500 g
+                return convert_to_unit(q * poids_piece, "g", cible, None)
+            return q                         # pas de poids connu : on garde le nombre
+        if c_compte and u_saisie in ("g", "gramme", "grammes", "kg", "kilo", "kilos"):
+            # « 500 g de cordon bleu » avec une liste en unités → 5 unités de 100 g
+            return convert_to_unit(q, u_saisie, cible, poids_piece or None)
+        return convert_to_unit(q, u_saisie, cible, poids_piece or None)
     unite_ing = (ing.get("unit") or "").strip().lower()
     cible = (unite_liste or "").strip().lower()
     try:
@@ -518,7 +540,8 @@ def construire_agregat(week_meals, recipes_dict, ingredients_dict, recipe_ings,
             elif ing is not None and not ing.get("exclude_from_list"):
                 unite_liste = ing.get("unite_liste_courses") or ing.get("unit")
                 qty_source = pm.get("ingredient_qty") or pm.get("servings") or 1
-                qty = _quantite_ligne_ing(qty_source, ing, unite_liste)
+                qty = _quantite_ligne_ing(qty_source, ing, unite_liste,
+                                          pm.get("ingredient_unit"))
                 if ing["id"] not in aggregated:
                     # nom COURT (son nom à lui s'il l'a simplifié : « Boeuf haché »
                     # et non « Boeuf, steak haché 15% MG cuit »), comme dans la

@@ -54,7 +54,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 D = dt.date
-VERSION = "2.8.7"
+VERSION = "2.8.8"
 
 
 def _libelles_uniques(libelles: list) -> list:
@@ -140,7 +140,7 @@ def menus_store():
     Sans Supabase configuré : renvoie un extrait de démonstration, pour que tu
     puisses voir la page tout de suite (les chiffres sont alors incomplets).
     """
-    VERSION_STORE = "30-09-2026k"      # à changer à chaque mise à jour du moteur
+    VERSION_STORE = "30-09-2026l"      # à changer à chaque mise à jour du moteur
     ms = st.session_state.get("_menus_store")
     force = st.session_state.get("_menus_store_forcee")     # magasin imposé (tests)
     if ms is not None and (force or st.session_state.get("_menus_version") == VERSION_STORE):

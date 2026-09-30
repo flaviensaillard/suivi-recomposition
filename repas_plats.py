@@ -144,7 +144,8 @@ def page_plats_a_preparer(ms, jours_visibles: int = 10):
             # avec son unité (« Pâtes — 200 g » et non « Pâtes (200) »).
             if str(nom).startswith("[Ing] "):
                 _ing = PM._trouve_ing(PM.get_display_name(rec), ings)
-                _q = PM._quantite_lisible(m.get("ingredient_qty"), _ing)
+                _q = PM._quantite_lisible(m.get("ingredient_qty"), _ing,
+                                          m.get("ingredient_unit"))
                 nom = PM.get_display_name(rec) + (f" — {_q}" if _q else "")
             elif str(nom).startswith("[Txt] "):
                 nom = PM.get_display_name(rec)
