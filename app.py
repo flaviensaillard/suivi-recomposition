@@ -28,6 +28,103 @@ import repas as R
 import tableaux as T
 from db import LocalStore, SupaStore
 
+#  Le numéro de version du lot de fichiers déposé sur GitHub : les 4 fichiers
+#  (celui-ci, editeurs.py, menus.py, pdf_menus.py, repas_plats.py) le portent.
+VERSION = "2.9.1"
+
+
+# ---------------------------------------------------------------------------
+#  🧩 TES FICHIERS ARRIVENT-ILS JUSQU'À L'APPLICATION ? (30/09)
+#
+#  Streamlit garde en mémoire les fichiers .py chargés AU DÉMARRAGE. Quand tu
+#  remplaces un fichier sur GitHub et que tu appuies seulement sur F5, le
+#  fichier `app.py` est bien relu… mais `editeurs.py` et `menus.py` continuent
+#  de tourner dans leur ANCIENNE version. C'est exactement pour ça que la barre
+#  de gauche affichait « éditeur 2.8.9 · menus 2.8.9 » alors que tes fichiers
+#  étaient bien arrivés (vérifié : ils étaient identiques aux miens).
+#
+#  Ici, on regarde la date des fichiers sur le disque : ceux qui sont arrivés
+#  APRÈS le démarrage de l'application sont rechargés tout de suite, dans
+#  l'application en marche. Plus besoin de chercher « Reboot app ».
+# ---------------------------------------------------------------------------
+def _heure_de_demarrage():
+    """L'instant où l'application a démarré (pour reconnaître un fichier arrivé après)."""
+    import os as _os
+    try:                      # Linux : /proc/self = dossier créé au démarrage du programme
+        return _os.stat("/proc/self").st_mtime
+    except OSError:
+        return None
+
+
+def _mise_a_jour_sans_redemarrage():
+    """Recharge les fichiers .py qui sont plus récents que le démarrage.
+
+    Renvoie la liste des noms de fichiers rechargés (« editeurs.py »…).
+    Rien à faire de spécial : si la liste est vide, c'est que tout était déjà
+    à jour.
+    """
+    import importlib
+    import json as _json
+    import os as _os
+    import sys as _sys
+    import tempfile
+
+    dossier = _os.path.dirname(_os.path.abspath(__file__))
+    demarrage = _heure_de_demarrage()
+    #  ce qu'on a DÉJÀ rechargé pendant cette exécution de l'application
+    #  (sinon on rechargerait en boucle à chaque clic)
+    marque = _os.path.join(tempfile.gettempdir(), f"suivi_recomp_{_os.getpid()}.json")
+    try:
+        deja = _json.load(open(marque, encoding="utf-8"))
+    except Exception:
+        deja = {}
+
+    a_recharger = []
+    for nom, module in list(_sys.modules.items()):
+        if nom in ("__main__", "__mp_main__", "app") or module is None:
+            continue
+        chemin = getattr(module, "__file__", None)
+        if not chemin:
+            continue
+        chemin = _os.path.abspath(chemin)
+        if _os.path.dirname(chemin) != dossier:
+            continue                       # ce n'est pas un fichier de l'application
+        try:
+            mtime = _os.path.getmtime(chemin)
+        except OSError:
+            continue
+        if deja.get(chemin) == mtime:
+            continue                       # déjà rechargé, rien de neuf
+        #  Le fichier a-t-il été REMPLACÉ pendant que l'application tournait ?
+        if demarrage is not None and mtime > demarrage + 2:
+            a_recharger.append((nom, chemin, mtime))
+
+    recharges = []
+    for nom, chemin, mtime in a_recharger:
+        module = _sys.modules.get(nom)
+        try:
+            importlib.reload(module)
+            recharges.append(_os.path.basename(chemin))
+            deja[chemin] = mtime
+        except Exception:
+            pass                           # tant pis : le message ci-dessous prend le relais
+    try:
+        with open(marque, "w", encoding="utf-8") as f:
+            _json.dump(deja, f)
+    except Exception:
+        pass
+    return recharges
+
+
+FICHIERS_RECHARGES = _mise_a_jour_sans_redemarrage()
+if FICHIERS_RECHARGES:
+    #  les objets gardés en mémoire (base de menus, connexion) viennent d'une
+    #  ancienne version : on les jette pour repartir sur le code rechargé
+    for _cle in ("_menus_store", "_menus_version"):
+        st.session_state.pop(_cle, None)
+    if any(f.startswith("db") for f in FICHIERS_RECHARGES):
+        st.session_state.pop("store", None)
+
 # ============================================================================
 #  CONFIGURATION
 # ============================================================================
@@ -54,7 +151,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 D = dt.date
-VERSION = "2.9.0"
 
 
 def _libelles_uniques(libelles: list) -> list:
@@ -140,7 +236,7 @@ def menus_store():
     Sans Supabase configuré : renvoie un extrait de démonstration, pour que tu
     puisses voir la page tout de suite (les chiffres sont alors incomplets).
     """
-    VERSION_STORE = "30-09-2026n"      # à changer à chaque mise à jour du moteur
+    VERSION_STORE = "30-09-2026o"      # à changer à chaque mise à jour du moteur
     ms = st.session_state.get("_menus_store")
     force = st.session_state.get("_menus_store_forcee")     # magasin imposé (tests)
     if ms is not None and (force or st.session_state.get("_menus_version") == VERSION_STORE):
@@ -1193,15 +1289,21 @@ def page_planifier():
 
 def _bandeau_fichiers_a_jour():
     """Avertit si les fichiers posés sur GitHub ne sont pas ceux de cette version."""
+    import sys as _sys
     manquants = []
-    if getattr(ED, "VERSION", "0") != VERSION:
-        manquants.append("**editeurs.py**")
-    if getattr(MN, "VERSION", "0") != VERSION:
-        manquants.append("**menus.py**")
+    for nom, fichier in (("editeurs", "editeurs.py"), ("menus", "menus.py"),
+                         ("pdf_menus", "pdf_menus.py"), ("repas_plats", "repas_plats.py")):
+        module = _sys.modules.get(nom)
+        if module is None:
+            continue                       # ce fichier n'est pas encore utilisé par cette page
+        vu = getattr(module, "VERSION", VERSION)
+        if vu != VERSION:
+            manquants.append(f"**{fichier}** (celui de {vu})")
     if not manquants:
         return
     st.error(
-        "⚠️ **Il reste un ancien fichier dans ton dépôt GitHub : " + " et ".join(manquants) + "**\n\n"
+        "⚠️ **Un fichier chargé par l'application est encore celui d'avant : " +
+        " et ".join(manquants) + "**\n\n"
         "C'est pour ça que la croix ❌ ne fonctionne pas : le fichier de l'éditeur est celui "
         "d'avant.\n\n"
         "**À faire (5 minutes) :**\n"
@@ -1209,9 +1311,12 @@ def _bandeau_fichiers_a_jour():
         "**Upload files**.\n"
         "2. Fais glisser **tous les fichiers `.py`** du dossier `1_a_copier_dans_GITHUB` "
         "(le plus important : `editeurs.py`).\n"
-        "3. En bas : « Mise a jour editeurs 2.8 » → **Commit changes**.\n"
+        f"3. En bas : « Mise à jour {VERSION} » → **Commit changes**.\n"
         "4. Sur **share.streamlit.io** : **Manage app → ⋮ → Reboot app**, puis **F5** dans le "
         "navigateur.\n\n"
+        "⚠️ **Un simple F5 ne suffit pas** : Streamlit garde en mémoire les fichiers chargés au "
+        "démarrage. Sans le *Reboot*, le haut de la page se met bien à jour mais `editeurs.py` "
+        "et `menus.py` restent ceux d'avant.\n\n"
         "Juste après, en bas de la barre de gauche, tu dois lire : "
         f"**éditeur {VERSION} · menus {VERSION}**.")
 
@@ -1354,6 +1459,11 @@ try:
     st.session_state["_page_recettes"] = pages["👨‍👩‍👧‍👦 Menus & courses (partagé)"][2]
 except Exception:
     pass
+
+if FICHIERS_RECHARGES:
+    st.sidebar.success("♻️ Fichiers rechargés à l'instant : "
+                       + ", ".join(sorted(set(FICHIERS_RECHARGES)))
+                       + " — c'est la nouvelle version qui tourne.")
 
 _v_editeur = getattr(ED, "VERSION", "ancien")
 _v_menus = getattr(MN, "VERSION", "ancien")
