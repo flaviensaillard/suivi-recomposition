@@ -19,7 +19,7 @@ Ce module en déduit, sans aucune saisie :
 Aucune écriture ici : que de la lecture et du calcul. Tu peux tester sans risque.
 """
 
-VERSION = "2.8.6"        # affiché dans la barre de gauche (contrôle des fichiers à jour)
+VERSION = "2.8.7"        # affiché dans la barre de gauche (contrôle des fichiers à jour)
 
 import datetime as dt
 import math
@@ -802,11 +802,15 @@ class MenusStore:
     # ------------------------------------------------------------------
     def courses(self, du: dt.date, au: dt.date, pour_foyer: bool = True,
                 adultes: float = 2.0, enfants: float = 2.0,
-                coef_enfant: float = 0.6) -> dict:
+                coef_enfant: float = 0.6, suivre_convives: bool = True) -> dict:
         """Liste de courses entre deux dates, rangée par rayon.
 
-        Les quantités des recettes sont additionnées (recette par recette),
-        puis ajustées aux portions du foyer si « pour_foyer ».
+        Les quantités des recettes sont additionnées (recette par recette) et
+        **recalculées avec le nombre de convives écrit sur chaque repas** :
+        un repas prévu pour 6 personnes achète donc 1,5 fois une recette de 4
+        (demandé le 30/09). Si un repas n'indique personne, on retombe sur les
+        portions du foyer (« pour_foyer », 3,2 par défaut).
+
         Les articles cochés « ne pas mettre dans la liste » sont exclus ;
         les articles récurrents sont toujours ajoutés.
         """
@@ -817,6 +821,7 @@ class MenusStore:
 
         besoin: dict = {}
         repas_comptes = 0
+        convives_par_repas: list = []          # pour l'afficher dans la page
         for m in self.planning():
             d = str(m.get("date_menu") or "")[:10]
             if not d or not (str(du) <= d <= str(au)):
@@ -828,7 +833,16 @@ class MenusStore:
             rec = recettes[rid]
             nom_rec = str(rec.get("name") or "")
             parts = _nombre(rec.get("base_servings")) or 1.0
-            coef = (portion / parts) if portion else 1.0
+            # NOMBRE DE CONVIVES écrit sur ce repas (« 6 » si un invité arrive).
+            # C'est lui qui commande les quantités ; les portions du foyer ne
+            # servent que si le repas n'indique personne.
+            convives = _nombre(m.get("servings")) or _nombre(m.get("nb_persons")) or 0.0
+            if convives > 0:
+                convives_par_repas.append(convives)
+            if convives > 0 and suivre_convives:
+                coef = convives / parts          # ← le nombre d'invités commande
+            else:
+                coef = (portion / parts) if portion else 1.0
             # ligne « [Ing] Steak haché » : le nombre saisi est un nombre d'unités
             # (4 steaks), pas 4 g. On le traduit avec la fiche de l'aliment, comme
             # le fait la fiche PDF → 4 × 125 g = 500 g. Et on garde SON nom.
@@ -947,7 +961,8 @@ class MenusStore:
         for r in rayons:
             rayons[r].sort(key=lambda x: (not x.get("recurrent"), x["nom"].lower()))
         return dict(rayons=rayons, repas=repas_comptes,
-                    portions_foyer=portion, du=str(du), au=str(au))
+                    portions_foyer=portion, convives=convives_par_repas,
+                    du=str(du), au=str(au))
 
 
 def order_col(table: str) -> str | None:

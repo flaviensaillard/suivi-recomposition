@@ -400,8 +400,17 @@ def bloc_courses_auto(store, menus_store):
         return
     st.subheader("🧾 Ce que demandent tes menus")
     st.caption("Calculé à partir de ton planning : les quantités de chaque recette sont "
-               "additionnées, puis ajustées aux portions du foyer (3,2). "
+               "additionnées, puis multipliées par le **nombre de convives écrit sur le "
+               "repas** (un repas pour 6 personnes achète 1,5 × une recette de 4). "
                "Les articles marqués « hors liste » sont ignorés.")
+    mode = st.radio(
+        "Portions à acheter",
+        ["🍽️ Selon les convives de chaque repas", "👨‍👩‍👧‍👦 Portions du foyer (2 adultes + 2 enfants)"],
+        horizontal=True, key="co_mode",
+        help="« Selon les convives » : un repas prévu pour 6 personnes achète 1,5 fois une "
+             "recette de 4 — c'est ce qu'il faut quand quelqu'un vient manger. "
+             "« Portions du foyer » : l'ancien calcul (3,2 portions, les enfants comptant "
+             "pour 0,6), pratique pour une semaine habituelle.")
     c1, c2 = st.columns(2)
     du = c1.date_input("Du", value=dt.date.today(), format="DD/MM/YYYY", key="co_du")
     au = c2.date_input("Au", value=dt.date.today() + dt.timedelta(days=6), format="DD/MM/YYYY",
@@ -410,15 +419,19 @@ def bloc_courses_auto(store, menus_store):
         st.error("La date de fin doit être après la date de début.")
         return
     try:
-        res = ms.courses(du, au)
+        res = ms.courses(du, au, suivre_convives=mode.startswith("🍽️"))
     except Exception as e:
         st.error(f"Calcul impossible : {type(e).__name__}")
         return
     if not res["rayons"]:
         st.info("Aucun repas planifié sur cette période.")
         return
-    st.caption(f"**{res['repas']} repas** sur {res['du']} → {res['au']} · "
-               f"portions du foyer : **{res['portions_foyer']:.1f}**")
+    conv = sorted(set(res.get("convives") or []))
+    if mode.startswith("🍽️") and conv:
+        resume = "convives : " + ", ".join(f"{c:g}" for c in conv)
+    else:
+        resume = f"portions du foyer : {res['portions_foyer']:.1f}"
+    st.caption(f"**{res['repas']} repas** sur {res['du']} → {res['au']} · {resume}")
     for rayon, articles in sorted(res["rayons"].items()):
         with st.expander(f"**{rayon}** — {len(articles)} article(s)", expanded=True):
             for a in articles:

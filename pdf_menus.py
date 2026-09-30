@@ -485,8 +485,14 @@ def _quantite_ligne_ing(qty_source, ing: dict, unite_liste):
     return convert_to_unit(q, unite_ing, unite_liste, poids or None)
 
 
-def construire_agregat(week_meals, recipes_dict, ingredients_dict, recipe_ings):
+def construire_agregat(week_meals, recipes_dict, ingredients_dict, recipe_ings,
+                       portions_defaut: float | None = None):
     """Liste de courses de la semaine — même logique que l'application de menus.
+
+    Les quantités d'une recette sont multipliées par le **nombre de convives
+    écrit sur le repas** (6 convives → 1,5 × une recette de 4). Si un repas
+    n'indique personne et que `portions_defaut` est fourni (les portions du
+    foyer), c'est lui qui sert.
 
     Renvoie (aggregated, recurrent) au format attendu par generate_pdf().
     """
@@ -531,7 +537,9 @@ def construire_agregat(week_meals, recipes_dict, ingredients_dict, recipe_ings):
                         aggregated[ing["id"]].setdefault("nom_personnel", sien)
                 aggregated[ing["id"]]["qty"] += qty or 0
         elif not nom.startswith("[Txt] "):
-            ratio = (pm.get("servings") or 1) / (rec.get("base_servings") or 1)
+            parts = rec.get("base_servings") or 1
+            convives = pm.get("servings") or pm.get("nb_persons") or portions_defaut or 1
+            ratio = convives / parts
             for ri in recipe_ings:
                 if ri.get("recipe_id") != pm.get("recipe_id"):
                     continue

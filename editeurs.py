@@ -17,7 +17,7 @@ from __future__ import annotations
 #  (« éditeur 2.8 »). S'il affiche autre chose, c'est que ce fichier n'a pas
 #  été recopié sur GitHub.
 # ---------------------------------------------------------------------------
-VERSION = "2.8.6"
+VERSION = "2.8.7"
 
 import datetime as dt
 import traceback
@@ -320,7 +320,7 @@ def page_planifier(ms, target_p: float):
                 rid = p.get("recipe_id")
                 rec = recettes_par_id.get(rid) or {}
                 nom = PM.get_display_name(rec) if rec else "—"
-                c1, c2 = st.columns([5, 2])
+                c1, c2, c3 = st.columns([5, 1.3, 1.3])
                 libelle = f"{p.get('meal_type') or ''} · **{nom}**"
                 if p.get("ingredient_qty"):
                     _ing = PM._trouve_ing(nom, ing_par_id) or PM._trouve_ing(nom, ingredients)
@@ -328,10 +328,21 @@ def page_planifier(ms, target_p: float):
                     # avant : « Pâtes — 200 » (sans unité). Maintenant : « Pâtes — 200 g »
                     libelle += f" — {_q}" if _q else f" — {p['ingredient_qty']:g}"
                 if p.get("servings"):
-                    libelle += f" · {p['servings']} convives"
+                    try:                       # une base peut renvoyer 6.0 : on écrit « 6 »
+                        libelle += f" · {float(p['servings']):g} convives"
+                    except (TypeError, ValueError):
+                        libelle += f" · {p['servings']} convives"
                 c1.markdown(libelle)
                 pid = _id(p)
-                if c2.button("🗑️ Supprimer", key=f"pl_del_{pid or p.get('date_menu')}"):
+                cle_repas = f"{pid or p.get('date_menu')}_{p.get('meal_type') or ''}"
+                # « quelqu'un vient manger à l'improviste » → on peut changer le
+                # nombre de convives et la quantité d'un repas déjà prévu (30/09)
+                if c2.button("✏️ Modifier", key=f"pl_edit_btn_{cle_repas}",
+                             help="Changer le moment, le nombre de convives ou la quantité "
+                                  "de ce repas (invité de dernière minute)."):
+                    st.session_state["pl_edit"] = cle_repas
+                    st.rerun()
+                if c3.button("🗑️ Supprimer", key=f"pl_del_{pid or p.get('date_menu')}"):
                     if _table(ms, "planned_meals"):
                         q = ms.client.table("planned_meals").delete()
                         if pid:
@@ -343,33 +354,41 @@ def page_planifier(ms, target_p: float):
                         _recharger(ms, "Repas supprimé.")
                     else:
                         st.warning("Mode aperçu : la modification n'est pas enregistrée.")
+                if st.session_state.get("pl_edit") == cle_repas:
+                    _editer_repas(ms, p, nom, cle_repas)
 
             if not repas:
                 st.caption("Rien de prévu.")
 
             # ---- ajout
+            #  ⚠️ LE CHOIX DU TYPE EST HORS DU FORMULAIRE, et c'est volontaire :
+            #  dans un formulaire, Streamlit ne relance PAS la page quand on change
+            #  une case. En passant de « Recette » à « Ingrédient » ou « Texte
+            #  libre », l'ancien champ restait donc affiché et on ne pouvait ni
+            #  choisir un ingrédient ni écrire un texte (bug signalé le 30/09).
+            t1, t2 = st.columns([2, 2])
+            genre = t1.selectbox("Type", ["Recette", "Ingrédient", "Texte libre"],
+                                 key=f"pl_g_{d}")
+            t2.caption("Change le type : le champ juste en dessous s'adapte tout de suite.")
+            ids_ing = None
             with st.form(f"pl_add_{d}", clear_on_submit=True):
                 f1, f2 = st.columns([2, 1])
                 moment = f1.selectbox("Moment", ["Midi", "Soir"], key=f"pl_m_{d}")
                 convives = f2.number_input("Convives", 1, 12, 4, key=f"pl_c_{d}")
-                f3, f4 = st.columns([2, 2])
-                genre = f3.selectbox("Type", ["Recette", "Ingrédient", "Texte libre"],
-                                     key=f"pl_g_{d}")
+                choix, qte = None, None
                 if genre == "Recette":
                     noms = MN.filtre_recherche([r.get("name") for r in recettes], recherche_plan)
-                    choix = f4.selectbox("Recette", ["—"] + noms, key=f"pl_r_{d}")
-                    qte = None
+                    choix = st.selectbox("Recette", ["—"] + noms, key=f"pl_r_{d}")
                 elif genre == "Ingrédient":
                     noms, ids_ing = _choix_ingredients(ms, tout=True)
                     noms = MN.filtre_recherche(noms, recherche_plan)
                     if not noms:
                         st.caption("Aucun ingrédient ne correspond à la recherche du haut de page.")
-                    choix = f4.selectbox("Ingrédient", ["—"] + noms, key=f"pl_i_{d}")
+                    choix = st.selectbox("Ingrédient", ["—"] + noms, key=f"pl_i_{d}")
                     qte = st.number_input("Quantité", 0.0, 5000.0, 1.0, step=0.5, key=f"pl_q_{d}")
                 else:
-                    choix = f4.text_input("Texte", placeholder="Restaurant, pique-nique…",
+                    choix = st.text_input("Texte", placeholder="Restaurant, pique-nique…",
                                           key=f"pl_t_{d}")
-                    qte = None
                 if st.form_submit_button("➕ Ajouter ce repas", width="stretch"):
                     _ajouter_repas(ms, d, moment, convives, genre, choix, qte, recettes,
                                    ingredients, ids_ing if genre == "Ingrédient" else None)
@@ -394,6 +413,56 @@ def page_planifier(ms, target_p: float):
             _recharger(ms, f"Semaine vidée ({n} repas supprimés).")
         else:
             st.warning("Mode aperçu : rien n'est supprimé.")
+
+
+def _editer_repas(ms, p, nom, cle):
+    """Modifier un repas DÉJÀ prévu : moment, nombre de convives, quantité.
+
+    Demandé le 30/09 : « je ne peux pas modifier le nombre de convives ni la
+    quantité d'une recette déjà prévue pour un jour, si par exemple quelqu'un
+    vient manger à l'improviste ». C'est le rôle de ce petit panneau.
+    """
+    from_ing = bool(p.get("ingredient_qty")) or str(nom).startswith("[Ing]")
+    with st.form(f"pl_edit_{cle}"):
+        st.markdown(f"**✏️ Modifier — {nom}**")
+        e1, e2, e3 = st.columns(3)
+        moment = e1.selectbox("Moment", ["Midi", "Soir"],
+                              index=0 if (p.get("meal_type") or "Midi") == "Midi" else 1,
+                              key=f"pe_m_{cle}")
+        convives = e2.number_input(
+            "Convives", 1, 12,
+            int(p.get("servings") or p.get("nb_persons") or 4), key=f"pe_c_{cle}",
+            help="Le nombre de personnes présentes à ce repas. La liste de courses "
+                 "et la fiche PDF recalculent les quantités avec ce nombre.")
+        qte = None
+        if from_ing:
+            qte = e3.number_input("Quantité", 0.0, 5000.0,
+                                  float(p.get("ingredient_qty") or 1.0), step=0.5,
+                                  key=f"pe_q_{cle}",
+                                  help="La quantité de cet ingrédient seul (4 steaks, 200 g…).")
+        b1, b2 = st.columns(2)
+        enregistrer = b1.form_submit_button("💾 Enregistrer", width="stretch")
+        annuler = b2.form_submit_button("Annuler", width="stretch")
+    if annuler:
+        st.session_state.pop("pl_edit", None)
+        st.rerun()
+    if enregistrer:
+        if not _table(ms, "planned_meals"):
+            st.warning("Mode aperçu : la modification n'est pas enregistrée.")
+            return
+        charge = {"meal_type": moment, "servings": convives, "nb_persons": convives}
+        if from_ing and qte is not None:
+            charge["ingredient_qty"] = qte
+        pid = _id(p)
+        q = ms.client.table("planned_meals").update(charge)
+        if pid:
+            q.eq("id", pid).execute()
+        else:                                # pas d'id : on cible par son contenu
+            q.eq("date_menu", p.get("date_menu")).eq("meal_type", p.get("meal_type")).eq(
+                "recipe_id", p.get("recipe_id")).execute()
+        st.session_state.pop("pl_edit", None)
+        _recharger(ms, f"Repas modifié ({convives} convives). "
+                       "La liste de courses et la fiche PDF sont recalculées.")
 
 
 def _ajouter_repas(ms, jour, moment, convives, genre, choix, qte, recettes, ingredients,
@@ -464,7 +533,8 @@ def _fiche_pdf(ms, jours, planning, recettes_par_id, ing_par_id, pour_foyer: boo
             recettes_pdf = {k: dict(v, name=PM.get_display_name(v), name_brut=v.get("name"))
                             for k, v in recettes_par_id.items()}
             agg, recurrents = PM.construire_agregat(semaine, recettes_pdf, ing_par_id,
-                                                    ms.lignes())
+                                                    ms.lignes(),
+                                                    portions_defaut=MN.portion_foyer())
             # mêmes arrondis que la liste de courses, et noms courts
             for v in agg.values():
                 if v.get("libre"):
