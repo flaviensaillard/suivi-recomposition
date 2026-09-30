@@ -54,7 +54,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 D = dt.date
-VERSION = "2.8.4"
+VERSION = "2.8.5"
 
 
 def _libelles_uniques(libelles: list) -> list:
@@ -140,7 +140,7 @@ def menus_store():
     Sans Supabase configuré : renvoie un extrait de démonstration, pour que tu
     puisses voir la page tout de suite (les chiffres sont alors incomplets).
     """
-    VERSION_STORE = "30-09-2026h"      # à changer à chaque mise à jour du moteur
+    VERSION_STORE = "30-09-2026i"      # à changer à chaque mise à jour du moteur
     ms = st.session_state.get("_menus_store")
     force = st.session_state.get("_menus_store_forcee")     # magasin imposé (tests)
     if ms is not None and (force or st.session_state.get("_menus_version") == VERSION_STORE):
@@ -731,7 +731,11 @@ def _ajout_repas_prevu():
 
     # Les libellés servent d'options : la case de recherche trouve donc le repas par son nom.
     libelles_repas = _libelles_uniques([_etiquette(i) for i in range(len(repas))])
-    choix_repas = st.selectbox("Repas prévu", libelles_repas, key="pr_idx")
+    # liste cherchable sans accent : « poulet curry » trouve « Poulet au curry »
+    choix_repas = MN.selecteur_recherche("Repas prévu", libelles_repas, "pr_idx")
+    if choix_repas is None:
+        st.info("Aucun repas ne correspond à ta recherche.")
+        return
     rang = libelles_repas.index(choix_repas)
     r = repas[rang]
     calc = r.get("calcul")
@@ -846,7 +850,11 @@ def _ajout_ingredient():
     noms = [etiquette(i) for i in range(len(liste))]
     # Idem ici : les libellés servent d'options, donc la recherche fonctionne.
     options_ing = _libelles_uniques(noms)
-    choix_ing = st.selectbox("Ingrédient", options_ing, key="ing_idx")
+    # liste cherchable sans accent : tape « pates » → « Pâtes », « epinard » → « Épinard »
+    choix_ing = MN.selecteur_recherche("Ingrédient", options_ing, "ing_idx")
+    if choix_ing is None:
+        st.info("Aucun ingrédient ne correspond à ta recherche.")
+        return
     idx = options_ing.index(choix_ing)
     ing = liste[idx]
 
@@ -881,7 +889,7 @@ def _ajout_ingredient():
 
     grammes, explication = IT.convertir_grammes(qte, unite, poids_piece)
     base = st.radio("Dans ta base, les protéines sont indiquées…",
-                    ["pour 100 g", "par portion ou par pièce"],
+                    ["pour 100 g", "par portion ou par unité"],
                     horizontal=True, key=f"ing_base_{idx}")
 
     if ing["prot100"] is None:

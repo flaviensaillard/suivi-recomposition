@@ -17,7 +17,7 @@ from __future__ import annotations
 #  (« éditeur 2.8 »). S'il affiche autre chose, c'est que ce fichier n'a pas
 #  été recopié sur GitHub.
 # ---------------------------------------------------------------------------
-VERSION = "2.8.4"
+VERSION = "2.8.5"
 
 import datetime as dt
 import traceback
@@ -302,6 +302,13 @@ def page_planifier(ms, target_p: float):
 
     st.divider()
 
+    # ---- recherche (accents ignorés) : filtre les listes Recette / Ingrédient
+    #      de tous les jours de la semaine d'un coup
+    recherche_plan = MN.champ_recherche("pl_recherche", "🔍 Rechercher une recette ou un ingrédient",
+                              placeholder="pates, steak, courgete…")
+    if recherche_plan.strip():
+        st.caption("Le filtre s'applique aux listes **Recette** et **Ingrédient** de chaque jour.")
+
     # ---- grille de la semaine
     for i, d in enumerate(jours):
         repas = repas_du_jour(d)
@@ -316,7 +323,10 @@ def page_planifier(ms, target_p: float):
                 c1, c2 = st.columns([5, 2])
                 libelle = f"{p.get('meal_type') or ''} · **{nom}**"
                 if p.get("ingredient_qty"):
-                    libelle += f" — {p['ingredient_qty']:g}"
+                    _ing = PM._trouve_ing(nom, ing_par_id) or PM._trouve_ing(nom, ingredients)
+                    _q = PM._quantite_lisible(p["ingredient_qty"], _ing)
+                    # avant : « Pâtes — 200 » (sans unité). Maintenant : « Pâtes — 200 g »
+                    libelle += f" — {_q}" if _q else f" — {p['ingredient_qty']:g}"
                 if p.get("servings"):
                     libelle += f" · {p['servings']} convives"
                 c1.markdown(libelle)
@@ -346,11 +356,14 @@ def page_planifier(ms, target_p: float):
                 genre = f3.selectbox("Type", ["Recette", "Ingrédient", "Texte libre"],
                                      key=f"pl_g_{d}")
                 if genre == "Recette":
-                    noms = [r.get("name") for r in recettes]
+                    noms = MN.filtre_recherche([r.get("name") for r in recettes], recherche_plan)
                     choix = f4.selectbox("Recette", ["—"] + noms, key=f"pl_r_{d}")
                     qte = None
                 elif genre == "Ingrédient":
                     noms, ids_ing = _choix_ingredients(ms, tout=True)
+                    noms = MN.filtre_recherche(noms, recherche_plan)
+                    if not noms:
+                        st.caption("Aucun ingrédient ne correspond à la recherche du haut de page.")
                     choix = f4.selectbox("Ingrédient", ["—"] + noms, key=f"pl_i_{d}")
                     qte = st.number_input("Quantité", 0.0, 5000.0, 1.0, step=0.5, key=f"pl_q_{d}")
                 else:
@@ -477,7 +490,7 @@ def _fiche_pdf(ms, jours, planning, recettes_par_id, ing_par_id, pour_foyer: boo
                 pieces = arr.get("pieces")
                 court = MN.nom_court(ing) if ing else (v.get("nom") or v["name"])
                 if pieces and pieces > 1:
-                    v["name"] = f"{court} ({pieces} pièces)"
+                    v["name"] = f"{court} ({pieces} unités)"
                 else:                              # 1 pièce : inutile de l'écrire
                     v["name"] = court
             recurrents = [dict(r, name=MN.nom_court(r)) for r in recurrents]
@@ -505,7 +518,8 @@ def arrondir_agregat(agg: dict) -> None:
             v["qty"] = math.ceil(q / 5.0) * 5 if q < 1000 else math.ceil(q / 50.0) * 50
         elif u in ("ml", "cl"):
             v["qty"] = math.ceil(q)
-        elif u in ("unité", "pièce", "tranche", "gousse", "boîte", "sachet", "barquette"):
+        elif MN.unite_propre(u).lower() in ("unité", "tranche", "gousse", "boîte",
+                                            "sachet", "barquette"):
             v["qty"] = math.ceil(q)
         else:
             v["qty"] = round(q, 1)
@@ -583,6 +597,19 @@ def _lignes_recette(ms, prefixe: str, actuelles: list | None = None,
     inverse: dict[str, str] = {}
     for lib, ident in ids.items():
         inverse.setdefault(str(ident), lib)
+    # une seule case de recherche filtre TOUTES les listes d'ingrédients de la page
+    # (tape « pates » → la liste ne propose plus que « Pâtes » et consorts)
+    recherche = MN.champ_recherche(f"{prefixe}_rech", "🔍 Rechercher un ingrédient (filtre les listes)",
+                         placeholder="pates, courgete, fromage…")
+    if recherche.strip():
+        gardes = MN.filtre_recherche(libelles, recherche)
+        if gardes:
+            st.caption(f"Filtre actif : **{len(gardes)}** ingrédient(s) sur {len(libelles)} "
+                       "— efface la case pour tout revoir.")
+            libelles = gardes
+        else:
+            st.warning(f"Aucun ingrédient ne correspond à « {recherche} ». "
+                       "Efface la case de recherche pour revoir la liste complète.")
     options = ["—"] + libelles
 
     lignes = st.session_state[etat]
@@ -710,7 +737,11 @@ def _modifier_recette(ms):
         st.info("Aucune recette pour l'instant.")
         return
     noms = {r.get("name"): r.get("id") for r in recettes}
-    choix = st.selectbox("Recette à modifier", list(noms.keys()), key="mr_choix")
+    # liste cherchable ET insensible aux accents (tape « pates » pour « Pâtes »)
+    choix = MN.selecteur_recherche("Recette à modifier", list(noms.keys()), "mr_choix")
+    if choix is None:
+        st.info("Aucune recette ne correspond à ta recherche.")
+        return
     rid = noms[choix]
 
     # Chaque recette a son propre brouillon : changer de recette repart de zéro
@@ -830,7 +861,9 @@ def page_ingredients(ms):
                                   "nutritionnelles. Décoche pour ne voir que TES "
                                   f"{nb_perso} ingrédients.")
         tous = liste_ingredients(ms, tout=inclus)
-        q = c1.text_input("Rechercher", placeholder="lait, courgette, fromage…")
+        q = c1.text_input("Rechercher", placeholder="lait, courgette, fromage…",
+                          help="Les accents ne comptent pas : « pates » trouve « Pâtes », "
+                               "« epinard » trouve « Épinard ».")
         rayon = c2.selectbox("Rayon", ["Tous"] + RAYONS)
         filtre = c3.selectbox("Afficher", ["Tout", "🚪 Fond de placard", "🔁 Récurrent",
                                            "⚠️ Doublons"])
@@ -838,7 +871,7 @@ def page_ingredients(ms):
         vus, ids = [], []
         for i in tous:
             n = nom_affiche(i)
-            if q and q.lower() not in n.lower():
+            if q and not MN.correspond(n, q):      # « pates » → « Pâtes »
                 continue
             if rayon != "Tous" and (i.get("category") or "Autre") != rayon:
                 continue
@@ -856,7 +889,7 @@ def page_ingredients(ms):
                         "Unité": i.get("unit"),
                         "kcal": i.get("kcal_100g"), "Protéines": i.get("proteines_100g"),
                         "Glucides": i.get("glucides_100g"), "Lipides": i.get("lipides_100g"),
-                        "Pièce (g)": i.get("poids_piece_g"),
+                        "Poids unité (g)": i.get("poids_piece_g"),
                         "Dans mes recettes": "✓" if i.get("id") in utilises else "",
                         "⚠️": ("double" if doublons.get((i.get("name") or "").strip().lower(),
                                                         0) > 1 else ""),
@@ -920,7 +953,7 @@ def page_ingredients(ms):
             unite = c2.selectbox("Unité", ["-"] + UNITES)
             c3, c4 = st.columns(2)
             rayon = c3.selectbox("Rayon", ["-"] + RAYONS)
-            poids = c4.number_input("Poids d'une pièce (g)", 0.0, 5000.0, 0.0, step=10.0)
+            poids = c4.number_input("Poids d'une unité (g)", 0.0, 5000.0, 0.0, step=10.0)
             c5, c6, c7 = st.columns(3)
             kcal = c5.number_input("kcal / 100 g", 0.0, 1000.0, 0.0, step=1.0)
             prot = c6.number_input("Protéines / 100 g", 0.0, 100.0, 0.0, step=0.5)
@@ -960,7 +993,10 @@ def page_ingredients(ms):
                     "modifient pas : ils servent de référence.")
             return
         noms = {nom_affiche(i): i for i in mes}
-        choix = st.selectbox("Ingrédient", list(noms.keys()), key="ing_edit")
+        choix = MN.selecteur_recherche("Ingrédient", list(noms.keys()), "ing_edit")
+        if choix is None:
+            st.info("Aucun ingrédient ne correspond à ta recherche.")
+            return
         ing = noms[choix]
         with st.form("modifier_ingredient"):
             c1, c2 = st.columns(2)
@@ -971,7 +1007,7 @@ def page_ingredients(ms):
             rayon = c3.selectbox("Rayon", RAYONS,
                                  index=RAYONS.index(ing.get("category"))
                                  if ing.get("category") in RAYONS else 0)
-            poids = c4.number_input("Poids d'une pièce (g)", 0.0, 5000.0,
+            poids = c4.number_input("Poids d'une unité (g)", 0.0, 5000.0,
                                     float(ing.get("poids_piece_g") or 0), step=10.0)
             c5, c6, c7 = st.columns(3)
             kcal = c5.number_input("kcal / 100 g", 0.0, 1000.0, float(ing.get("kcal_100g") or 0))

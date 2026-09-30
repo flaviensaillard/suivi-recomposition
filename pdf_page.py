@@ -226,6 +226,15 @@ def _items_liste(par_rayon, taille, pdf, largeur_txt, tronque=False):
         hauteur += hl + 1.0
         for it in items:
             qty, unite = format_liste_quantity(it["qty"], it.get("unit", ""))
+            if not (unite or "").strip():
+                # unité inconnue : au-delà de 20 c'est un poids, en dessous c'est un
+                # nombre d'unités (« Pâtes fourées : 2 unités »). Rien ne reste nu.
+                try:
+                    q = float(qty)
+                    if q.is_integer() and 1 < q <= 20:
+                        unite = "unité"
+                except (TypeError, ValueError):
+                    pass
             unite = _pluriel(qty, unite)
             txt = f"{it['name']} : {format_quantity(qty)} {unite}".strip()
             if tronque:

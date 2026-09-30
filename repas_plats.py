@@ -19,6 +19,7 @@ import datetime as dt
 import streamlit as st
 
 import menus as MN
+import pdf_menus as PM
 
 JOURS_FR = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
 
@@ -139,6 +140,14 @@ def page_plats_a_preparer(ms, jours_visibles: int = 10):
             rid = m.get("recipe_id")
             rec = recettes.get(rid) or {}
             nom = rec.get("name") or "(plat sans nom)"
+            # ligne « ingrédient seul » ([Ing]) : on rappelle la quantité prévue,
+            # avec son unité (« Pâtes — 200 g » et non « Pâtes (200) »).
+            if str(nom).startswith("[Ing] "):
+                _ing = PM._trouve_ing(PM.get_display_name(rec), ings)
+                _q = PM._quantite_lisible(m.get("ingredient_qty"), _ing)
+                nom = PM.get_display_name(rec) + (f" — {_q}" if _q else "")
+            elif str(nom).startswith("[Txt] "):
+                nom = PM.get_display_name(rec)
             nb_personnes = m.get("nb_persons") or m.get("servings")
             try:
                 nb_personnes = float(nb_personnes) if nb_personnes not in (None, "") else None

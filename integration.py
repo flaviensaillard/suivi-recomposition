@@ -41,7 +41,7 @@ CHAMPS = {
                                            "meal_time", "moment_repas"]),
     "servings": ("Nombre de portions", ["servings", "portions", "nb_personnes", "persons", "serves",
                                         "nombre_personnes"]),
-    "piece_weight": ("Poids d'une pièce (g)", ["poids_piece", "weight_per_unit", "grams_per_piece",
+    "piece_weight": ("Poids d'une unité (g)", ["poids_piece", "weight_per_unit", "grams_per_piece",
                                                "poids_unitaire", "unit_weight", "portion_g",
                                                "poids_moyen", "piece_weight"]),
 }
@@ -72,7 +72,8 @@ UNITES_PIECE = ("piece", "pieces", "unite", "unites", "portion", "portions",
                 "tranche", "tranches", "verre", "verres", "bol", "bols", "gousse", "gousses")
 
 # Unités proposées dans la liste déroulante de l'application
-UNITES_UI = ["g", "kg", "ml", "cl", "l", "pièce(s)", "tranche(s)", "portion(s)",
+#  « pièce(s) » → « unité(s) » : une seule écriture pour l'utilisateur (30/09).
+UNITES_UI = ["g", "kg", "ml", "cl", "l", "unité", "tranche", "portion",
              "c. à s.", "c. à c."]
 
 

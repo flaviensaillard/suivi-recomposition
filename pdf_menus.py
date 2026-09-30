@@ -27,7 +27,9 @@ import pdf_page as PG
 # ---------------------------------------------------------------------------
 #  CONSTANTES — reprises de ton application (mêmes libellés, mêmes rayons)
 # ---------------------------------------------------------------------------
-UNITES = ["g", "kg", "ml", "cl", "l", "unité", "pièce", "tranche", "gousse",
+#  « pièce » a été fusionné avec « unité » (c'est la même chose) : on ne propose
+#  plus que « unité » dans la liste déroulante. Corrigé le 30/09.
+UNITES = ["g", "kg", "ml", "cl", "l", "unité", "tranche", "gousse",
           "sachet", "boîte", "barquette", "c. à soupe", "c. à café", "pincée"]
 
 RAYONS = ["Fruits & Légumes", "Boucherie & Poissonnerie", "Frais & Produits Laitiers",
@@ -257,17 +259,12 @@ def generate_pdf(planned_meals: List[Dict], aggregated_items: Dict,
                 est_ing = brut.startswith("[Ing] ") or bool(pm.get("ingredient_id"))
                 nom_plat = get_display_name(rec) if rec else "Inconnu"
 
-                # ingrédient seul : on rappelle la quantité prévue
+                # ingrédient seul : on rappelle la quantité prévue, AVEC son unité
+                # (« Pâtes (200) » → « Pâtes (200 g) »). Corrigé le 30/09.
                 if est_ing and pm.get("ingredient_qty"):
-                    unite = ""
-                    if ingredients_dict:
-                        for ing in ingredients_dict.values():
-                            if ing.get("name") == nom_plat or PG._propre(
-                                    ing.get("name")) == PG._propre(nom_plat):
-                                unite = ing.get("unit") or ""
-                                break
-                    qte = PG._propre(format_quantity(pm["ingredient_qty"]))
-                    nom_plat = f"{nom_plat} ({qte}{(' ' + unite) if unite else ''})".strip()
+                    ing = _trouve_ing(nom_plat, ingredients_dict or {})
+                    qte_txt = _quantite_lisible(pm["ingredient_qty"], ing)
+                    nom_plat = f"{nom_plat} ({qte_txt})" if qte_txt else nom_plat
 
                 moment = pm.get("meal_type")
                 if moment in schedule[nom]:
@@ -322,6 +319,61 @@ def generate_pdf(planned_meals: List[Dict], aggregated_items: Dict,
 # INTERFACE PRINCIPALE
 # ------------------------------
 
+def _unite_propre(unite) -> str:
+    """« pièce(s) », « unité(s) »… → « unité » (une seule écriture pour l'utilisateur)."""
+    u = PG._propre(str(unite or "")).strip()
+    c = u.lower().replace("é", "e").replace("è", "e")
+    return "unité" if c in ("piece", "pieces", "unite", "unites", "u") else u
+
+
+def _quantite_lisible(qte, ing: dict | None) -> str:
+    """La quantité d'une ligne « [Ing] », écrite AVEC son unité.
+
+    Trois cas, exactement les mêmes règles que la liste de courses :
+
+      • aliment connu, vendu au poids et poids d'une pièce connu :
+        « 4 » steaks hachés → « 500 g » (et non « 4 g ») ;
+      • aliment qui se compte : « 3 cordons bleus » → « 3 unités » ;
+      • aliment inconnu : au-delà de 20 c'est un poids → « 200 g »,
+        en dessous c'est un nombre d'unités → « 2 unités ».
+
+    Aucune quantité ne s'affiche plus « nue » (demande du 30/09).
+    """
+    try:
+        q = float(qte or 0)
+    except (TypeError, ValueError):
+        return ""
+    if q <= 0:
+        return ""
+
+    if ing:
+        cible = (ing.get("unite_liste_courses") or ing.get("unit") or "").strip()
+        v = _quantite_ligne_ing(q, ing, cible)
+        unite = _unite_propre(cible)
+        return _texte_quantite(v if v is not None else q, unite or "g")
+
+    # aliment inconnu de la base
+    if abs(q - round(q)) < 1e-9 and q <= 20:
+        return _texte_quantite(q, "unité")
+    return _texte_quantite(q, "g")
+
+
+def _texte_quantite(valeur, unite) -> str:
+    """« 200 g », « 3 unités », « 1 unité », « 1,5 kg »."""
+    try:
+        q = float(valeur)
+    except (TypeError, ValueError):
+        return ""
+    u = str(unite or "").strip()
+    txt = PG._propre(format_quantity(q))
+    cu = PG._propre(u).lower()
+    if cu in ("unite", "unité"):
+        return f"{txt} unité" if q <= 1 else f"{txt} unités"
+    if cu in ("g", "gr", "gramme", "grammes") and q >= 1000:
+        return PG._propre(format_quantity(q / 1000)) + " kg"
+    return f"{txt} {u}".strip()
+
+
 def _nom_brut(rec: dict) -> str:
     """Le nom d'origine de la recette ([Ing] / [Txt] compris).
 
@@ -344,8 +396,12 @@ def _trouve_ing(nom: str, ingredients_dict: dict):
     mais seulement si la ressemblance est franche, sinon on préfère ne rien dire
     plutôt que d'afficher le mauvais aliment.
     """
-    if not nom:
+    if not nom or not ingredients_dict:
         return None
+    # on accepte un dictionnaire {id: aliment} COMME une simple liste d'aliments
+    # (les pages « Planifier » et « Repas & menus » passent tantôt l'un, tantôt l'autre)
+    if not hasattr(ingredients_dict, "values"):
+        ingredients_dict = {str(i): i for i in ingredients_dict}
     cible = _cle_aliment(nom)
     if not cible:
         return None
@@ -393,7 +449,7 @@ def _cle_aliment(txt) -> str:
     return " ".join(t.split())
 
 
-COMPTE_UNITES = ("unité", "unite", "pièce", "piece", "tranche", "gousse", "sachet",
+COMPTE_UNITES = ("unité", "unite", "pièce", "piece", "tranche", "gousse", "sachet",  # noqa: E501
                  "boîte", "boite", "pot", "barquette", "verre", "filet")
 
 

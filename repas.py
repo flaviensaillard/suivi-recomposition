@@ -274,7 +274,10 @@ def _onglet_recettes(ms, nb_ing, nb_rec, nb_lig, nb_rep):
     vraies.sort(key=lambda r: (r.get("name") or "").lower())
     noms = {"— toutes —": None}
     noms.update({r.get("name") or "?": r.get("id") for r in vraies})
-    choix = st.selectbox("Choisis une recette", list(noms.keys()), key="rec_choix")
+    # liste cherchable, accents ignorés (« pates » → « Pâtes »)
+    choix = MN.selecteur_recherche("Choisis une recette", list(noms.keys()), "rec_choix")
+    if choix is None:
+        choix = "— toutes —"
     if choix == "— toutes —":
         st.caption(f"{len(vraies)} vraies recettes (les entrées « [Ing] » et « [Txt] » de ton "
                    "planning — ingrédient seul ou texte libre — sont masquées).")

@@ -19,7 +19,7 @@ Ce module en déduit, sans aucune saisie :
 Aucune écriture ici : que de la lecture et du calcul. Tu peux tester sans risque.
 """
 
-VERSION = "2.8.4"        # affiché dans la barre de gauche (contrôle des fichiers à jour)
+VERSION = "2.8.5"        # affiché dans la barre de gauche (contrôle des fichiers à jour)
 
 import datetime as dt
 import math
@@ -33,6 +33,9 @@ CUIL_A_SOUPE = 15.0   # g
 CUIL_A_CAFE = 5.0     # g
 CL = 10.0             # g   (1 cl d'eau = 10 g)
 
+#  ⚠️ « pièce » et « unité », c'est la même chose : on ne garde QUE « unité »
+#     à l'affichage (décision du 30/09). Les anciennes écritures restent
+#     comprises, mais elles sont ramenées à « unité » par `unite_propre()`.
 UNITES_PIECE = (
     "unité", "unite", "pièce", "piece", "tranche", "sachet", "boîte", "boite",
     "gousse", "botte", "pot", "verre", "ramequin", "pincée", "pincee", "filet",
@@ -198,6 +201,109 @@ def grammes_de_ligne(l: dict, ing: dict | None, pseudo: bool = False) -> tuple:
     return g, False
 
 
+# ===========================================================================
+#  RECHERCHE INSENSIBLE AUX ACCENTS  (demandé le 30/09)
+#  « pates » doit proposer « Pâtes », « epinard » doit trouver « Épinard »,
+#  quel que soit l'onglet. Ces fonctions servent à TOUTE l'application.
+# ===========================================================================
+def sans_accent(t) -> str:
+    """Minuscules, sans accent, œ → oe (« Pâtes » → « pates »)."""
+    import unicodedata
+    x = str(t or "").lower().replace("œ", "oe").replace("æ", "ae")
+    x = unicodedata.normalize("NFD", x)
+    return "".join(c for c in x if unicodedata.category(c) != "Mn")
+
+
+def cle_recherche(t) -> str:
+    """Forme comparable : sans accent, ponctuation réduite à des espaces."""
+    x = sans_accent(t)
+    for a in ("'", "’", "-", ",", "(", ")", "/", "."):
+        x = x.replace(a, " ")
+    return " ".join(x.split())
+
+
+def correspond(texte, requete) -> bool:
+    """Vrai si le texte contient tous les mots de la requête (accents ignorés).
+
+    Une petite faute de frappe est pardonnée sur les mots de 4 lettres et plus
+    (« courgete » trouve « courgette ») ; les mots plus courts doivent être exacts,
+    sinon « riz » trouverait n'importe quoi.
+    """
+    import difflib
+    cible = cle_recherche(texte)
+    if not cible:
+        return False
+    mots = [m for m in cle_recherche(requete).split() if m]
+    if not mots:
+        return True
+    decoupes = cible.split()
+    for mot in mots:
+        if mot in cible:
+            continue
+        if len(mot) < 4:
+            return False
+        if not any(difflib.SequenceMatcher(None, mot, m).ratio() >= 0.75 for m in decoupes):
+            return False
+    return True
+
+
+def filtre_recherche(options, requete, maximum: int | None = None) -> list:
+    """Les options qui correspondent à la requête (requête vide → tout garder)."""
+    options = list(options or [])
+    if not (requete or "").strip():
+        return options[:maximum] if maximum else options
+    gardes = [o for o in options if correspond(o, requete)]
+    return gardes[:maximum] if maximum else gardes
+
+
+def champ_recherche(cle_etat: str, label: str = "🔍 Rechercher",
+                    placeholder: str = "tape quelques lettres, les accents ne comptent pas"):
+    """La case de recherche (à mettre HORS d'un formulaire, pour filtrer tout de suite)."""
+    import streamlit as st
+    return st.text_input(label, key=cle_etat, placeholder=placeholder,
+                         help="Tu peux taper sans accent : « pates » trouve « Pâtes », "
+                              "« epinard » trouve « Épinard ».")
+
+
+def selecteur_recherche(label: str, options, cle_etat: str):
+    """Liste déroulante AVEC sa case de recherche, insensible aux accents.
+
+    Renvoie l'option choisie, ou None si la recherche ne trouve rien.
+    """
+    import streamlit as st
+    options = list(options or [])
+    if not options:
+        st.info(f"Aucune option disponible pour « {label} ».")
+        return None
+    c1, c2 = st.columns([3, 2])
+    with c1:
+        requete = champ_recherche(f"{cle_etat}_q", f"🔍 Rechercher — {label.lower()}")
+    trouves = filtre_recherche(options, requete)
+    with c2:
+        st.write("")
+        if requete.strip():
+            st.caption(f"**{len(trouves)}** résultat(s) sur {len(options)}")
+    if not trouves:
+        st.warning(f"Aucun résultat pour « {requete} ». Efface la case de recherche "
+                   "pour revoir toute la liste.")
+        return None
+    return st.selectbox(label, trouves, key=cle_etat)
+
+
+def unite_propre(unite) -> str:
+    """Ramène « pièce », « pièces », « piece(s) », « unités »… à « unité ».
+
+    Une seule écriture pour l'utilisateur : « unité » (et « unités » au pluriel).
+    """
+    u = str(unite or "").strip()
+    if not u:
+        return ""
+    c = _sans_accent(u)
+    if c in ("piece", "pieces", "unite", "unites", "unite(s)", "piece(s)", "u"):
+        return "unité"
+    return u
+
+
 def nom_court(ing: dict | None) -> str:
     """Nom familier s'il existe (« Boeuf haché »), sinon le nom complet de la base."""
     ing = ing or {}
@@ -291,6 +397,7 @@ UNITES_ECRITES = {
     "g": "g", "gr": "g", "gramme": "g", "grammes": "g", "kg": "kg",
     "ml": "ml", "cl": "cl", "l": "l", "litre": "l", "litres": "l",
     "unite": "unité", "unites": "unité", "unité": "unité", "unités": "unité",
+    "piece": "unité", "pieces": "unité", "pièce": "unité", "pièces": "unité",
     "tranche": "tranche", "tranches": "tranche", "gousse": "gousse",
     "gousses": "gousse", "boite": "boîte", "boîtes": "boîte", "boite": "boîte",
     "sachet": "sachet", "sachets": "sachet", "pot": "pot", "pots": "pot",
@@ -828,10 +935,11 @@ def arrondi_achat(v: dict) -> dict:
                 return v
 
     # --- 2) unités qui se comptent
-    if unite in ("unité", "unite", "pièce", "piece", "tranche", "gousse", "botte",
-                 "sachet", "boîte", "boite", "pot", "barquette", "verre", "filet",
-                 "tranche(s)", "pincée", "pincee"):
+    if unite_propre(unite).lower() in ("unité", "tranche", "gousse", "botte",
+                                       "sachet", "boîte", "boite", "pot", "barquette",
+                                       "verre", "filet", "tranche(s)", "pincée", "pincee"):
         v["quantite"] = float(math.ceil(q))
+        v["unite"] = unite_propre(v.get("unite")) or v.get("unite")
         return v
 
     # --- 3) poids « rond »
@@ -851,14 +959,37 @@ def arrondi_achat(v: dict) -> dict:
 
     if unite in ("ml", "cl", "l", "litre"):
         v["quantite"] = float(math.ceil(q))
+        v["unite"] = unite_propre(v.get("unite")) or v.get("unite")
         return v
 
     v["quantite"] = round(q, 1)
     return v
 
 
+def quantite_ligne(qte, ing: dict | None) -> str:
+    """« [Ing] Pâtes : 200 » → « 200 g » ; « [Ing] Cordon bleu : 3 » → « 3 unités ».
+
+    Sans cette fonction, les lignes « ingrédient seul » du planning s'affichaient
+    sans unité (« Pâtes (200) ») : impossible de savoir s'il fallait 200 g ou
+    200 unités. C'est corrigé (30/09). Une seule règle pour toute l'application :
+    elle est écrite dans `pdf_menus._quantite_lisible`.
+    """
+    try:
+        import pdf_menus as PM
+        return PM._quantite_lisible(qte, ing)
+    except Exception:                                   # jamais de plantage ici
+        try:
+            q = float(qte or 0)
+        except (TypeError, ValueError):
+            return ""
+        if q <= 0:
+            return ""
+        u = unite_propre((ing or {}).get("unite_liste_courses") or (ing or {}).get("unit"))
+        return f"{q:g} {u}".strip()
+
+
 def fmt_quantite(v: dict) -> str:
-    """Texte lisible : « 400 g (2 pièces) », « 450 g », « 4 tranches »…"""
+    """Texte lisible : « 400 g (2 unités) », « 450 g », « 4 tranches »…"""
     q = v.get("quantite") or 0
     if q <= 0:                      # pas de quantité calculée (article récurrent)
         return "—"
