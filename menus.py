@@ -19,7 +19,7 @@ Ce module en déduit, sans aucune saisie :
 Aucune écriture ici : que de la lecture et du calcul. Tu peux tester sans risque.
 """
 
-VERSION = "2.8.9"        # affiché dans la barre de gauche (contrôle des fichiers à jour)
+VERSION = "2.9.0"        # affiché dans la barre de gauche (contrôle des fichiers à jour)
 
 import datetime as dt
 import math
@@ -247,12 +247,59 @@ def correspond(texte, requete) -> bool:
     return True
 
 
+def _pertinence(cible: str, mots: list) -> tuple:
+    """Classe les résultats : ce qui COMMENCE par la recherche d'abord.
+
+    « pates » → « Pâtes » (n°1), puis « Pâtes à lasagnes », puis les aliments
+    qui contiennent seulement le mot. À pertinence égale, le plus court gagne
+    (c'est presque toujours le bon).
+    """
+    if cible.startswith(" ".join(mots)):
+        rang = 0
+    elif any(m.startswith(mots[0]) for m in cible.split()) or cible.startswith(mots[0]):
+        rang = 1
+    else:
+        rang = 2
+    return (rang, len(cible), cible)
+
+
 def filtre_recherche(options, requete, maximum: int | None = None) -> list:
-    """Les options qui correspondent à la requête (requête vide → tout garder)."""
+    """Les options qui correspondent à la requête, les plus justes d'abord.
+
+    Accents, majuscules et ponctuation ne comptent pas. La recherche est
+    d'abord EXACTE (« lentille » ne propose pas « dentelle ») : elle ne
+    pardonne une faute de frappe (« courgete » → « courgette ») que s'il n'y a
+    aucun résultat exact. Sinon « pates » ramenait toutes les pizzas.
+    """
+    import difflib
     options = list(options or [])
-    if not (requete or "").strip():
+    req = cle_recherche(requete or "")
+    if not req:
         return options[:maximum] if maximum else options
-    gardes = [o for o in options if correspond(o, requete)]
+    mots = [m for m in req.split() if m]
+    exacts, flous = [], []
+    for o in options:
+        cible = cle_recherche(o)
+        if not cible:
+            continue
+        if all(m in cible for m in mots):                     # exact (accents ignorés)
+            exacts.append((_pertinence(cible, mots), o))
+        elif all(len(m) >= 4 for m in mots):                  # tolérance aux fautes
+            decoupes = cible.split()
+            notes = []
+            for m in mots:
+                note = max(difflib.SequenceMatcher(None, m, d).ratio() for d in decoupes)
+                if note < 0.75:
+                    break
+                notes.append(note)
+            if len(notes) == len(mots):
+                flous.append(((-sum(notes) / len(notes), len(cible), cible), o))
+    if exacts:
+        exacts.sort()
+        gardes = [o for _, o in exacts]
+    else:
+        flous.sort()
+        gardes = [o for _, o in flous]
     return gardes[:maximum] if maximum else gardes
 
 
@@ -265,29 +312,92 @@ def champ_recherche(cle_etat: str, label: str = "🔍 Rechercher",
                               "« epinard » trouve « Épinard ».")
 
 
-def selecteur_recherche(label: str, options, cle_etat: str):
-    """Liste déroulante AVEC sa case de recherche, insensible aux accents.
+# ===========================================================================
+#  LE MODULE DE RECHERCHE — IL N'Y EN A QU'UN (demandé le 30/09)
+#
+#  « Je ne veux pas avoir deux modules de recherches, je veux seulement
+#   "chercher une recette/ingrédient" et que ça ne tienne pas compte des
+#   accents lors de ma saisie. Et je veux ça partout dans l'application. »
+#
+#  Avant : une case de recherche + une liste déroulante qui avait SA PROPRE
+#  recherche (celle de Streamlit). Celle-ci refuse les accents : en tapant
+#  « pates » dedans, elle répondait « No results ».
+#
+#  Maintenant : UNE seule case de recherche, et en dessous la liste des choix
+#  — de simples boutons ronds, sans aucune recherche cachée. On tape, la liste
+#  se réduit, on clique. Accents et majuscules n'ont aucune importance.
+# ===========================================================================
+def chercheur(label: str, options, cle: str, terme: str | None = None,
+              valeur: str | None = None, nombre: int = 20,
+              libelle_recherche: str | None = None, aide: str = "",
+              type_element: str = "choix", encadre: bool = True,
+              cle_liste: str | None = None, horizontal: bool = False,
+              garder_valeur: bool = True) -> str | None:
+    """LE module de recherche unique : « 🔍 Chercher … » + la liste des choix.
 
-    Renvoie l'option choisie, ou None si la recherche ne trouve rien.
+    Renvoie le libellé choisi, ou None tant que rien n'est cliqué.
+
+    - `terme`    : si on le fournit, la case de recherche est déjà ailleurs
+                   (une seule case peut filtrer plusieurs listes à la fois) ;
+    - `valeur`   : ce qui était déjà choisi avant (la liste le montre coché) ;
+    - `nombre`   : combien de lignes afficher d'un coup pour une longue liste.
     """
     import streamlit as st
-    options = list(options or [])
+    options = [str(o) for o in (options or [])]
     if not options:
         st.info(f"Aucune option disponible pour « {label} ».")
         return None
-    c1, c2 = st.columns([3, 2])
-    with c1:
-        requete = champ_recherche(f"{cle_etat}_q", f"🔍 Rechercher — {label.lower()}")
-    trouves = filtre_recherche(options, requete)
-    with c2:
-        st.write("")
-        if requete.strip():
-            st.caption(f"**{len(trouves)}** résultat(s) sur {len(options)}")
-    if not trouves:
-        st.warning(f"Aucun résultat pour « {requete} ». Efface la case de recherche "
-                   "pour revoir toute la liste.")
-        return None
-    return st.selectbox(label, trouves, key=cle_etat)
+    #  encadré = c'est vraiment LE module (sa propre case de recherche)
+    with st.container(border=bool(encadre and terme is None)):
+        if terme is None:
+            terme = champ_recherche(
+                f"{cle}_q",                       # clé distincte de celle de la liste
+                libelle_recherche or f"🔍 Chercher — {str(label).lower()}",
+                placeholder="pates, steak, courgette…")
+        terme = str(terme or "")
+        trouves = filtre_recherche(options, terme)
+        if terme.strip():
+            if not trouves:
+                st.warning(f"Rien ne correspond à « {terme} ». Efface la case 🔍 pour revoir "
+                           f"les {len(options)} choix.")
+                return None
+            st.caption(f"**{len(trouves)}** {type_element}(s) sur {len(options)} "
+                       f"correspondent à « {terme} » — accents et majuscules ignorés.")
+            vus = trouves                      # une recherche courte : on montre tout
+        else:
+            if aide:
+                st.caption(aide)
+            fenetre = int(st.session_state.get(f"{cle}_n") or nombre)
+            vus = trouves[:fenetre]
+        #  ⚠️ CE QUI EST DÉJÀ CHOISI RESTE TOUJOURS VISIBLE : sans ça, une ligne
+        #  perdait son ingrédient dès qu'on vidait la case 🔍 (le choix se
+        #  trouvait plus loin dans la longue liste et disparaissait).
+        deja = str(valeur) if (garder_valeur and valeur is not None
+                               and str(valeur) in options) else None
+        if deja and deja not in vus:
+            vus = [deja] + vus               # en TÊTE, et sans rien perdre de la recherche
+        defaut = vus.index(deja) if (deja and deja in vus) else 0
+        #  clé STABLE (pas de la recherche en cours) : Streamlit garde le choix
+        #  quand la liste se réduit puis revient — vérifié
+        choix = st.radio(label, vus, index=defaut, horizontal=horizontal,
+                         key=cle_liste or cle,
+                         help="Clique ta ligne. Cette liste ne cherche pas : c'est la case "
+                              "🔍 juste au-dessus qui cherche, sans tenir compte des accents.")
+        if len(trouves) > len(vus):
+            if st.button(f"➕ Afficher {min(nombre, len(trouves) - len(vus))} lignes de plus "
+                         f"({len(vus)} sur {len(trouves)})", key=f"{cle}_plus"):
+                st.session_state[f"{cle}_n"] = len(vus) + nombre
+                st.rerun()
+        return choix
+
+
+def selecteur_recherche(label: str, options, cle_etat: str, **reste):
+    """Ancien nom, gardé pour les pages qui l'appelaient : c'est le même module.
+
+    Il n'existe qu'un seul module de recherche dans toute l'application :
+    `chercheur`. Celui-ci ne fait que l'appeler.
+    """
+    return chercheur(label, options, cle_etat, **reste)
 
 
 #  Unités proposées quand il ajoute un ingrédient à un repas (30/09)

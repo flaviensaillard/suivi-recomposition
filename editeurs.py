@@ -17,7 +17,7 @@ from __future__ import annotations
 #  (« éditeur 2.8 »). S'il affiche autre chose, c'est que ce fichier n'a pas
 #  été recopié sur GitHub.
 # ---------------------------------------------------------------------------
-VERSION = "2.8.9"
+VERSION = "2.9.0"
 
 import datetime as dt
 import traceback
@@ -790,29 +790,20 @@ def page_recettes_edition(ms):
 def _recherche_dans_liste(libelles, ids, cle: str, label: str,
                           type_element: str = "ingrédient", aide: str = "",
                           cle_liste: str | None = None):
-    """⭐ LA LISTE DÉROULANTE CHERCHABLE (demandé le 30/09).
+    """LE module de recherche (il n'y en a qu'un dans toute l'application).
 
-    Il tape « pates » dans la case juste au-dessus de la liste : la liste ne
-    garde alors que ce qui correspond — accents et majuscules ignorés. Il voit
-    donc « Pâtes » en tapant « pates », et il clique dessus.
+    Il tape « pates » dans la case 🔍 : la liste des choix juste en dessous ne
+    garde que ce qui correspond — accents et majuscules ignorés — puis il clique.
+    Aucune autre recherche ne se cache dans la liste (avant, la liste déroulante
+    de Streamlit avait la sienne et répondait « No results » à « pates »).
 
-    Renvoie (libellé choisi, identifiant) — le libellé « — » = rien de choisi.
+    Renvoie (libellé choisi, identifiant) ; « — » = aucun aliment choisi.
     """
-    import streamlit as st
-    terme = st.text_input(label, key=cle, placeholder="pates, steak, courgette…",
-                          help=aide or "Tape les premières lettres, même sans accent : "
-                                       "« pates » trouve « Pâtes », « epinard » trouve "
-                                       "« Épinard ». La liste se réduit au fur et à mesure.")
-    vus = MN.filtre_recherche(libelles, terme)
-    if not vus:
-        st.warning(f"Aucun {type_element} de ta base ne contient « {terme} ». "
-                   "Efface la case pour revoir la liste complète, ou tape moins de lettres.")
-    elif str(terme or "").strip():
-        st.caption(f"{len(vus)} {type_element}{'s' if len(vus) > 1 else ''} sur "
-                   f"{len(libelles)} correspond{'ent' if len(vus) > 1 else ''} à « {terme} ».")
-    choix = st.selectbox(f"{type_element.capitalize()} — clique pour choisir",
-                         ["—"] + list(vus), key=cle_liste or f"{cle}_liste",
-                         help="La liste suit ce que tu tapes dans la case du dessus.")
+    titre = "Recette" if type_element == "recette" else "Ingrédient"
+    choix = MN.chercheur(
+        titre, ["—"] + list(libelles), cle=cle, cle_liste=cle_liste,
+        libelle_recherche=label, type_element=type_element, aide=aide,
+        nombre=25, encadre=True)
     return choix, (ids or {}).get(choix)
 
 
@@ -886,19 +877,19 @@ def _lignes_recette(ms, prefixe: str, actuelles: list | None = None,
     inverse: dict[str, str] = {}
     for lib, ident in ids.items():
         inverse.setdefault(str(ident), lib)
-    # une seule case de recherche filtre TOUTES les listes d'ingrédients de la page
-    # (tape « pates » → la liste ne propose plus que « Pâtes » et consorts)
-    recherche = MN.champ_recherche(f"{prefixe}_rech", "🔍 Rechercher un ingrédient (filtre les listes)",
-                         placeholder="pates, courgete, fromage…")
+    # LA case de recherche de la page (une seule, accents ignorés) : elle filtre
+    # les listes de choix de TOUTES les lignes de la recette.
+    recherche = MN.champ_recherche(f"{prefixe}_rech", "🔍 Chercher un ingrédient",
+                         placeholder="pates, courgette, fromage…")
     if recherche.strip():
         gardes = MN.filtre_recherche(libelles, recherche)
         if gardes:
-            st.caption(f"Filtre actif : **{len(gardes)}** ingrédient(s) sur {len(libelles)} "
-                       "— efface la case pour tout revoir.")
-            libelles = gardes
+            st.caption(f"**{len(gardes)}** ingrédient(s) sur {len(libelles)} correspondent "
+                       f"à « {recherche} » — les listes de chaque ligne suivent. "
+                       "Efface la case pour tout revoir.")
         else:
-            st.warning(f"Aucun ingrédient ne correspond à « {recherche} ». "
-                       "Efface la case de recherche pour revoir la liste complète.")
+            st.warning(f"Rien ne correspond à « {recherche} ». Efface la case pour revoir "
+                       f"les {len(libelles)} aliments.")
     options = ["—"] + libelles
 
     lignes = st.session_state[etat]
@@ -907,13 +898,19 @@ def _lignes_recette(ms, prefixe: str, actuelles: list | None = None,
             break
         ligne = st.session_state[etat][idx]
         cle = ligne["uid"]
-        c1, c2, c3, c4 = st.columns([4, 2, 2, 1])
+        c1, c2, c3, c4 = st.columns([5, 1.6, 1.6, 0.7])
         k = f"{prefixe}_i_{cle}"
-        if k not in st.session_state:
-            courant = inverse.get(str(ligne.get("ingredient_id")), "—")
-            st.session_state[k] = courant if courant in options else "—"
-        c1.selectbox("Ingrédient", options, key=k, label_visibility="collapsed")
-        ligne["ingredient_id"] = ids.get(st.session_state[k])
+        # le choix de la ligne : le MÊME module de recherche que partout ailleurs
+        # (les options suivent la case 🔍 du haut de page, aucune recherche cachée)
+        courant = inverse.get(str(ligne.get("ingredient_id"))) or "—"
+        with c1:
+            choix_ligne = MN.chercheur(
+                "Ingrédient", options, cle=k, terme=recherche, valeur=courant,
+                nombre=10, encadre=False, horizontal=True, type_element="ingrédient")
+        if choix_ligne and choix_ligne != "—":
+            ligne["ingredient_id"] = ids.get(choix_ligne) or ligne.get("ingredient_id")
+        elif choix_ligne == "—":
+            ligne["ingredient_id"] = None
         ligne["quantity"] = c2.number_input(
             "Qté", 0.0, 100000.0, float(ligne.get("quantity") or 100), step=10.0,
             key=f"{prefixe}_q_{cle}", label_visibility="collapsed")
@@ -1027,9 +1024,10 @@ def _modifier_recette(ms):
         return
     noms = {r.get("name"): r.get("id") for r in recettes}
     # liste cherchable ET insensible aux accents (tape « pates » pour « Pâtes »)
+    #  LE module de recherche de l'application (le seul) : « pates » suffit à
+    #  trouver « Pâtes à la carbonara », accents et majuscules ignorés.
     choix = MN.selecteur_recherche("Recette à modifier", list(noms.keys()), "mr_choix")
-    if choix is None:
-        st.info("Aucune recette ne correspond à ta recherche.")
+    if choix is None:                      # rien trouvé : chercheur l'a déjà expliqué
         return
     rid = noms[choix]
 
@@ -1150,17 +1148,23 @@ def page_ingredients(ms):
                                   "nutritionnelles. Décoche pour ne voir que TES "
                                   f"{nb_perso} ingrédients.")
         tous = liste_ingredients(ms, tout=inclus)
-        q = c1.text_input("Rechercher", placeholder="lait, courgette, fromage…",
-                          help="Les accents ne comptent pas : « pates » trouve « Pâtes », "
-                               "« epinard » trouve « Épinard ».")
+        #  la case du module de recherche (accents ignorés) — la même partout
+        q = MN.champ_recherche("ing_rayon_q", "🔍 Chercher un ingrédient",
+                               placeholder="lait, courgette, fromage…")
         rayon = c2.selectbox("Rayon", ["Tous"] + RAYONS)
         filtre = c3.selectbox("Afficher", ["Tout", "🚪 Fond de placard", "🔁 Récurrent",
                                            "⚠️ Doublons"])
         doublons = compteur_doublons(tous)
+        #  on passe par LE module de recherche (accents ignorés, résultats justes :
+        #  « lentille » ne propose plus les « dentelle »). Une seule fois, pour
+        #  toute la liste, c'est instantané.
+        gardes = None
+        if str(q or "").strip():
+            gardes = {str(x) for x in MN.filtre_recherche([nom_affiche(i) for i in tous], q)}
         vus, ids = [], []
         for i in tous:
             n = nom_affiche(i)
-            if q and not MN.correspond(n, q):      # « pates » → « Pâtes »
+            if gardes is not None and str(n) not in gardes:
                 continue
             if rayon != "Tous" and (i.get("category") or "Autre") != rayon:
                 continue
@@ -1282,9 +1286,9 @@ def page_ingredients(ms):
                     "modifient pas : ils servent de référence.")
             return
         noms = {nom_affiche(i): i for i in mes}
-        choix = MN.selecteur_recherche("Ingrédient", list(noms.keys()), "ing_edit")
-        if choix is None:
-            st.info("Aucun ingrédient ne correspond à ta recherche.")
+        choix = MN.selecteur_recherche("Ingrédient", list(noms.keys()), "ing_edit",
+                                        nombre=15)
+        if choix is None:                  # rien trouvé : chercheur l'a déjà expliqué
             return
         ing = noms[choix]
         with st.form("modifier_ingredient"):
