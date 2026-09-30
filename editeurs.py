@@ -17,7 +17,7 @@ from __future__ import annotations
 #  (« éditeur 2.8 »). S'il affiche autre chose, c'est que ce fichier n'a pas
 #  été recopié sur GitHub.
 # ---------------------------------------------------------------------------
-VERSION = "2.8.1"
+VERSION = "2.8.2"
 
 import datetime as dt
 import traceback
@@ -30,6 +30,7 @@ import menus as MN
 import pdf_menus as PM
 
 JOURS = PM.JOURS
+JOURS_COURT = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"]
 RAYONS = PM.RAYONS
 UNITES = PM.UNITES
 
@@ -254,12 +255,16 @@ def page_planifier(ms, target_p: float):
 
     # ---- choix de la semaine
     c1, c2 = st.columns([2, 3])
-    lundi = c1.date_input("Semaine du (lundi)",
-                          value=dt.date.today() - dt.timedelta(days=dt.date.today().weekday()),
-                          format="DD/MM/YYYY", key="pl_lundi")
-    jours = [lundi + dt.timedelta(days=i) for i in range(7)]
-    c2.markdown("**" + f"Semaine du {jours[0].strftime('%d/%m')} au {jours[-1].strftime('%d/%m/%Y')}"
-                + "**")
+    depart = c1.date_input("Premier jour affiché",
+                           value=dt.date.today(),
+                           format="DD/MM/YYYY", key="pl_debut",
+                           help="Choisis le jour que tu veux : les 7 jours suivants s'affichent "
+                                "à partir de celui-là (pas besoin que ce soit un lundi).")
+    jours = [depart + dt.timedelta(days=i) for i in range(7)]
+    c2.markdown("**" + f"Du {JOURS[jours[0].weekday()].lower()} "
+                f"{jours[0].strftime('%d/%m')} au {JOURS[jours[-1].weekday()].lower()} "
+                f"{jours[-1].strftime('%d/%m/%Y')}" + "**")
+    c2.caption("Les 7 jours commencent bien par celui que tu as choisi.")
 
     planning = ms.planning()
     recettes_par_id = ms.recette_par_id()
@@ -288,7 +293,9 @@ def page_planifier(ms, target_p: float):
             jours_light.append((d, tot))
     c3, c4 = st.columns(2)
     c3.metric("Jours qui atteignent la cible", f"{jours_ok} / 7")
-    c4.metric("À compléter", ", ".join(d.strftime('%a') for d, _ in jours_light) or "aucun")
+    c4.metric("À compléter",
+              ", ".join(f"{JOURS_COURT[d.weekday()]} {d.strftime('%d/%m')}"
+                        for d, _ in jours_light) or "aucun")
     if jours_light:
         st.caption("Pour ces jours, prévois un en-cas protéiné : shaker, œufs durs, skyr. "
                    "(Compter 20 à 30 g pour un shaker.)")
@@ -298,7 +305,9 @@ def page_planifier(ms, target_p: float):
     # ---- grille de la semaine
     for i, d in enumerate(jours):
         repas = repas_du_jour(d)
-        titre = f"{JOURS[i]} {d.strftime('%d/%m')}"
+        # le nom du jour vient de LA DATE (avant : c'était le rang 0,1,2… de la liste,
+        # donc en choisissant un mercredi la page écrivait quand même « Lundi »).
+        titre = f"{JOURS[d.weekday()]} {d.strftime('%d/%m')}"
         with st.expander(f"**{titre}** — {len(repas)} repas", expanded=(d == dt.date.today())):
             for p in repas:
                 rid = p.get("recipe_id")
