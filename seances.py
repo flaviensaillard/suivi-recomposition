@@ -21,6 +21,8 @@ import json
 import pandas as pd
 import streamlit as st
 
+import tableaux as T
+
 MATERIEL = "2 haltères de 5 kg · 1 barre de traction · une chaise ou un banc · le sol"
 
 # Le poids de corps sert seulement à estimer les calories du rugby.
@@ -594,14 +596,22 @@ def lire_historique(store, session: str, limite: int = 8) -> list[dict]:
     out = []
     for _, r in df.iterrows():
         extra = _depuis_notes(r.get("notes"))
+
+        def val(nom, nom_json=None, defaut=None):
+            """La colonne si elle est remplie, sinon l'info rangée dans les notes."""
+            v = r.get(nom)
+            if v is None or (isinstance(v, float) and pd.isna(v)) or v == "":
+                return extra.get(nom_json or nom, defaut)
+            return v
+
         out.append(dict(
             date=r.get("session_date"),
-            difficulte=r.get("difficulte", extra.get("difficulte")),
-            rpe=r.get("rpe", extra.get("rpe")),
-            douleur=r.get("douleur", extra.get("douleur", "Aucune")),
-            zone_douleur=r.get("zone_douleur", extra.get("zone_douleur", "")),
-            pu_plus=r.get("pu_plus", extra.get("pu_plus")),
-            duree=r.get("duration_min"),
+            difficulte=val("difficulte"),
+            rpe=val("rpe"),
+            douleur=val("douleur", defaut="Aucune"),
+            zone_douleur=val("zone_douleur", defaut=""),
+            pu_plus=val("pu_plus"),
+            duree=val("duration_min", "duree"),
             notes=(r.get("notes") or "").split("[SEANCE]")[0].strip(),
         ))
     return out
@@ -940,14 +950,7 @@ def page_rugby(store):
     if histo:
         st.divider()
         st.subheader("📈 Mon rugby, séance après séance")
-        df = pd.DataFrame([{
-            "Date": h["date"], "Durée (min)": h["duree"],
-            "Difficulté /5": _nombre(h["difficulte"], 0) or None,
-            "Ressenti /10": _nombre(h["rpe"], 0) or None,
-            "Douleur": h["douleur"] or "Aucune",
-            "Notes": (h["notes"] or "")[:50],
-        } for h in histo])
-        st.dataframe(df, hide_index=True, width="stretch")
+        _tableau_seances(store, RUGBY["code"], histo, cle="histo_rugby")
         st.caption("Ce que l'application en fait : si le rugby du jeudi est noté « dur », la "
                    "séance du vendredi **allège de 2 répétitions** automatiquement. "
                    "Si une douleur est signalée, elle le rappelle aussi.")
@@ -1020,19 +1023,110 @@ def page_seance(store, target_p: float | None = None):
         page_rugby(store)
 
 
-def _historique_renforcement(store, sess: str, histo: list[dict]):
+def _sauver_seance(store, base: dict, extra: dict) -> bool:
+    """Enregistre une séance corrigée (colonnes détaillées, sinon dans les notes)."""
+    try:
+        store.save_workout({**base, **extra})
+        return True
+    except Exception:
+        pass
+    base = dict(base)
+    base["notes"] = ((base.get("notes") or "") + "\n[SEANCE]"
+                     + json.dumps(extra, ensure_ascii=False)).strip()
+    store.save_workout(base)
+    return True
+
+
+def corriger_seance(store, session: str, jour, champs: dict) -> bool:
+    """Corrige une séance déjà enregistrée (durée, difficulté, ressenti, douleur, notes).
+
+    On ne réécrit que les champs corrigés : les informations détaillées de la
+    séance (nombre de tours, énergie du jour…) restent intactes.
+    """
+    colonnes = {"Durée (min)": "duration_min", "Difficulté /5": "difficulte",
+                "Ressenti /10": "rpe", "Douleur": "douleur", "Notes": "notes"}
+    # 1) la ligne existante : on relit ses notes pour ne rien perdre
+    base, extra = None, {}
+    try:
+        df = store.workouts_df()
+        if df is not None and not df.empty:
+            lignes = df[(df["session_date"].astype(str) == str(jour)) &
+                        (df["session"].astype(str).str.upper() == str(session).upper())]
+            if not lignes.empty:
+                r = lignes.iloc[0]
+                extra = dict(_depuis_notes(r.get("notes")))
+                base = dict(session_date=str(jour), session=session,
+                            notes=(r.get("notes") or "").split("[SEANCE]")[0].strip())
+                if r.get("duration_min") is not None and not pd.isna(r.get("duration_min")):
+                    base["duration_min"] = int(r["duration_min"])
+                if r.get("rpe") is not None and not pd.isna(r.get("rpe")):
+                    base["rpe"] = int(r["rpe"])
+    except Exception:
+        pass
+    if base is None:
+        base = dict(session_date=str(jour), session=session, notes="")
+
+    # 2) on applique uniquement ce qui a été corrigé
+    for affiche, valeur in (champs or {}).items():
+        cle = colonnes.get(affiche)
+        if cle is None:
+            continue
+        if cle == "notes":
+            base["notes"] = "" if valeur is None else str(valeur).strip()
+        elif cle == "douleur":
+            base["douleur"] = "Aucune" if valeur in (None, "") else str(valeur)
+            extra["douleur"] = base["douleur"]
+        elif valeur is None or (isinstance(valeur, float) and pd.isna(valeur)):
+            continue
+        elif cle == "duration_min":
+            base["duration_min"] = int(round(float(valeur)))
+            extra["duree"] = base["duration_min"]
+        elif cle == "difficulte":
+            extra["difficulte"] = int(round(float(valeur)))
+        elif cle == "rpe":
+            base["rpe"] = int(round(float(valeur)))
+            extra["rpe"] = base["rpe"]
+    return _sauver_seance(store, base, extra)
+
+
+def _tableau_seances(store, session: str, histo: list[dict], cle: str):
+    """L'historique d'une séance, modifiable pour corriger une erreur de saisie."""
     if not histo:
-        st.caption("Aucune séance enregistrée pour l'instant. Valide celle-ci et le suivi "
-                   "commencera — avec un graphique de difficulté et de ressenti.")
         return
     df = pd.DataFrame([{
         "Date": h["date"], "Durée (min)": h["duree"],
         "Difficulté /5": _nombre(h["difficulte"], 0) or None,
         "Ressenti /10": _nombre(h["rpe"], 0) or None,
         "Douleur": h["douleur"] or "Aucune",
-        "Notes": (h["notes"] or "")[:60],
+        "Notes": (h["notes"] or ""),
     } for h in histo])
-    st.dataframe(df, hide_index=True, width="stretch")
+    df["Date"] = pd.to_datetime(df["Date"], errors="coerce").dt.date
+    df.index = pd.Index([str(h["date"]) for h in histo])   # identifiant de la ligne = la date
+    T.tableau_editable(
+        df, cle=cle,
+        colonnes={"Date": T.col_jour("Date"),
+                  "Durée (min)": T.col_entier("Durée (min)", 5, 300, 5),
+                  "Difficulté /5": T.col_entier("Difficulté /5", 1, 5),
+                  "Ressenti /10": T.col_entier("Ressenti /10", 1, 10),
+                  "Douleur": T.col_texte("Douleur", "medium"),
+                  "Notes": T.col_texte("Notes", "large")},
+        desactive=["Date"], hauteur=None,
+        sauver=lambda jour, ch: corriger_seance(store, session, jour, ch),
+        aide="Une séance mal notée (durée, difficulté, ressenti, douleur, note) se corrige "
+             "**ici** : clique dans la case, puis sur **💾 Enregistrer les corrections**.")
+
+
+def _historique_renforcement(store, sess: str, histo: list[dict]):
+    if not histo:
+        st.caption("Aucune séance enregistrée pour l'instant. Valide celle-ci et le suivi "
+                   "commencera — avec un graphique de difficulté et de ressenti.")
+        return
+    _tableau_seances(store, sess, histo, cle=f"histo_{sess}")
+    df = pd.DataFrame([{
+        "Date": h["date"], "Durée (min)": h["duree"],
+        "Difficulté /5": _nombre(h["difficulte"], 0) or None,
+        "Ressenti /10": _nombre(h["rpe"], 0) or None,
+    } for h in histo])
     try:
         import altair as alt
         g = df.dropna(subset=["Difficulté /5"]).copy()

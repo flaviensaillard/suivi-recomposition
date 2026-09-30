@@ -23,7 +23,9 @@ import seances as SE
 import integration as IT
 import editeurs as ED
 import menus as MN
+import corrections as CO
 import repas as R
+import tableaux as T
 from db import LocalStore, SupaStore
 
 # ============================================================================
@@ -52,7 +54,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 D = dt.date
-VERSION = "2.8.2"
+VERSION = "2.8.3"
 
 
 def _libelles_uniques(libelles: list) -> list:
@@ -138,7 +140,7 @@ def menus_store():
     Sans Supabase configuré : renvoie un extrait de démonstration, pour que tu
     puisses voir la page tout de suite (les chiffres sont alors incomplets).
     """
-    VERSION_STORE = "30-09-2026f"      # à changer à chaque mise à jour du moteur
+    VERSION_STORE = "30-09-2026g"      # à changer à chaque mise à jour du moteur
     ms = st.session_state.get("_menus_store")
     force = st.session_state.get("_menus_store_forcee")     # magasin imposé (tests)
     if ms is not None and (force or st.session_state.get("_menus_version") == VERSION_STORE):
@@ -541,12 +543,32 @@ def page_pesee():
             color="#d97706", strokeDash=[5, 4]).encode(y="y:Q"))
 
     if not daily.empty:
+        st.markdown("**Mes 14 derniers jours** — *clique dans une case pour corriger "
+                    "une erreur de saisie*")
         last = daily.sort_values("log_date", ascending=False).head(14)[
             ["log_date", "weight_kg", "body_fat_pct", "steps", "sleep_h", "activity", "energy"]]
-        st.dataframe(last.rename(columns={
+        last = last.set_index(last["log_date"].astype(str))
+        last = last.rename(columns={
             "log_date": "Date", "weight_kg": "Poids", "body_fat_pct": "% gras", "steps": "Pas",
-            "sleep_h": "Sommeil", "activity": "Activité", "energy": "Énergie"}),
-            hide_index=True, width="stretch", height=330)
+            "sleep_h": "Sommeil (h)", "activity": "Activité", "energy": "Énergie"})
+        last["Date"] = pd.to_datetime(last["Date"]).dt.date
+        T.tableau_editable(
+            last, cle="pesee",
+            colonnes={"Date": T.col_jour("Date"),
+                      "Poids": T.col_nombre("Poids", 40, 150, 0.1),
+                      "% gras": T.col_nombre("% gras", 3, 55, 0.1),
+                      "Pas": T.col_entier("Pas", 0, 40000, 500),
+                      "Sommeil (h)": T.col_nombre("Sommeil", 3, 12, 0.5, 1),
+                      "Activité": T.col_choix("Activité", ["Repos", "Séance A", "Séance B",
+                                                           "Rugby", "Marche", "Musique", "Autre"]),
+                      "Énergie": T.col_entier("Énergie (1-10)", 1, 10)},
+            desactive=["Date"],
+            sauver=lambda jour, ch: CO.corriger_jour(store, jour, ch),
+            supprimer=lambda jour: (store.delete_daily(jour), True)[1],
+            hauteur=330,
+            aide="Corrige ici si tu t'es trompé (un poids, des pas, des heures de sommeil…). "
+                 "Coche 🗑️ pour supprimer une journée. Rien n'est enregistré tant que tu n'as "
+                 "pas cliqué sur **💾 Enregistrer les corrections**.")
 
 
 # ============================================================================
@@ -616,11 +638,29 @@ def page_mensurations():
                 y=alt.Y("Tour de taille:Q", scale=alt.Scale(zero=False), title="cm"),
             ).properties(height=230, width="container"))
     if not meas.empty:
-        st.dataframe(meas.rename(columns={
+        st.markdown("**Mon historique** — *clique dans une case pour corriger une mesure*")
+        m = meas.set_index(meas["meas_date"].astype(str)).rename(columns={
             "meas_date": "Date", "waist_cm": "Taille", "hips_cm": "Hanches", "chest_cm": "Poitrine",
-            "neck_cm": "Cou", "arm_cm": "Bras", "thigh_cm": "Cuisse", "photos": "Photos", "notes": "Notes"})[
-            ["Date", "Taille", "Hanches", "Poitrine", "Cou", "Bras", "Cuisse", "Photos", "Notes"]],
-            hide_index=True, width="stretch")
+            "neck_cm": "Cou", "arm_cm": "Bras", "thigh_cm": "Cuisse", "photos": "Photos",
+            "notes": "Notes"})[
+            ["Date", "Taille", "Hanches", "Poitrine", "Cou", "Bras", "Cuisse", "Photos", "Notes"]]
+        m["Date"] = pd.to_datetime(m["Date"], errors="coerce").dt.date
+        T.tableau_editable(
+            m, cle="mensurations",
+            colonnes={"Date": T.col_jour("Date"),
+                      "Taille": T.col_nombre("Taille (cm)", 40, 200, 0.1),
+                      "Hanches": T.col_nombre("Hanches (cm)", 40, 200, 0.1),
+                      "Poitrine": T.col_nombre("Poitrine (cm)", 40, 200, 0.1),
+                      "Cou": T.col_nombre("Cou (cm)", 20, 80, 0.1),
+                      "Bras": T.col_nombre("Bras (cm)", 15, 70, 0.1),
+                      "Cuisse": T.col_nombre("Cuisse (cm)", 20, 90, 0.1),
+                      "Photos": T.col_oui_non("Photos"),
+                      "Notes": T.col_texte("Notes", "large")},
+            desactive=["Date"], hauteur=300,
+            sauver=lambda jour, ch: CO.corriger_mensuration(store, jour, ch),
+            supprimer=lambda jour: (store.delete_measurement(jour), True)[1],
+            aide="Corrige un tour de taille, de hanches… puis clique sur "
+                 "**💾 Enregistrer les corrections**. Coche 🗑️ pour supprimer une ligne.")
 
 
 # ============================================================================
@@ -1083,16 +1123,31 @@ def page_proteines():
     if not df.empty:
         auj = df[df["entry_date"] == today]
         if not auj.empty:
-            st.markdown("**Détail du jour**")
-            for r in auj.itertuples():
-                c1, c2 = st.columns([5, 1])
-                _g = getattr(r, "carbs_g", 0) or 0
-                _l = getattr(r, "fat_g", 0) or 0
-                c1.markdown(f"• {r.item} — **{r.protein_g} g P**"
-                            + (f" · {_g:.0f} g G · {_l:.0f} g L" if (_g or _l) else ""))
-                if c2.button("✕", key=f"del_{r.id}"):
-                    store.delete_protein(r.id)
-                    st.rerun()
+            st.markdown("**Détail du jour** — *clique dans une case pour corriger une saisie*")
+            _detail = pd.DataFrame([dict(
+                Date=r.entry_date,
+                Repas=r.item,
+                Proteines=getattr(r, "protein_g", 0),
+                Glucides=getattr(r, "carbs_g", 0),
+                Lipides=getattr(r, "fat_g", 0),
+                Quantite=getattr(r, "qty", 1.0),
+            ) for r in auj.itertuples()], index=[str(r.id) for r in auj.itertuples()])
+            _detail = _detail.rename(columns={"Proteines": "Protéines (g)", "Glucides": "Glucides (g)",
+                                              "Lipides": "Lipides (g)", "Quantite": "Quantité"})
+            T.tableau_editable(
+                _detail, cle="journal",
+                colonnes={"Date": T.col_jour("Date"),
+                          "Repas": T.col_texte("Repas", "large"),
+                          "Protéines (g)": T.col_entier("Protéines (g)", 0, 500),
+                          "Glucides (g)": T.col_entier("Glucides (g)", 0, 500),
+                          "Lipides (g)": T.col_entier("Lipides (g)", 0, 500),
+                          "Quantité": T.col_nombre("Quantité (×)", 0.1, 20, 0.5)},
+                desactive=["Date"], hauteur=min(360, 40 + 35 * len(_detail)),
+                sauver=lambda entree, ch: CO.corriger_entree(store, entree, ch),
+                supprimer=lambda entree: (store.delete_protein(entree), True)[1],
+                aide="Une erreur de saisie (20 g au lieu de 40, un mauvais aliment…) se corrige "
+                     "**ici** : les totaux du jour et les calories se recalculent aussitôt. "
+                     "Coche 🗑️ pour supprimer la ligne.")
 
         pb = protein_by_day(today - dt.timedelta(days=21))
         if not pb.empty:

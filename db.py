@@ -76,8 +76,28 @@ class LocalStore:
         self.path = path
         with sqlite3.connect(self.path) as con:
             con.executescript(DDL)
+        self._migrer()
         self.user_id = USER
         self._ensure_profile()
+
+    def _migrer(self):
+        """Ajoute les colonnes que les scripts SQL ajoutent côté Supabase.
+
+        Comme ça le mode local (hors ligne) se comporte exactement comme la vraie
+        application : glucides/lipides du journal, ressenti des séances, etc.
+        """
+        ajouts = {
+            "protein_entries": [("carbs_g", "integer"), ("fat_g", "integer")],
+            "workouts": [("difficulte", "integer"), ("douleur", "text"),
+                         ("zone_douleur", "text"), ("pu_plus", "text"),
+                         ("energie_avant", "integer")],
+        }
+        with sqlite3.connect(self.path) as con:
+            for table, colonnes in ajouts.items():
+                presentes = {r[1] for r in con.execute(f"pragma table_info({table})")}
+                for nom, genre in colonnes:
+                    if nom not in presentes:
+                        con.execute(f"alter table {table} add column {nom} {genre}")
 
     # -------- outils
     def _con(self):
@@ -139,6 +159,11 @@ class LocalStore:
         with self._con() as con:
             con.execute(sql, params)
 
+    def delete_measurement(self, d):
+        with self._con() as con:
+            con.execute("delete from measurements where user_id=? and meas_date=?",
+                        (self.user_id, str(d)))
+
     # -------- séances
     def workouts_df(self):
         df = self._q("select * from workouts where user_id=? order by session_date", (self.user_id,))
@@ -193,13 +218,35 @@ class LocalStore:
         with self._con() as con:
             con.execute("delete from protein_entries where id=? and user_id=?", (int(entry_id), self.user_id))
 
+    def maj_protein(self, entry_id, **champs):
+        """Corrige une ligne du journal (repas, protéines, glucides, lipides, quantité).
+
+        On n'écrit que les champs réellement fournis : le reste de la ligne
+        n'est pas touché.
+        """
+        autorise = ("item", "protein_g", "carbs_g", "fat_g", "qty")
+        sets, vals = [], []
+        for k, v in champs.items():
+            if k not in autorise or v is None:
+                continue
+            if k == "item":
+                sets.append("item=?"); vals.append(str(v))
+            elif k == "qty":
+                sets.append("qty=?"); vals.append(float(v))
+            else:
+                sets.append(f"{k}=?"); vals.append(int(round(float(v))))
+        if not sets:
+            return True
+        vals += [int(entry_id), self.user_id]
+        with self._con() as con:
+            con.execute(f"update protein_entries set {', '.join(sets)} "
+                        f"where id=? and user_id=?", vals)
+        return True
+
     def maj_macros_protein(self, entry_id, carbs=0, fat=0):
         """Renseigne les glucides et lipides d'une ligne du journal."""
         try:
-            with self._con() as con:
-                con.execute("update protein_entries set carbs_g=?, fat_g=? where id=? and user_id=?",
-                            (int(carbs or 0), int(fat or 0), int(entry_id), self.user_id))
-            return True
+            return self.maj_protein(entry_id, carbs_g=carbs, fat_g=fat)
         except Exception:
             return False
 
@@ -333,6 +380,10 @@ class SupaStore:
         row = dict(row); row["user_id"] = self.user_id; row["meas_date"] = str(row["meas_date"])
         self.client.table(self._t("measurements")).upsert(row, on_conflict="user_id,meas_date").execute()
 
+    def delete_measurement(self, d):
+        self.client.table(self._t("measurements")).delete().eq(
+            "user_id", self.user_id).eq("meas_date", str(d)).execute()
+
     # -------- séances
     def workouts_df(self):
         df = self._select("workouts", None, "session_date")
@@ -385,6 +436,39 @@ class SupaStore:
 
     def delete_protein(self, entry_id):
         self.client.table(self._t("protein_entries")).delete().eq("user_id", self.user_id).eq("id", int(entry_id)).execute()
+
+    def maj_protein(self, entry_id, **champs):
+        """Corrige une ligne du journal (repas, protéines, glucides, lipides, quantité)."""
+        champs = {k: v for k, v in champs.items() if v is not None}
+        if not champs:
+            return True
+        if "qty" in champs:
+            champs["qty"] = float(champs["qty"])
+        for cle in ("protein_g", "carbs_g", "fat_g"):
+            if cle in champs:
+                champs[cle] = int(round(float(champs[cle])))
+
+        def _essaie(charge):
+            self.client.table(self._t("protein_entries")).update(charge).eq(
+                "user_id", self.user_id).eq("id", int(entry_id)).execute()
+
+        try:
+            _essaie(champs)
+        except Exception:
+            # les colonnes glucides/lipides peuvent ne pas exister dans la base :
+            # on réessaie sans elles plutôt que de perdre la correction.
+            sans = {k: v for k, v in champs.items() if k not in ("carbs_g", "fat_g")}
+            if not sans or sans == champs:
+                raise      # rien d'enregistrable : l'application conseillera le script SQL
+            _essaie(sans)
+        return True
+
+    def maj_macros_protein(self, entry_id, carbs=0, fat=0):
+        """Renseigne les glucides et lipides d'une ligne du journal."""
+        try:
+            return self.maj_protein(entry_id, carbs_g=carbs, fat_g=fat)
+        except Exception:
+            return False
 
     # -------- courses
     def shopping_dict(self, week_of):
