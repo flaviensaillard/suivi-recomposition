@@ -19,7 +19,7 @@ Ce module en déduit, sans aucune saisie :
 Aucune écriture ici : que de la lecture et du calcul. Tu peux tester sans risque.
 """
 
-VERSION = "2.8.3"        # affiché dans la barre de gauche (contrôle des fichiers à jour)
+VERSION = "2.8.4"        # affiché dans la barre de gauche (contrôle des fichiers à jour)
 
 import datetime as dt
 import math
@@ -785,10 +785,17 @@ def arrondi_achat(v: dict) -> dict:
     """
     import math
 
-    q = float(v.get("quantite") or 0.0)
+    def _f(x):
+        """Accepte un nombre en texte ou en Decimal (selon d'où viennent les données)."""
+        try:
+            return float(x)
+        except (TypeError, ValueError):
+            return 0.0
+
+    q = _f(v.get("quantite"))
     v["quantite_brute"] = q
     unite = (v.get("unite") or "").strip().lower()
-    piece = v.get("poids_piece_g") or 0.0
+    piece = _f(v.get("poids_piece_g"))
     v["pieces"] = None
 
     if q <= 0:

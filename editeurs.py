@@ -17,7 +17,7 @@ from __future__ import annotations
 #  (« éditeur 2.8 »). S'il affiche autre chose, c'est que ce fichier n'a pas
 #  été recopié sur GitHub.
 # ---------------------------------------------------------------------------
-VERSION = "2.8.3"
+VERSION = "2.8.4"
 
 import datetime as dt
 import traceback
@@ -448,18 +448,38 @@ def _fiche_pdf(ms, jours, planning, recettes_par_id, ing_par_id, pour_foyer: boo
         return
     with st.spinner("Préparation de la fiche…"):
         try:
-            recettes_pdf = {k: dict(v, name=PM.get_display_name(v))
+            recettes_pdf = {k: dict(v, name=PM.get_display_name(v), name_brut=v.get("name"))
                             for k, v in recettes_par_id.items()}
             agg, recurrents = PM.construire_agregat(semaine, recettes_pdf, ing_par_id,
                                                     ms.lignes())
             # mêmes arrondis que la liste de courses, et noms courts
             for v in agg.values():
+                if v.get("libre"):
+                    # aliment absent de la base : on garde le nombre saisi tel quel
+                    # (l'arrondir à 5 g n'aurait aucun sens : c'est un nombre de pièces)
+                    v["qty"] = float(v.get("qty") or 0)
+                    v["unit"] = ""
+                    continue
                 ing = next((i for i in ing_par_id.values() if i.get("name") == v["name"]), None)
-                v["poids_piece_g"] = (ing or {}).get("poids_piece_g")
-                MN.arrondi_achat(v)
-                pieces = v.pop("pieces", None)
-                court = MN.nom_court(ing)
-                v["name"] = f"{court} ({pieces} pièces)" if pieces else court
+                # ⚠️ l'agrégat utilise « qty »/« unit » : arrondi_achat attend
+                # « quantite »/« unite » → sans cette traduction, les arrondis de la
+                # liste de courses n'étaient PAS appliqués dans la fiche PDF
+                # (on lisait « 22,43 œufs »). Corrigé en 2.8.4.
+                arr = MN.arrondi_achat(dict(
+                    v, quantite=v.get("qty"), unite=v.get("unit"),
+                    poids_piece_g=(ing or {}).get("poids_piece_g"),
+                    nom=(ing or {}).get("name") or v.get("name"),
+                    rayon=v.get("category"),
+                    unite_declaree=(ing or {}).get("unite_liste_courses")
+                    or (ing or {}).get("unit")))
+                v["qty"] = arr.get("quantite", v.get("qty")) or 0.0
+                v["unit"] = arr.get("unite") or v.get("unit")
+                pieces = arr.get("pieces")
+                court = MN.nom_court(ing) if ing else (v.get("nom") or v["name"])
+                if pieces and pieces > 1:
+                    v["name"] = f"{court} ({pieces} pièces)"
+                else:                              # 1 pièce : inutile de l'écrire
+                    v["name"] = court
             recurrents = [dict(r, name=MN.nom_court(r)) for r in recurrents]
             pdf = PM.generate_pdf(semaine, agg, recurrents, recettes_par_id,
                                   ingredients_dict=ing_par_id, start_date=jours[0])
@@ -931,7 +951,10 @@ def page_ingredients(ms):
                                                                  rayon=rayon))
 
     else:
-        mes = [i for i in tous if not i.get("code_ciqual")]
+        # ⚠️ ici on n'est PAS passé par l'onglet « Consulter » : la liste complète
+        # doit être rechargée, sinon la page plante (bug corrigé en 2.8.4).
+        tous = liste_ingredients(ms, tout=True)
+        mes = [i for i in tous if _est_a_moi(i)]
         if not mes:
             st.info("Aucun ingrédient personnel à modifier. Ceux de la base française ne se "
                     "modifient pas : ils servent de référence.")

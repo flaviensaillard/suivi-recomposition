@@ -15,11 +15,14 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 import base64
+import difflib
 import re
 
 import streamlit as st
 import streamlit.components.v1 as components
 from fpdf import FPDF
+
+import pdf_page as PG
 
 # ---------------------------------------------------------------------------
 #  CONSTANTES — reprises de ton application (mêmes libellés, mêmes rayons)
@@ -151,6 +154,15 @@ def open_pdf_button(pdf_bytes: bytes):
     components.html(html_component, height=60)
 
 def convert_to_unit(quantity: float, unit_source: str, unit_cible: str, poids_piece_g: float = None) -> float:
+    # un nombre peut arriver en texte ou en Decimal (selon d'où viennent les données)
+    try:
+        quantity = float(quantity)
+    except (TypeError, ValueError):
+        quantity = 0.0
+    try:
+        poids_piece_g = float(poids_piece_g) if poids_piece_g is not None else None
+    except (TypeError, ValueError):
+        poids_piece_g = None
     unit_source = unit_source.lower().strip() if unit_source else ""
     unit_cible = unit_cible.lower().strip() if unit_cible else ""
     
@@ -197,353 +209,228 @@ def convert_to_unit(quantity: float, unit_source: str, unit_cible: str, poids_pi
 # ------------------------------
 
 def generate_pdf(planned_meals: List[Dict], aggregated_items: Dict,
-                 recurrent_items: List[Dict], recipes_dict: Dict, 
+                 recurrent_items: List[Dict], recipes_dict: Dict,
                  ingredients_dict: Dict = None,
                  start_date: date = None) -> bytes:
+    """La fiche A4 de la semaine — tout doit tenir sur une seule feuille.
+
+    Mise en page 2.8.4 : chaque texte est mesuré avant d'être écrit et la police
+    diminue automatiquement (voir `pdf_page.py`), donc plus rien ne sort du cadre
+    ni ne chevauche une autre ligne. La liste de courses et les produits
+    récurrents suivent la même règle.
+    """
     try:
-        pdf = FPDF(format='A4', unit='mm')
+        pdf = FPDF(format="A4", unit="mm")
         pdf.set_auto_page_break(auto=False)
         pdf.add_page()
-        
-        page_width = 210
-        page_height = 297
-        margin = 10
-        left_width = 115
-        right_width = 68
-        gap = 5
-        day_block_width = 15
-        
-        green_bg = (200, 230, 200)
-        orange_bg = (255, 220, 180)
-        gray_bg = (240, 240, 240)
-        midi_bg = (255, 250, 240)
-        soir_bg = (240, 245, 255)
-        day_bg = (245, 245, 220)
-        
-        title_font_size = 28
-        period_font_size = 20
-        day_font_size = 13
-        meal_font_size = 11
-        courses_font_size = 10
-        courses_line_height = 4.5
-        
+
+        margin = PG.MARGE
+        left_width = 115.0
+        right_width = 210.0 - 2 * margin - left_width - 5.0
         left_x = margin
-        right_x = margin + left_width + gap
-        
-        pdf.set_draw_color(150, 150, 150)
-        pdf.set_dash_pattern(dash=1, gap=2)
-        pdf.line(right_x - gap/2, margin, right_x - gap/2, page_height - margin)
-        pdf.set_dash_pattern()
-        
+        right_x = left_x + left_width + 5.0
+
+        # ---- les 7 jours
         if start_date:
             week_days = []
             for i in range(7):
-                current_date = start_date + timedelta(days=i)
-                english_day = current_date.strftime('%A')
-                french_day = JOURS_FR.get(english_day, english_day)
-                week_days.append({'day_name': french_day, 'date': current_date})
+                d = start_date + timedelta(days=i)
+                week_days.append({"day_name": JOURS_FR.get(d.strftime("%A"), d.strftime("%A")),
+                                  "date": d})
         else:
-            week_days = [{'day_name': d, 'date': None} for d in JOURS]
-        
-        schedule = {}
-        for day_info in week_days:
-            day_name = day_info['day_name']
-            day_date = day_info['date']
-            schedule[day_name] = {"Midi": [], "Soir": []}
-            
-            for pm in planned_meals:
-                if day_date and pm.get('date_menu'):
-                    if pm.get('date_menu') != day_date.isoformat():
-                        continue
-                elif pm.get('day') != day_name:
-                    continue
-                
-                rec = recipes_dict.get(pm.get('recipe_id'))
-                if rec:
-                    rec_name = get_display_name(rec)
-                    is_ingredient = rec['name'].startswith('[Ing] ')
-                    ingredient_qty = pm.get('ingredient_qty')
-                    
-                    if is_ingredient and ingredient_qty:
-                        ing_unit = None
-                        if ingredients_dict:
-                            for ing in ingredients_dict.values():
-                                if ing['name'] == rec_name:
-                                    ing_unit = ing['unit']
-                                    break
-                        if ing_unit:
-                            rec_name = f"{rec_name} ({format_quantity(ingredient_qty)} {ing_unit})"
-                        else:
-                            rec_name = f"{rec_name} ({format_quantity(ingredient_qty)})"
-                else:
-                    rec_name = 'Inconnu'
-                
-                meal_type = pm.get('meal_type')
-                if meal_type in schedule[day_name]:
-                    schedule[day_name][meal_type].append({
-                        'name': rec_name,
-                        'servings': pm.get('servings', 1),
-                        'has_recipe': pm.get('recipe_id') is not None
-                    })
-        
-        pdf.set_font('Helvetica', 'B', title_font_size)
-        pdf.set_xy(left_x, margin)
-        pdf.cell(left_width, 12, clean_pdf_str('Menus de la semaine'), align='C')
-        
-        if start_date:
-            end_date = start_date + timedelta(days=6)
-            pdf.set_font('Helvetica', '', period_font_size)
-            pdf.set_xy(left_x, margin + 12)
-            pdf.cell(left_width, 8, clean_pdf_str(f'Du {start_date.strftime("%d/%m/%Y")} au {end_date.strftime("%d/%m/%Y")}'), align='C')
-        
-        y_start = margin + 22
-        
-        planning_title_height = 7
-        pdf.set_fill_color(*green_bg)
-        pdf.set_xy(left_x, y_start)
-        pdf.set_font('Helvetica', 'B', 13)
-        pdf.cell(left_width, planning_title_height, 'Planning des Repas', ln=True, fill=True, align='C')
-        
-        planning_right_edge = left_x + left_width
-        content_y_start = y_start + planning_title_height + 2
-        
-        total_available = page_height - margin - content_y_start
-        day_gap = 1.5
-        days_available = total_available - (len(week_days) - 1) * day_gap
-        day_height = days_available / len(week_days)
-        
-        pdf.set_font('Helvetica', 'B', day_font_size)
-        dimanche_width = pdf.get_string_width('Dimanche')
-        min_height = dimanche_width + 6
-        
-        if day_height < min_height:
-            day_height = min_height
-            total_needed = day_height * len(week_days) + (len(week_days) - 1) * day_gap
-            if total_needed > total_available:
-                day_height = (total_available - (len(week_days) - 1) * day_gap) / len(week_days)
-        
-        inner_height = day_height - 1
-        title_space = 4
-        food_space = max(inner_height - title_space, 2)
-        
-        max_lines_per_day = 0
-        for day_info in week_days:
-            day_name = day_info['day_name']
-            midi_count = max(len(schedule[day_name]['Midi']), 1)
-            soir_count = max(len(schedule[day_name]['Soir']), 1)
-            max_lines_per_day = max(max_lines_per_day, midi_count + soir_count)
-        
-        if max_lines_per_day > 0:
-            meal_line_height = food_space / max_lines_per_day
-            meal_line_height = max(2.5, min(meal_line_height, 5))
-        else:
-            meal_line_height = 4
-        
-        meal_spacing = 0.5
-        y = content_y_start
-        
-        for i, day_info in enumerate(week_days):
-            day_name = day_info['day_name']
-            midi_items = schedule[day_name]['Midi']
-            soir_items = schedule[day_name]['Soir']
-            
-            content_x = left_x + day_block_width + 2
-            content_width = planning_right_edge - content_x
-            
-            total_inner_height = day_height - 0.5
-            interline = 1
-            remaining_height = total_inner_height - interline
-            
-            midi_lines = max(len(midi_items), 1)
-            soir_lines = max(len(soir_items), 1)
-            total_lines = midi_lines + soir_lines
-            
-            if total_lines > 0:
-                midi_height = (remaining_height * midi_lines / total_lines)
-                soir_height = remaining_height - midi_height
-            else:
-                midi_height = remaining_height / 2
-                soir_height = remaining_height / 2
-            
-            pdf.set_fill_color(*day_bg)
-            pdf.rect(left_x, y, day_block_width, total_inner_height, 'F')
-            pdf.set_draw_color(200, 200, 200)
-            pdf.rect(left_x, y, day_block_width, total_inner_height, 'D')
-            
-            pdf.set_font('Helvetica', 'B', day_font_size)
-            text_margin = 2
-            with pdf.rotation(90, left_x + day_block_width/2, y + total_inner_height/2):
-                text_width = total_inner_height - (text_margin * 2)
-                text_height = day_block_width - 2
-                pdf.set_xy(left_x + day_block_width/2 - text_width/2, y + total_inner_height/2 - text_height/2)
-                pdf.cell(text_width, text_height, clean_pdf_str(day_name), align='C')
-            
-            pdf.set_fill_color(*midi_bg)
-            pdf.rect(content_x, y, content_width, midi_height, 'F')
-            pdf.set_draw_color(220, 220, 220)
-            pdf.rect(content_x, y, content_width, midi_height, 'D')
-            
-            has_midi_content = any(item['has_recipe'] for item in midi_items)
-            
-            if has_midi_content:
-                midi_servings = max([item['servings'] for item in midi_items if item['has_recipe']], default=1)
-                midi_servings_str = format_servings(midi_servings)
-                midi_label = f'Déjeuner ({midi_servings_str}) :'
-            else:
-                midi_label = 'Déjeuner :'
-            
-            pdf.set_xy(content_x + 3, y + 0.5)
-            pdf.set_font('Helvetica', 'B', meal_font_size)
-            pdf.cell(38, meal_line_height, clean_pdf_str(midi_label), border=0)
-            
-            if midi_items:
-                pdf.set_font('Helvetica', '', meal_font_size)
-                pdf.set_xy(content_x + 41, y + 0.5)
-                pdf.cell(content_width - 46, meal_line_height, clean_pdf_str(midi_items[0]['name'])[:45], border=0, ln=True)
-                y_content = y + 0.5 + meal_line_height + meal_spacing
-                
-                for item in midi_items[1:]:
-                    if y_content + meal_line_height > y + midi_height - 0.5:
-                        break
-                    pdf.set_xy(content_x + 41, y_content)
-                    pdf.cell(content_width - 46, meal_line_height, clean_pdf_str(item['name'])[:45], border=0, ln=True)
-                    y_content += meal_line_height + meal_spacing
-            else:
-                pdf.set_font('Helvetica', 'I', meal_font_size)
-                pdf.set_xy(content_x + 41, y + 0.5)
-                pdf.cell(content_width - 46, meal_line_height, '-', border=0, ln=True)
-            
-            y_diner = y + midi_height + interline
-            
-            pdf.set_fill_color(*soir_bg)
-            pdf.rect(content_x, y_diner, content_width, soir_height, 'F')
-            pdf.set_draw_color(220, 220, 220)
-            pdf.rect(content_x, y_diner, content_width, soir_height, 'D')
-            
-            has_soir_content = any(item['has_recipe'] for item in soir_items)
-            
-            if has_soir_content:
-                soir_servings = max([item['servings'] for item in soir_items if item['has_recipe']], default=1)
-                soir_servings_str = format_servings(soir_servings)
-                soir_label = f'Dîner ({soir_servings_str}) :'
-            else:
-                soir_label = 'Dîner :'
-            
-            pdf.set_xy(content_x + 3, y_diner + 0.5)
-            pdf.set_font('Helvetica', 'B', meal_font_size)
-            pdf.cell(38, meal_line_height, clean_pdf_str(soir_label), border=0)
-            
-            if soir_items:
-                pdf.set_font('Helvetica', '', meal_font_size)
-                pdf.set_xy(content_x + 41, y_diner + 0.5)
-                pdf.cell(content_width - 46, meal_line_height, clean_pdf_str(soir_items[0]['name'])[:45], border=0, ln=True)
-                y_content = y_diner + 0.5 + meal_line_height + meal_spacing
-                
-                for item in soir_items[1:]:
-                    if y_content + meal_line_height > y_diner + soir_height - 0.5:
-                        break
-                    pdf.set_xy(content_x + 41, y_content)
-                    pdf.cell(content_width - 46, meal_line_height, clean_pdf_str(item['name'])[:45], border=0, ln=True)
-                    y_content += meal_line_height + meal_spacing
-            else:
-                pdf.set_font('Helvetica', 'I', meal_font_size)
-                pdf.set_xy(content_x + 41, y_diner + 0.5)
-                pdf.cell(content_width - 46, meal_line_height, '-', border=0, ln=True)
-            
-            y += day_height + day_gap
-        
-        y_right = margin
-        
-        pdf.set_fill_color(*orange_bg)
-        pdf.set_xy(right_x, y_right)
-        pdf.set_font('Helvetica', 'B', 12)
-        pdf.cell(right_width, 8, 'Liste de Courses', ln=True, fill=True, align='C')
-        
-        y_right += 10
-        
-        by_cat = defaultdict(list)
-        for item in aggregated_items.values():
-            by_cat[item.get('category', 'Autre')].append(item)
-        
-        if not by_cat:
-            pdf.set_xy(right_x + 3, y_right)
-            pdf.set_font('Helvetica', 'I', courses_font_size)
-            pdf.cell(right_width - 6, 5, 'Aucun article', ln=True)
-            y_right += 5
-        else:
-            for cat in RAYONS:
-                if cat in by_cat:
-                    pdf.set_fill_color(255, 240, 220)
-                    pdf.set_xy(right_x, y_right)
-                    pdf.set_font('Helvetica', 'B', courses_font_size)
-                    pdf.cell(right_width, courses_line_height + 1, clean_pdf_str(cat), ln=True, fill=True)
-                    y_right += courses_line_height + 1
-                    
-                    pdf.set_font('Helvetica', '', courses_font_size)
-                    for it in by_cat[cat]:
-                        qty = it['qty']
-                        unit = it.get('unit', '')
-                        
-                        qty_display, unit_display = format_liste_quantity(qty, unit)
-                        qty_str = format_quantity(qty_display)
-                        
-                        checkbox_size = 2.5
-                        pdf.set_draw_color(100, 100, 100)
-                        pdf.rect(right_x + 3, y_right + 1, checkbox_size, checkbox_size, 'D')
-                        
-                        line = f"{it['name']} : {qty_str} {unit_display}"
-                        pdf.set_xy(right_x + 7, y_right)
-                        pdf.cell(right_width - 10, courses_line_height, clean_pdf_str(line), ln=True)
-                        y_right += courses_line_height
-                    
-                    y_right += 1
-        
-        if recurrent_items:
-            y_right += 3
-            
-            pdf.set_fill_color(*gray_bg)
-            pdf.set_xy(right_x, y_right)
-            pdf.set_font('Helvetica', 'B', courses_font_size)
-            pdf.cell(right_width, 7, 'Produits récurrents', ln=True, fill=True, align='C')
-            y_right += 9
-            
-            col_width = (right_width - 10) / 2
-            pdf.set_font('Helvetica', '', courses_font_size)
-            
-            for idx, rec in enumerate(recurrent_items):
-                if y_right > page_height - margin - 2:
-                    break
-                
-                if idx % 2 == 0:
-                    x_pos = right_x + 3
-                else:
-                    x_pos = right_x + 5 + col_width
-                
-                checkbox_size = 2.5
-                pdf.set_draw_color(100, 100, 100)
-                pdf.rect(x_pos, y_right + 1, checkbox_size, checkbox_size, 'D')
-                
-                pdf.set_xy(x_pos + 4, y_right)
-                pdf.cell(col_width - 4, courses_line_height, clean_pdf_str(rec['name']), ln=False)
-                
-                if idx % 2 == 1:
-                    y_right += courses_line_height
-            
-            if len(recurrent_items) % 2 != 0:
-                y_right += courses_line_height
+            week_days = [{"day_name": d, "date": None} for d in JOURS]
 
+        # ---- le planning, jour par jour
+        schedule = {}
+        for info in week_days:
+            nom, jour = info["day_name"], info["date"]
+            schedule[nom] = {"Midi": [], "Soir": []}
+            for pm in planned_meals:
+                if jour and pm.get("date_menu"):
+                    if str(pm.get("date_menu"))[:10] != jour.isoformat():
+                        continue
+                elif pm.get("day") != nom:
+                    continue
+
+                rec = recipes_dict.get(pm.get("recipe_id")) or {}
+                brut = str(rec.get("name_brut") or rec.get("name") or "")
+                est_ing = brut.startswith("[Ing] ") or bool(pm.get("ingredient_id"))
+                nom_plat = get_display_name(rec) if rec else "Inconnu"
+
+                # ingrédient seul : on rappelle la quantité prévue
+                if est_ing and pm.get("ingredient_qty"):
+                    unite = ""
+                    if ingredients_dict:
+                        for ing in ingredients_dict.values():
+                            if ing.get("name") == nom_plat or PG._propre(
+                                    ing.get("name")) == PG._propre(nom_plat):
+                                unite = ing.get("unit") or ""
+                                break
+                    qte = PG._propre(format_quantity(pm["ingredient_qty"]))
+                    nom_plat = f"{nom_plat} ({qte}{(' ' + unite) if unite else ''})".strip()
+
+                moment = pm.get("meal_type")
+                if moment in schedule[nom]:
+                    schedule[nom][moment].append({
+                        "name": nom_plat,
+                        "servings": pm.get("nb_persons") or pm.get("servings") or 1,
+                        "has_recipe": pm.get("recipe_id") is not None,
+                    })
+
+        # ---- colonne de gauche : titre + planning
+        y_contenu = PG._entete(pdf, left_x, left_width, start_date)
+
+        # ---- colonne de droite : liste de courses + récurrents
+        y_liste = margin + 10.0
+        pdf.set_fill_color(255, 220, 180)
+        pdf.set_xy(right_x, margin)
+        pdf.set_font("Helvetica", "B", 12)
+        pdf.cell(right_width, 8, "Liste de Courses", ln=True, fill=True, align="C")
+
+        par_rayon = defaultdict(list)
+        for item in aggregated_items.values():
+            par_rayon[item.get("category") or "Autre"].append(item)
+        for cat in par_rayon:
+            par_rayon[cat] = sort_list_by_name(par_rayon[cat])
+
+        # ---- trait de séparation (avant de savoir jusqu'où va la colonne de gauche)
+        pdf.set_draw_color(150, 150, 150)
+        pdf.set_dash_pattern(dash=1, gap=2)
+        pdf.line(right_x - 2.5, margin, right_x - 2.5, PG.HAUTEUR_PAGE - margin)
+        pdf.set_dash_pattern()
+
+        # ---- la liste de courses (police adaptative) puis les récurrents
+        PG._bloc_courses(pdf, right_x, y_liste, right_width,
+                         PG.HAUTEUR_PAGE - margin - y_liste, par_rayon, recurrent_items)
+
+        # ---- le planning (le reste de la page, en bas à droite compris)
+        PG._planning(pdf, week_days, schedule, left_x, y_contenu, left_width,
+                     PG.HAUTEUR_PAGE - margin - y_contenu)
+
+        if pdf.pages_count > 1:                 # sécurité : jamais plus d'une feuille
+            for n in range(pdf.pages_count - 1, 0, -1):
+                pdf.pages.pop(n)
+            pdf.page = 1
         return bytes(pdf.output())
-    
+
     except Exception as e:
-        st.error(f"Erreur lors de la génération du PDF : {e}")
+        st.error(f"Erreur lors de la génération du PDF : {type(e).__name__} — {e}")
         return b""
+
 
 # ------------------------------
 # INTERFACE PRINCIPALE
 # ------------------------------
 
+def _nom_brut(rec: dict) -> str:
+    """Le nom d'origine de la recette ([Ing] / [Txt] compris).
+
+    ⚠️ Précaution importante : l'application passe parfois un dictionnaire dont le
+    champ `name` a déjà été nettoyé du préfixe « [Ing] ». Sans `name_brut`, les
+    repas « ingrédient seul » étaient pris pour des recettes normales et la liste
+    de courses comptait la quantité écrite DANS la ligne [Ing] (souvent fausse)
+    au lieu de la quantité prévue au planning. Corrigé en 2.8.4.
+    """
+    return str(rec.get("name_brut") or rec.get("name") or "")
+
+
+def _trouve_ing(nom: str, ingredients_dict: dict):
+    """Retrouve un aliment par son nom, même écrit un peu différemment.
+
+    Exemples réels : « [Ing] Steak haché » doit tomber sur « Boeuf, steak haché
+    15% MG cuit » (nom affiché « Boeuf haché »), et « [Ing] Pâtes fourées »
+    (petite faute de frappe) sur « Pâtes fourrées ». On compare donc les mots du
+    nom, sans accent ni majuscule, avec une tolérance pour les fautes de frappe —
+    mais seulement si la ressemblance est franche, sinon on préfère ne rien dire
+    plutôt que d'afficher le mauvais aliment.
+    """
+    if not nom:
+        return None
+    cible = _cle_aliment(nom)
+    if not cible:
+        return None
+    mots = cible.split()
+    meilleur, score_max = None, 0.0
+    for i in ingredients_dict.values():
+        for champ in ("nom_affiche", "name"):
+            cl = _cle_aliment(i.get(champ))
+            if not cl:
+                continue
+            if cl == cible:
+                return i
+            score = _ressemblance(mots, cl.split())
+            if score > score_max:
+                meilleur, score_max = i, score
+    return meilleur if score_max >= 0.8 else None
+
+
+def _ressemblance(mots: list, candidats: list) -> float:
+    """Part des mots cherchés que l'on retrouve dans le nom candidat (0 → 1)."""
+    if not candidats or not mots:
+        return 0.0
+    trouves = 0.0
+    for mot in mots:
+        if mot in candidats:
+            trouves += 1.0
+            continue
+        if len(mot) < 4:                     # « sel », « riz » : pas de tolérance
+            continue
+        r = max((difflib.SequenceMatcher(None, mot, c).ratio() for c in candidats), default=0.0)
+        if r >= 0.85:
+            trouves += 1.0
+        elif r >= 0.75:
+            trouves += 0.5
+    return trouves / len(mots)
+
+
+def _cle_aliment(txt) -> str:
+    """Comparaison de noms : sans accent, sans majuscule, sans virgule ni espaces doubles."""
+    t = clean_pdf_str(txt or "").lower()
+    for a, b in (("é", "e"), ("è", "e"), ("ê", "e"), ("à", "a"), ("â", "a"), ("î", "i"),
+                 ("ô", "o"), ("û", "u"), ("ù", "u"), ("ç", "c"), ("œ", "oe"), ("'", " "),
+                 (",", " "), ("-", " ")):
+        t = t.replace(a, b)
+    return " ".join(t.split())
+
+
+COMPTE_UNITES = ("unité", "unite", "pièce", "piece", "tranche", "gousse", "sachet",
+                 "boîte", "boite", "pot", "barquette", "verre", "filet")
+
+
+def _quantite_ligne_ing(qty_source, ing: dict, unite_liste):
+    """Traduit le nombre saisi sur une ligne « [Ing] » en vraie quantité de courses.
+
+    Sur une ligne « [Ing] », on tape un petit nombre entier : « 4 » pour 4 steaks,
+    « 3 » pour 3 cordons bleus. Avant, ce 4 était lu comme 4 GRAMMES → la liste
+    affichait « Boeuf haché : 4 g » ou « Cordon bleu : 0 unité ». Maintenant :
+
+      • aliment vendu au poids (steak haché, poids d'une pièce connu) →
+        4 × 125 g = 500 g ;
+      • aliment qui se compte (cordon bleu, chipolata) → 3 unités, 6 unités ;
+      • aliment sans poids de pièce et vendu au poids → on garde le nombre tel quel.
+    """
+    try:
+        q = float(qty_source)
+    except (TypeError, ValueError):
+        return None
+    unite_ing = (ing.get("unit") or "").strip().lower()
+    cible = (unite_liste or "").strip().lower()
+    try:
+        poids = float(ing.get("poids_piece_g")) if ing.get("poids_piece_g") else 0.0
+    except (TypeError, ValueError):
+        poids = 0.0
+    pese = unite_ing in ("g", "gr", "gramme", "grammes", "kg", "ml", "cl", "l", "litre", "")
+    petit_entier = abs(q - round(q)) < 1e-9 and 1 <= q <= 20
+    if petit_entier and pese:
+        if cible in COMPTE_UNITES:               # ça se compte : 3 cordons bleus
+            return q
+        if 25 <= poids <= 400:                   # poids d'une pièce connu : 4 × 125 g
+            return convert_to_unit(q * poids, "g", cible or "g", None)
+    return convert_to_unit(q, unite_ing, unite_liste, poids or None)
+
+
 def construire_agregat(week_meals, recipes_dict, ingredients_dict, recipe_ings):
-    """Liste de courses de la semaine — meme logique que ton application.
+    """Liste de courses de la semaine — même logique que l'application de menus.
 
     Renvoie (aggregated, recurrent) au format attendu par generate_pdf().
     """
@@ -552,14 +439,24 @@ def construire_agregat(week_meals, recipes_dict, ingredients_dict, recipe_ings):
         rec = recipes_dict.get(pm.get("recipe_id"))
         if not rec:
             continue
-        nom = rec.get("name") or ""
-        if nom.startswith("[Ing] "):
-            ing_name = get_display_name(rec)
-            ing = next((i for i in ingredients_dict.values() if i.get("name") == ing_name), None)
-            if ing and not ing.get("exclude_from_list"):
+        nom = _nom_brut(rec)
+        if nom.startswith("[Ing] ") or pm.get("ingredient_id"):
+            ing = (_trouve_ing(get_display_name(rec), ingredients_dict)
+                   or _trouve_ing(pm.get("ingredient_id"), ingredients_dict))
+            if ing is None and get_display_name(rec):
+                # l'aliment n'est pas dans la base (nom mal orthographié, aliment
+                # supprimé…) : on garde quand même la ligne dans la liste, sinon
+                # l'article serait tout simplement oublié au moment des courses.
+                cle = f"libre::{_cle_aliment(get_display_name(rec))}"
+                if cle not in aggregated:
+                    aggregated[cle] = {"name": get_display_name(rec), "qty": 0, "unit": "",
+                                       "category": "Autre", "libre": True,
+                                       "nom": get_display_name(rec)}
+                aggregated[cle]["qty"] += float(pm.get("ingredient_qty") or 1)
+            elif ing is not None and not ing.get("exclude_from_list"):
                 unite_liste = ing.get("unite_liste_courses") or ing.get("unit")
                 qty_source = pm.get("ingredient_qty") or pm.get("servings") or 1
-                qty = convert_to_unit(qty_source, ing.get("unit"), unite_liste, ing.get("poids_piece_g"))
+                qty = _quantite_ligne_ing(qty_source, ing, unite_liste)
                 if ing["id"] not in aggregated:
                     aggregated[ing["id"]] = {"name": ing["name"], "qty": 0,
                                              "unit": unite_liste,
