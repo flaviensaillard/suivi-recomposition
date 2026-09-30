@@ -17,7 +17,7 @@ from __future__ import annotations
 #  (« éditeur 2.8 »). S'il affiche autre chose, c'est que ce fichier n'a pas
 #  été recopié sur GitHub.
 # ---------------------------------------------------------------------------
-VERSION = "1.0"
+VERSION = "1.0.1"
 
 import datetime as dt
 import traceback
@@ -306,12 +306,12 @@ def page_planifier(ms, target_p: float):
             jours_light.append((d, tot))
     c3, c4 = st.columns(2)
     c3.metric("Jours qui atteignent la cible", f"{jours_ok} / 7")
-    c4.metric("À compléter",
-              ", ".join(f"{JOURS_COURT[d.weekday()]} {d.strftime('%d/%m')}"
-                        for d, _ in jours_light) or "aucun")
+    c4.metric("Jours à compléter", f"{len(jours_light)} / 7")
     if jours_light:
-        st.caption("Pour ces jours, prévois un en-cas protéiné : shaker, œufs durs, skyr. "
-                   "(Compter 20 à 30 g pour un shaker.)")
+        st.caption("Il manque des protéines le "
+                   + ", ".join(f"**{JOURS_COURT[d.weekday()]} {d.strftime('%d/%m')}**"
+                               for d, _ in jours_light)
+                   + ". Prévois un en-cas : shaker, œufs durs, skyr (20 à 30 g).")
 
     st.divider()
 
@@ -325,7 +325,11 @@ def page_planifier(ms, target_p: float):
         # le nom du jour vient de LA DATE (avant : c'était le rang 0,1,2… de la liste,
         # donc en choisissant un mercredi la page écrivait quand même « Lundi »).
         titre = f"{JOURS[d.weekday()]} {d.strftime('%d/%m')}"
-        with st.expander(f"**{titre}** — {len(repas)} repas", expanded=(d == dt.date.today())):
+        if d == dt.date.today():
+            titre += "  ·  aujourd'hui"
+        #  TOUS les jours arrivent repliés (demandé le 30/09) : la semaine se lit
+        #  d'un coup d'œil, et c'est toi qui ouvres le jour que tu veux remplir.
+        with st.expander(f"**{titre}** — {len(repas)} repas", expanded=False):
             for p in repas:
                 rid = p.get("recipe_id")
                 rec = recettes_par_id.get(rid) or {}

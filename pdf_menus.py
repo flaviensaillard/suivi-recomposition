@@ -18,7 +18,7 @@ import base64
 import difflib
 import re
 
-VERSION = "1.0"        # la version du lot de fichiers déposé sur GitHub
+VERSION = "1.0.1"        # la version du lot de fichiers déposé sur GitHub
 import streamlit as st
 import streamlit.components.v1 as components
 from fpdf import FPDF

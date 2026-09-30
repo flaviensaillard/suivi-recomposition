@@ -1,127 +1,96 @@
-# ⚖️ **ÉQUILIBRE** — version **1.0**
-## « Suivi Recomposition » change de nom, et devient une application finie
+# ⚖️ **ÉQUILIBRE** — version **1.0.1**
+## Le mercredi ne s'ouvre plus tout seul (et deux petits plus)
 
-**Six fichiers à déposer sur GitHub** (les 5 programmes + le logo), **puis F5**.
-C'est tout. Aucun fichier SQL à lancer pour cette mise à jour.
-
----
-
-## 🆕 Ce qui change dans cette 1.0
-
-### ① Le nom et le logo
-L'application s'appelle **Équilibre** — la balance, parce que c'est ton objectif :
-perdre le gras **sans** perdre le muscle. Nouvelle icône (la balance) dans la barre
-de gauche, dans l'onglet du navigateur et **sur l'écran de ton téléphone**.
-
-### ② Les Réglages sortent du sous-dossier
-Fini le dossier « ⚙️ Réglages » avec un seul élément dedans : **Réglages** est
-maintenant **au même niveau** que Nutrition, Mensurations… et **toujours en dernier**.
-
-```
-👨‍👩‍👧‍👦 Menus & courses (partagé)     👤 Mon suivi (personnel)
-   🍽️ Repas & menus                     🏠 Tableau de bord
-   📅 Planifier la semaine              ⚖️ Pesée & tendance
-   🥣 Recettes                          💪 Mes séances
-   🥕 Ingrédients                       🥗 Nutrition
-                                        📏 Mensurations
-                                        ⚙️ Réglages   ← ici, en dernier
-```
-
-### ③ Le bouton « Ouvrir Menus & recettes » est supprimé
-Tu ne l'utilisais pas : il a disparu de la barre de gauche.
-
-### ④ La version PC, retravaillée
-- **Page plus large** (1 080 px au lieu de 900) : les chiffres respirent, les
-  tableaux ne sont plus tassés.
-- **« Modifier / Créer » ressemblent à de vrais boutons** : celui qui est actif est
-  encadré en vert — on voit tout de suite où on est.
-- **Le « appuyez sur Entrée » a disparu** : tout réagit *pendant* la frappe.
-- **Les tableaux et les cadres** sont arrondis et lisibles.
-- **La page Nutrition est réorganisée** : en haut ce qui sert tous les jours
-  (tes compteurs, tes 3 façons d'ajouter un repas), et les moyennes 7 / 30 jours
-  descendent dans un cadre replié en bas — c'était du texte qui t'obligeait à
-  scroller avant d'atteindre les boutons utiles.
-- **La page d'accueil** affiche chaque plat sur une ligne claire
-  (`Midi · 4 personnes · 420 kcal et 32 g de protéines par part`), et un lien
-  direct vers ce que ça demande à tes courses.
-- **Réglages** : un seul bouton « 🗓️ Tout d'un coup (ZIP) » ou **chaque table en
-  CSV direct**, plus le nombre de lignes affiché d'un coup d'œil.
-
-### ⑤ Le ménage dans les textes
-Toutes les phrases d'outil ont été enlevées des pages : plus de
-« lance le script 7_nutrition.sql », plus de « Streamlit garde les fichiers en
-mémoire », plus de « bug corrigé en 2.8.4 ». Il ne reste que ce qui **te sert
-pendant que tu utilises l'application**.
-Les nombres ne sont plus écrits en dur : l'application **compte tes aliments en
-direct** (le fameux « 3 200 aliments » s'adapte tout seul).
-
-### ⑥ Deux bugs corrigés (trouvés par le nouveau test de solidité)
-- **Réglages** : si une ancienne valeur enregistrée sortait des bornes (par
-  exemple 0 kcal), **la page entière refusait de s'afficher**. Corrigé : toutes
-  les valeurs de la base sont désormais ramenées dans les bornes — 15 endroits.
-- **Journal incomplet** : si une colonne manquait dans une ancienne base, la page
-  s'arrêtait. Corrigé : colonnes garanties, lecture sans risque partout.
+**Correctif rapide.** Tu remplaces les **5 fichiers `.py`**, tu appuies sur **F5**,
+c'est fini. **Le logo ne change pas** : `equilibre.png` reste celui de la 1.0,
+tu n'as rien à refaire de ce côté. **Aucun SQL à lancer.**
 
 ---
 
-## 1️⃣ GitHub — dépose ces **6 fichiers** dans `suivi-recomposition`
+## 🆕 Ce qui change
 
-**Add file → Upload files** → glisse les 6 fichiers du dossier
-(*pas de sous-dossier, pas de zip à ouvrir*) → **Commit changes** : « Équilibre 1.0 ».
+### ① Les 7 jours arrivent tous repliés ⭐ (ta remarque)
+Avant, le jour d'aujourd'hui s'ouvrait automatiquement — c'est ce que tu as vu
+avec le mercredi. **Maintenant les 7 jours sont fermés**, et c'est toi qui ouvres
+celui que tu veux remplir. Pour ne pas le chercher, aujourd'hui est simplement
+**signalé dans son titre** :
+
+```
+▸ Mercredi 30/09  ·  aujourd'hui — 3 repas      ← fermé, comme les autres
+▸ Jeudi 01/10 — 1 repas
+▸ Vendredi 02/10 — 2 repas
+▸ Samedi 03/10 — 0 repas
+▸ Dimanche 04/10 — 0 repas
+▸ Lundi 05/10 — 0 repas
+▸ Mardi 06/10 — 0 repas
+```
+
+La semaine se lit donc d'un seul coup d'œil, du premier au dernier jour.
+
+### ② Le résumé de la semaine ne débordait plus…
+Sur ta capture, la ligne **« À compléter »** était coupée par le bord de la page
+(« … Dim 04/… »). C'est corrigé : le compteur affiche un **nombre**
+(`Jours à compléter : 5 / 7`) et la liste des jours s'écrit **en entier juste en
+dessous**, chaque jour en gras :
+
+> Il manque des protéines le **Mer 30/09**, **Jeu 01/10**, **Ven 02/10**,
+> **Sam 03/10**, **Dim 04/10**. Prévois un en-cas : shaker, œufs durs, skyr (20 à 30 g).
+
+### ③ Les boutons prennent la couleur du logo
+Le bouton rouge « Ajouter ce repas » (c'était la couleur par défaut de Streamlit)
+passe au **vert d'Équilibre**, comme la balance. Tout est cohérent maintenant.
+*(Si tu préférais le rouge, dis-le-moi : c'est une ligne à changer.)*
+
+---
+
+## 1️⃣ GitHub — remplace ces **5 fichiers** dans `suivi-recomposition`
+
+**Add file → Upload files** → glisse les 5 fichiers du dossier
+(*pas de sous-dossier, pas de zip à ouvrir*) → **Commit changes** : « Équilibre 1.0.1 ».
 
 | Fichier | Ce qu'il apporte |
 |---|---|
-| **app.py** | le nom, le logo, la mise en page PC, les Réglages remontés |
-| **menus.py** | les textes + les garde-fous de calcul |
-| **editeurs.py** | les écrans Planifier / Recettes / Ingrédients affinés |
-| **repas_plats.py** | la page d'accueil « Repas & menus » |
-| **pdf_menus.py** | la fiche PDF + son numéro de version |
-| **equilibre.png** | ⭐ **le logo** (nouveau : il n'y en avait pas avant) |
+| **editeurs.py** | ⭐ **les 7 jours repliés** + le résumé de la semaine réparé |
+| **app.py** | la couleur des boutons (le vert du logo) + le numéro 1.0.1 |
+| **menus.py** | le numéro de version (pour le contrôle) |
+| **pdf_menus.py** | le numéro de version (pour le contrôle) |
+| **repas_plats.py** | le numéro de version (pour le contrôle) |
 
-Les 11 autres fichiers `.py` de ton dépôt **ne changent pas**.
+> Les 4 derniers ne changent que par leur numéro de version : ils servent à ce que
+> l'application **te dise** qu'elle tourne bien sur la 1.0.1.
 
-> ⚠️ **Le logo est un fichier en plus** : c'est le seul de cette mise à jour.
-> Si tu l'oublies, l'application marche quand même — elle affiche juste ⚖️ au lieu
-> de la balance dessinée.
+**`equilibre.png` : à ne pas toucher**, il est déjà bon.
 
 ## 2️⃣ Streamlit — **F5**
 
 En bas de la barre de gauche tu dois lire :
 
 ```
-Équilibre  v1.0
-éditeur 1.0 · menus 1.0
+Équilibre  v1.0.1
+éditeur 1.0.1 · menus 1.0.1
 ```
 
-Si tu lis encore **2.9.3** : **Manage app → ⋮ → Reboot app**, puis **F5**.
-
-## 3️⃣ Sur ton téléphone (2 minutes, pour le logo)
-Ouvre l'adresse de l'application dans Chrome → **⋮** → *Ajouter à l'écran d'accueil*.
-Tu auras la balance en icône, et l'application s'ouvrira en plein écran.
-
-**Aucun fichier SQL à lancer.** Tes recettes, tes menus, tes courses, tes séances,
-tes objectifs et tes données ne bougent pas d'un chiffre.
+Si tu lis encore **1.0** : **Manage app → ⋮ → Reboot app**, puis **F5**.
 
 ---
 
-## 🧪 Tests (faits avant de t'envoyer ce dossier — **32 verts, 0 échec**)
+## 🧪 Tests (avant de t'envoyer ce dossier — **33 verts, 0 échec**)
 
-- **Toute la batterie** (widget, recherche, unités, convives, courses, PDF,
-  séances, tableaux, objectifs, noms de courses, jours, éditeurs) → **repassée
-  intégralement ✅**
-- **La liste qui cherche** pilotée dans un navigateur simulé → **29/29 ✅**
-  · filtre identique à l'application (JS = Python) → **26/26 ✅**
-- **Le widget est vraiment servi** par Streamlit (HTTP 200, 16 040 octets) → **14/14 ✅**
-- 🆕 **Solidité** : base vide, objectifs à zéro, colonnes manquantes, recette sans
-  parts, aliment sans valeurs, planning en 2030 → **22/22 ✅**
-  *(c'est ce test qui a débusqué les deux bugs corrigés ci-dessus)*
-- Les 10 pages s'ouvrent sans erreur, avec la vraie base (158 aliments, 104 recettes,
+- **Nouveau test « les 7 jours s'ouvrent repliés » → 10/10 ✅**
+  Il regarde l'**état réel** envoyé au navigateur (pas seulement le code) :
+  les 7 jours sont là, **les 7 sont fermés**, aujourd'hui est signalé sans être
+  ouvert, **et ça reste vrai quand tu décales « Premier jour affiché » d'une
+  semaine**. C'est ce test qui empêchera le problème de revenir.
+- **Toute la batterie** (widget dans un navigateur simulé 29/29, recherche unique,
+  unités, convives, courses, PDF, séances, tableaux, objectifs, éditeurs,
+  solidité 22/22…) → **repassée intégralement ✅**
+- Les 10 pages s'ouvrent sans erreur avec ta vraie base (158 aliments, 104 recettes,
   79 repas) → **10/10 ✅**
 
 ## 🆘 Si quelque chose cloche
 
 | Ce que tu vois | Ce que tu fais |
 |---|---|
-| l'ancien écran, version 2.9.3 | **Reboot app** (Manage app → ⋮) puis **F5** |
-| pas de logo, juste ⚖️ | vérifie que **equilibre.png** est bien sur GitHub, à côté de `app.py` |
-| un texte bizarre ou une erreur | envoie-moi une capture : le cadre « Détail » contient tout ce qu'il me faut |
+| les jours s'ouvrent encore tout seuls | **Reboot app** (Manage app → ⋮) puis **F5** |
+| version encore 1.0 en bas à gauche | tu as oublié un fichier : vérifie les 5 |
+| un bouton encore rouge | dis-le-moi : je regarde le thème de ton déploiement |

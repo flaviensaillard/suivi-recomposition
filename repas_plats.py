@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import datetime as dt
 
-VERSION = "1.0"        # la version du lot de fichiers déposé sur GitHub
+VERSION = "1.0.1"        # la version du lot de fichiers déposé sur GitHub
 import streamlit as st
 
 import menus as MN

@@ -35,7 +35,7 @@ from db import LocalStore, SupaStore
 
 #  Le numéro de version du lot de fichiers déposé sur GitHub : les 5 fichiers
 #  (celui-ci, editeurs.py, menus.py, pdf_menus.py, repas_plats.py) le portent.
-VERSION = "1.0"
+VERSION = "1.0.1"
 APP = "Équilibre"
 
 
@@ -166,6 +166,16 @@ st.markdown("""
   .stButton>button{white-space:normal; text-align:center; border-radius:8px;
                    font-weight:500}
 
+  /* --- la couleur de l'application (le vert du logo) sur les boutons
+         d'action : sans ça, Streamlit met son rouge par défaut --- */
+  [data-testid^="stBaseButton-primary"],
+  [data-testid^="stDownloadButton"] button {
+      background-color:#0d9488 !important; border-color:#0d9488 !important}
+  [data-testid^="stBaseButton-primary"]:hover,
+  [data-testid^="stDownloadButton"] button:hover {
+      background-color:#0b7f74 !important; border-color:#0b7f74 !important}
+  [data-testid^="stBaseButton-primary"] p {color:#ffffff !important}
+
   /* --- les choix horizontaux (« Modifier / Créer ») : de vrais onglets --- */
   div[role="radiogroup"]{gap:.3rem; flex-wrap:wrap}
   div[role="radiogroup"] > label{background:#f4f7fa; border:1px solid #e6ebf1;
@@ -293,7 +303,7 @@ def menus_store():
     Sans Supabase configuré : renvoie un extrait de démonstration, pour que tu
     puisses voir la page tout de suite (les chiffres sont alors incomplets).
     """
-    VERSION_STORE = "30-09-2026q"      # à changer à chaque mise à jour du moteur
+    VERSION_STORE = "30-09-2026r"      # à changer à chaque mise à jour du moteur
     ms = st.session_state.get("_menus_store")
     force = st.session_state.get("_menus_store_forcee")     # magasin imposé (tests)
     if ms is not None and (force or st.session_state.get("_menus_version") == VERSION_STORE):
