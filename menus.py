@@ -19,7 +19,7 @@ Ce module en déduit, sans aucune saisie :
 Aucune écriture ici : que de la lecture et du calcul. Tu peux tester sans risque.
 """
 
-VERSION = "2.9.2"        # affiché dans la barre de gauche (contrôle des fichiers à jour)
+VERSION = "2.9.3"        # affiché dans la barre de gauche (contrôle des fichiers à jour)
 
 import datetime as dt
 import math
@@ -311,148 +311,509 @@ def champ_recherche(cle_etat: str, label: str = "🔍 Rechercher",
                          help="Tu peux taper sans accent : « pates » trouve « Pâtes », "
                               "« epinard » trouve « Épinard ».")
 
+# ===========================================================================
+#  LA LISTE QUI CHERCHE TOUTE SEULE — LE SEUL MODULE DE RECHERCHE (30/09, soir)
+#
+#  « je n'en veux qu'une seule qui fasse les deux : liste déroulante où je
+#    sélectionne sans faire de recherche ET quand je tape "pate" ça trouve les
+#    correspondances (de manière dynamique au fur et à mesure que je tape les
+#    lettres, je ne veux pas avoir à appuyer sur entrer) peu importe les accents
+#    ou non ! on fait ça pour toute l'application »
+#
+#  La liste déroulante de Streamlit ne sait pas faire ça : sa recherche
+#  interne ne compare que les minuscules (`toLowerCase`) — taper « pate » n'y
+#  trouve donc JAMAIS « Pâtes » (c'est le « No results » de la capture).
+#  Vérifié dans le code de Streamlit : fuzzyFilterSelectOptions…js, fonction
+#  `gn()` qui ne fait que toLowerCase().
+#
+#  D'où ce widget, appelé comme une liste déroulante normale :
+#    • fermé : UNE ligne, on la déroule et on clique (aucune recherche à faire) ;
+#    • ouvert : un champ de recherche EST DANS le widget (rien de plus à
+#      l'écran) et filtre PENDANT la frappe, sans appuyer sur Entrée.
+#  Sa logique de recherche est la copie exacte de filtre_recherche() ci-dessus
+#  (vérifié : 26 requêtes donnent le même résultat en Python et en JavaScript).
+#
+#  Le widget est un « composant » Streamlit : le fichier HTML ci-dessous est
+#  écrit dans un dossier temporaire au démarrage, puis déclaré. Aucun fichier
+#  ni paquet en plus à installer.
+# ===========================================================================
+_HTML_LISTE = r"""<!DOCTYPE html>
+<!--
+  LA LISTE QUI CHERCHE TOUTE SEULE  (30/09/2026)
 
-def _liste_deroulante(label: str, options: list, index: int = 0, key: str = "",
-                      help: str = ""):
-    """La liste déroulante compacte (une seule ligne à l'écran).
+  Un seul widget, qui fait les deux :
+    • fermé  : une seule ligne, comme une liste déroulante normale — on la déroule
+               et on clique sa ligne, sans rien taper ;
+    • ouvert : un champ de recherche EST DANS le widget (rien de plus sur la page)
+               et filtre PENDANT la frappe, sans appuyer sur Entrée, en IGNORANT
+               LES ACCENTS (« pate » trouve « Pâtes fourrées »).
 
-    On demande la recherche « floue » à Streamlit quand elle existe (elle
-    comprend les petites fautes et, sur les versions récentes, les accents) ;
-    si la version de Streamlit est plus ancienne, on la crée sans ce réglage :
-    l'application ne doit jamais s'arrêter pour ça.
-    """
-    import inspect
+  Ce fichier est un « composant » Streamlit : il parle à l'application par
+  messages (postMessage). Il est écrit par menus.py dans un dossier temporaire,
+  donc rien à installer et aucun fichier en plus à déposer sur GitHub.
 
-    import streamlit as st
-    reglages = {"index": index, "key": key}
-    if help:
-        reglages["help"] = help
-    try:                                   # Streamlit récent : recherche tolérante
-        if "filter_mode" in inspect.signature(st.selectbox).parameters:
-            reglages["filter_mode"] = "fuzzy"
-    except (TypeError, ValueError):
-        pass
+  La logique de recherche est la copie exacte de `filtre_recherche` (menus.py) :
+  accents et majuscules ignorés, correspondance EXACTE d'abord, et tolérance aux
+  petites fautes de frappe seulement s'il n'y a aucun résultat exact.
+-->
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<style>
+  :root{
+    --fond:#ffffff; --texte:#31333f; --bord:#d5dae5; --bord-fonce:#a3a8b8;
+    --primaire:#ff4b4b; --survol:#f2f4f9; --doux:#808495; --ombre:0 2px 8px rgba(0,0,0,.12);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:transparent;overflow:hidden}
+  body{font-family:"Source Sans Pro","Source Sans 3",-apple-system,BlinkMacSystemFont,
+        "Segoe UI",Roboto,sans-serif;color:var(--texte);font-size:14px}
+  #racine{padding:2px 1px 4px 1px}
+
+  .etiquette{display:flex;align-items:center;gap:5px;font-size:14px;line-height:1.4;
+             margin:0 0 4px 1px;color:var(--texte)}
+  .aide{width:14px;height:14px;border-radius:50%;border:1px solid var(--bord-fonce);
+        color:var(--doux);font-size:10px;line-height:12px;text-align:center;
+        cursor:help;flex:0 0 auto;user-select:none}
+
+  .boite{display:flex;align-items:center;gap:8px;min-height:38px;padding:7px 10px;
+         border:1px solid var(--bord);border-radius:8px;background:var(--fond);
+         cursor:pointer;user-select:none}
+  .boite:hover{border-color:var(--primaire)}
+  .boite.ouvert{border-color:var(--primaire);border-bottom-left-radius:0;border-bottom-right-radius:0}
+  .valeur{flex:1 1 auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .valeur.vide{color:var(--doux)}
+  .chevron{flex:0 0 auto;color:var(--doux);font-size:11px;transition:transform .12s}
+  .boite.ouvert .chevron{transform:rotate(180deg)}
+
+  .panneau{border:1px solid var(--primaire);border-top:0;border-bottom-left-radius:8px;
+           border-bottom-right-radius:8px;background:var(--fond);overflow:hidden}
+  .panneau.cache{display:none}
+
+  .barre{padding:7px 8px;border-bottom:1px solid var(--bord)}
+  .barre input{width:100%;border:1px solid var(--bord);border-radius:6px;padding:6px 8px;
+               font-size:14px;font-family:inherit;color:var(--texte);background:var(--fond);outline:none}
+  .barre input:focus{border-color:var(--primaire)}
+
+  .liste{max-height:246px;overflow-y:auto;padding:4px 0;overscroll-behavior:contain}
+  .ligne{padding:7px 12px;cursor:pointer;display:flex;align-items:center;gap:8px;
+         line-height:1.3;white-space:normal}
+  .ligne .marque{flex:0 0 14px;color:var(--primaire);font-size:12px}
+  .ligne.survol{background:var(--survol)}
+  .ligne.choisie .marque::before{content:"✓"}
+  .vide{padding:10px 12px;color:var(--doux);font-style:italic}
+  .vide.cache{display:none}
+  .compte{padding:5px 12px;color:var(--doux);font-size:12px;border-top:1px solid var(--bord)}
+  .compte.cache{display:none}
+</style>
+</head>
+<body>
+<div id="racine">
+  <div class="etiquette" id="etiquette">
+    <span id="texte-etiquette"></span>
+    <span class="aide" id="aide" title="">?</span>
+  </div>
+  <div class="boite" id="boite" tabindex="0" role="button" aria-haspopup="listbox">
+    <span class="valeur vide" id="valeur">—</span>
+    <span class="chevron" id="chevron">v</span>
+  </div>
+  <div class="panneau cache" id="panneau">
+    <div class="barre">
+      <input id="filtre" type="text" autocomplete="off" spellcheck="false"
+             placeholder="tape pour filtrer (les accents ne comptent pas)…">
+    </div>
+    <div class="liste" id="liste" role="listbox"></div>
+    <div class="vide cache" id="vide">Rien ne correspond à ta recherche…</div>
+    <div class="compte cache" id="compte"></div>
+  </div>
+</div>
+<script>
+(function () {
+  "use strict";
+  var OPTIONS = [], VALEUR = null, SURBRILLE = 0, VISIBLES = [], OUVERT = false;
+  var ARGS_PREC = undefined, PLACEHOLDER = "—", DESACTIVE = false;
+
+  // ---------------------------------------------------------------- accents
+  // Copie exacte de cle_recherche() de menus.py : minuscules, œ → oe, accents
+  // enlevés, ponctuation transformée en espaces.
+  function plie(t) {
+    var x = (t === null || t === undefined) ? "" : String(t);
+    x = x.toLowerCase().replace(/œ/g, "oe").replace(/æ/g, "ae");
+    if (x.normalize) { x = x.normalize("NFD").replace(/[\u0300-\u036f]/g, ""); }
+    x = x.replace(/['’\u2019\-,()/.]/g, " ");
+    return x.replace(/\s+/g, " ").trim();
+  }
+
+  function pertinence(cible, mots) {
+    var entier = mots.join(" ");
+    if (cible.indexOf(entier) === 0) { return [0, cible.length, cible]; }
+    var parties = cible.split(" ");
+    for (var i = 0; i < parties.length; i++) {
+      if (parties[i].indexOf(mots[0]) === 0) { return [1, cible.length, cible]; }
+    }
+    if (cible.indexOf(mots[0]) === 0) { return [1, cible.length, cible]; }
+    return [2, cible.length, cible];
+  }
+
+  // ≈ difflib.SequenceMatcher(...).ratio() : bigrammes communs.
+  function similarite(a, b) {
+    if (a === b) { return 1; }
+    if (!a || !b) { return 0; }
+    var A = {}, B = {}, k, i, total = 0, commun = 0;
+    for (i = 0; i < a.length - 1; i++) { k = a.substr(i, 2); A[k] = (A[k] || 0) + 1; }
+    for (i = 0; i < b.length - 1; i++) { k = b.substr(i, 2); B[k] = (B[k] || 0) + 1; }
+    for (k in A) { total += A[k]; commun += Math.min(A[k], B[k] || 0); }
+    for (k in B) { total += B[k]; }
+    return total ? (2 * commun) / total : 0;
+  }
+
+  function compare(t1, t2) {
+    for (var i = 0; i < t1.length; i++) {
+      if (t1[i] < t2[i]) { return -1; }
+      if (t1[i] > t2[i]) { return 1; }
+    }
+    return 0;
+  }
+
+  // LA recherche : mêmes règles que filtre_recherche() de menus.py
+  function filtre(options, requete) {
+    var req = plie(requete);
+    if (!req) { return options.slice(); }
+    var mots = req.split(" ").filter(function (m) { return m.length > 0; });
+    var exacts = [], flous = [], i, j;
+    for (i = 0; i < options.length; i++) {
+      var o = options[i], cible = plie(o);
+      if (!cible) { continue; }
+      var tous = true;
+      for (j = 0; j < mots.length; j++) { if (cible.indexOf(mots[j]) < 0) { tous = false; break; } }
+      if (tous) {
+        exacts.push([pertinence(cible, mots), o]);
+        continue;
+      }
+      var assez_longs = true;
+      for (j = 0; j < mots.length; j++) { if (mots[j].length < 4) { assez_longs = false; break; } }
+      if (!assez_longs) { continue; }
+      var decoupes = cible.split(" "), notes = [], ok = true;
+      for (j = 0; j < mots.length; j++) {
+        var note = 0;
+        for (var d = 0; d < decoupes.length; d++) {
+          var s = similarite(mots[j], decoupes[d]);
+          if (s > note) { note = s; }
+        }
+        if (note < 0.75) { ok = false; break; }
+        notes.push(note);
+      }
+      if (ok) {
+        var somme = notes.reduce(function (a, b) { return a + b; }, 0);
+        flous.push([[-somme / notes.length, cible.length, cible], o]);
+      }
+    }
+    var gardes = exacts.length ? exacts : flous;
+    gardes.sort(function (a, b) { return compare(a[0], b[0]); });
+    return gardes.map(function (p) { return p[1]; });
+  }
+
+  // ---------------------------------------------------------------- messages
+  function versStreamlit(message) {
+    window.parent.postMessage(Object.assign({ isStreamlitMessage: true }, message), "*");
+  }
+  function envoyerValeur(valeur) {
+    VALEUR = valeur;
+    versStreamlit({ type: "streamlit:setComponentValue", value: valeur, dataType: "json" });
+  }
+  function ajusterHauteur() {
+    //  la hauteur réelle du widget : on la MESURE dans la page…
+    var haut = 0;
+    try {
+      var r = document.getElementById("racine").getBoundingClientRect();
+      haut = Math.ceil(r.bottom);
+      if (!haut || haut < 24) { haut = Math.ceil(document.body.scrollHeight); }
+    } catch (e) { haut = 0; }
+    //  …et si la mesure n'est pas possible, on prend une valeur sûre
+    if (!haut || haut < 24) { haut = OUVERT ? 348 : 46; }
+    versStreamlit({ type: "streamlit:setFrameHeight", height: haut + 4 });
+  }
+
+  // ---------------------------------------------------------------- affichage
+  var el = {
+    etiquette: document.getElementById("etiquette"),
+    texte: document.getElementById("texte-etiquette"),
+    aide: document.getElementById("aide"),
+    boite: document.getElementById("boite"),
+    valeur: document.getElementById("valeur"),
+    chevron: document.getElementById("chevron"),
+    panneau: document.getElementById("panneau"),
+    filtre: document.getElementById("filtre"),
+    liste: document.getElementById("liste"),
+    vide: document.getElementById("vide"),
+    compte: document.getElementById("compte")
+  };
+
+  function therme() { return el.filtre.value || ""; }
+
+  function rendreListe() {
+    VISIBLES = filtre(OPTIONS, therme());
+    el.liste.innerHTML = "";
+    if (SURBRILLE >= VISIBLES.length) { SURBRILLE = 0; }
+    for (var i = 0; i < VISIBLES.length; i++) {
+      var ligne = document.createElement("div");
+      ligne.className = "ligne" + (i === SURBRILLE ? " survol" : "")
+                      + (VISIBLES[i] === VALEUR ? " choisie" : "");
+      ligne.setAttribute("role", "option");
+      var marque = document.createElement("span");
+      marque.className = "marque";
+      ligne.appendChild(marque);
+      var texte = document.createElement("span");
+      texte.textContent = VISIBLES[i];
+      ligne.appendChild(texte);
+      ligne.setAttribute("data-i", String(i));
+      ligne.addEventListener("mouseenter", (function (n) {
+        return function () { SURBRILLE = n; rafraichirSurvol(); };
+      })(i));
+      ligne.addEventListener("mousedown", (function (v) {
+        return function (ev) { ev.preventDefault(); choisir(v); };
+      })(VISIBLES[i]));
+      el.liste.appendChild(ligne);
+    }
+    el.vide.className = "vide" + (VISIBLES.length ? " cache" : "");
+    el.compte.className = "compte" + (therme().trim() ? "" : " cache");
+    el.compte.textContent = VISIBLES.length + " sur " + OPTIONS.length
+                          + " (accents et majuscules ignorés)";
+  }
+
+  function rafraichirSurvol() {
+    var enfants = el.liste.children;
+    for (var i = 0; i < enfants.length; i++) {
+      enfants[i].className = "ligne" + (i === SURBRILLE ? " survol" : "")
+                           + (VISIBLES[i] === VALEUR ? " choisie" : "");
+    }
+    var cible = enfants[SURBRILLE];
+    if (cible && cible.scrollIntoView) { cible.scrollIntoView({ block: "nearest" }); }
+  }
+
+  function montrerValeur() {
+    var v = (VALEUR === null || VALEUR === undefined || VALEUR === "") ? null : VALEUR;
+    el.valeur.textContent = v === null ? PLACEHOLDER : v;
+    el.valeur.className = "valeur" + (v === null ? " vide" : "");
+  }
+
+  function ouvrir() {
+    if (DESACTIVE) { return; }
+    OUVERT = true;
+    el.boite.className = "boite ouvert";
+    el.panneau.className = "panneau";
+    el.filtre.value = "";
+    var i = OPTIONS.indexOf(VALEUR);
+    SURBRILLE = i >= 0 ? i : 0;
+    rendreListe();
+    ajusterHauteur();
+    setTimeout(function () { el.filtre.focus(); }, 10);
+  }
+
+  function fermer() {
+    OUVERT = false;
+    el.boite.className = "boite";
+    el.panneau.className = "panneau cache";
+    ajusterHauteur();
+  }
+
+  function choisir(valeur) {
+    envoyerValeur(valeur);
+    montrerValeur();
+    fermer();
+  }
+
+  el.boite.addEventListener("mousedown", function (ev) {
+    ev.preventDefault();
+    if (OUVERT) { fermer(); } else { ouvrir(); }
+    el.boite.focus();
+  });
+  el.boite.addEventListener("keydown", function (ev) {
+    if (ev.key === "Enter" || ev.key === " " || ev.key === "ArrowDown") {
+      ev.preventDefault();
+      if (!OUVERT) { ouvrir(); }
+    }
+  });
+  el.filtre.addEventListener("input", function () { SURBRILLE = 0; rendreListe(); ajusterHauteur(); });
+  el.filtre.addEventListener("keydown", function (ev) {
+    if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+      ev.preventDefault();
+      if (!VISIBLES.length) { return; }
+      SURBRILLE = (SURBRILLE + (ev.key === "ArrowDown" ? 1 : VISIBLES.length - 1)) % VISIBLES.length;
+      rafraichirSurvol();
+    } else if (ev.key === "Enter") {
+      ev.preventDefault();
+      if (VISIBLES.length) { choisir(VISIBLES[Math.min(SURBRILLE, VISIBLES.length - 1)]); }
+    } else if (ev.key === "Escape") {
+      ev.preventDefault();
+      fermer();
+      el.boite.focus();
+    }
+  });
+  // clic ailleurs dans la page : le widget se referme tout seul
+  window.addEventListener("blur", function () { if (OUVERT) { fermer(); } });
+  document.addEventListener("click", function (ev) {
+    if (OUVERT && !el.racine_bis && ev.target && !el.panneau.contains(ev.target)
+        && !el.boite.contains(ev.target)) { fermer(); }
+  });
+
+  // ---------------------------------------------------------------- thème
+  function appliquerTheme(theme) {
+    if (!theme) { return; }
+    var r = document.documentElement.style;
+    if (theme.backgroundColor) { r.setProperty("--fond", theme.backgroundColor); }
+    if (theme.textColor) { r.setProperty("--texte", theme.textColor); }
+    if (theme.primaryColor) { r.setProperty("--primaire", theme.primaryColor); }
+    var bg = theme.backgroundColor || "#ffffff";
+    var sombre = false;
+    if (/^#?[0-9a-f]{6}$/i.test(bg.replace("#", ""))) {
+      var n = parseInt(bg.replace("#", ""), 16);
+      var lum = (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
+      sombre = lum < 0.5;
+    }
+    if (sombre) {
+      r.setProperty("--bord", "rgba(255,255,255,.22)");
+      r.setProperty("--bord-fonce", "rgba(255,255,255,.45)");
+      r.setProperty("--doux", "rgba(255,255,255,.6)");
+      r.setProperty("--survol", "rgba(255,255,255,.10)");
+    }
+    if (theme.secondaryBackgroundColor) { r.setProperty("--survol", theme.secondaryBackgroundColor); }
+  }
+
+  // ---------------------------------------------------------------- rendu reçu
+  function surMessage(ev) {
+    var d = ev.data;
+    if (!d || d.type !== "streamlit:render") { return; }
+    var args = d.args || {};
+    appliquerTheme(d.theme);
+    DESACTIVE = !!d.disabled;
+    PLACEHOLDER = args.placeholder || "—";
+    var options = args.options || [];
+    var premiere = (ARGS_PREC === undefined);
+    var change = premiere || (args.value !== ARGS_PREC.value);
+    ARGS_PREC = { value: args.value };
+    OPTIONS = options;
+    if (change && args.value !== undefined && args.value !== null
+        && OPTIONS.indexOf(args.value) >= 0) {
+      VALEUR = args.value;                  // valeur imposée par l'application
+    }
+    if (VALEUR !== null && OPTIONS.indexOf(VALEUR) < 0) { VALEUR = null; }
+    if (args.label !== undefined) { el.texte.textContent = args.label; }
+    if (args.aide) { el.aide.title = args.aide; el.aide.style.display = ""; }
+    else { el.aide.style.display = "none"; }
+    el.boite.style.opacity = DESACTIVE ? "0.5" : "1";
+    el.boite.style.cursor = DESACTIVE ? "not-allowed" : "pointer";
+    if (OUVERT) { rendreListe(); }
+    montrerValeur();
+    ajusterHauteur();
+    if (!rendreListe.__initialise) { rendreListe.__initialise = true; }
+  }
+
+  window.addEventListener("message", surMessage);
+  versStreamlit({ type: "streamlit:componentReady", apiVersion: 1 });
+  if (window.ResizeObserver) {
+    new ResizeObserver(function () { ajusterHauteur(); }).observe(document.body);
+  }
+  ajusterHauteur();
+
+  //  tests automatisés (node) : on expose la logique de recherche
+  window.__suivi_liste = { plie: plie, filtre: filtre, similarite: similarite };
+})();
+</script>
+</body>
+</html>
+"""
+
+_COMPOSANT = None
+_COMPOSANT_ERREUR = ""
+
+
+def _ecrire_le_widget() -> str:
+    """Écrit la page du widget dans un dossier temporaire et renvoie le dossier."""
+    import os
+    import tempfile
+    dossier = os.path.join(tempfile.gettempdir(), "suivi_recomposition_liste")
+    os.makedirs(dossier, exist_ok=True)
+    chemin = os.path.join(dossier, "index.html")
     try:
-        return st.selectbox(label, options, **reglages)
-    except TypeError:                      # version ancienne : on refait sans
-        reglages.pop("filter_mode", None)
-        return st.selectbox(label, options, **reglages)
+        deja = open(chemin, encoding="utf-8").read()
+    except OSError:
+        deja = None
+    if deja != _HTML_LISTE:
+        with open(chemin, "w", encoding="utf-8") as f:
+            f.write(_HTML_LISTE)
+    return dossier
 
 
-# ===========================================================================
-#  LE MODULE DE RECHERCHE — IL N'Y EN A QU'UN (30/09)
-#
-#  « Je ne veux pas avoir deux modules de recherches, je veux seulement
-#   "chercher une recette/ingrédient" et que ça ne tienne pas compte des
-#   accents lors de ma saisie. Et je veux ça partout dans l'application. »
-#
-#  Version du 30/09 (soir) : la liste des résultats redevient une **liste
-#  déroulante**, comme avant — mais c'est TOUJOURS la case 🔍 qui cherche,
-#  et elle ignore les accents. Une ligne seulement à l'écran : on tape
-#  « pates », la liste se réduit à « Pâtes / Pâtes à lasagnes », on ouvre et
-#  on choisit. Plus de 25 lignes qui prennent tout l'écran.
-# ===========================================================================
+def _composant_liste():
+    """Le widget, créé une seule fois. Renvoie None si ce n'est pas possible."""
+    global _COMPOSANT, _COMPOSANT_ERREUR
+    if _COMPOSANT is not None:
+        return _COMPOSANT
+    if _COMPOSANT_ERREUR:
+        return None
+    try:
+        from streamlit.components.v1 import declare_component
+        _COMPOSANT = declare_component("liste_chercheuse", path=_ecrire_le_widget())
+    except Exception as e:                      # pragma: no cover - filet de sécurité
+        _COMPOSANT_ERREUR = f"{type(e).__name__}: {e}"[:200]
+        _COMPOSANT = None
+    return _COMPOSANT
+
+
+def _liste_native_pour_les_tests() -> bool:
+    """Vrai quand on fait tourner l'application sans navigateur (tests automatiques).
+
+    Les tests ne peuvent pas cliquer dans un composant ; ils utilisent alors la
+    liste déroulante de Streamlit, avec EXACTEMENT les mêmes options. Pour la
+    vraie recherche (accents ignorés), ce sont les tests de `filtre_recherche`
+    (Python) et du JavaScript du widget qui tranchent.
+    """
+    import os
+    return os.environ.get("SUIVI_LISTE_NATIVE", "") not in ("", "0", "non")
+
+
 def chercheur(label: str, options, cle: str, terme: str | None = None,
               valeur: str | None = None, nombre: int = 20,
               libelle_recherche: str | None = None, aide: str = "",
               type_element: str = "choix", encadre: bool = True,
               cle_liste: str | None = None, horizontal: bool = False,
               garder_valeur: bool = True) -> str | None:
-    """LE module de recherche unique : « 🔍 Chercher … » + une liste déroulante.
+    """LA liste déroulante qui cherche toute seule : le seul module de recherche.
 
-    Renvoie le libellé choisi.
-
-    - `terme`    : si on le fournit, la case de recherche est déjà ailleurs
-                   (une seule case peut filtrer plusieurs listes à la fois) ;
-    - `valeur`   : ce qui était déjà choisi avant (la liste s'ouvre dessus) ;
-    - `nombre`   : combien de propositions garder dans la liste déroulante
-                   quand on n'a rien tapé (le reste arrive avec « ➕ »).
+    Renvoie la ligne choisie (un texte), ou None tant que rien n'est choisi.
+    On l'appelle comme avant — les anciens réglages (`nombre`, `terme`,
+    `libelle_recherche`, `type_element`, `encadre`, `horizontal`) ne servent
+    plus : il n'y a plus de case 🔍 à côté de la liste, tout est dedans.
     """
     import streamlit as st
     options = [str(o) for o in (options or [])]
     if not options:
         st.info(f"Aucune option disponible pour « {label} ».")
         return None
-    #  encadré = c'est vraiment LE module (sa propre case de recherche)
-    with st.container(border=bool(encadre and terme is None)):
-        if terme is None:
-            terme = champ_recherche(
-                f"{cle}_q",                       # clé distincte de celle de la liste
-                libelle_recherche or f"🔍 Chercher — {str(label).lower()}",
-                placeholder="pates, steak, courgette…")
-        terme = str(terme or "")
-        trouves = filtre_recherche(options, terme)
-        rien_trouve = bool(terme.strip()) and not trouves
-        if terme.strip():
-            if rien_trouve:
-                st.warning(f"Rien ne correspond à « {terme} ». Efface la case 🔍 pour revoir "
-                           f"les {len(options)} choix.")
-            else:
-                st.caption(f"**{len(trouves)}** {type_element}(s) sur {len(options)} "
-                           f"correspondent à « {terme} » — accents et majuscules ignorés.")
-            vus = list(trouves)                # une recherche courte : on montre tout
-        else:
-            if aide:
-                st.caption(aide)
-            fenetre = int(st.session_state.get(f"{cle}_n") or nombre)
-            vus = trouves[:fenetre]
-        #  ⚠️ CE QUI EST DÉJÀ CHOISI RESTE TOUJOURS DANS LA LISTE : sans ça, une
-        #  ligne perdait son ingrédient dès qu'on vidait la case 🔍 (le choix se
-        #  trouvait plus loin dans la longue liste et disparaissait).
-        #
-        #  Le « choix déjà fait » vient soit de l'appelant (`valeur`), soit de la
-        #  mémoire de Streamlit : quand on vide la case 🔍, c'est le second qui
-        #  sauve la mise.
-        deja = str(valeur) if (garder_valeur and valeur is not None
-                               and str(valeur) in options) else None
-        #  ce que Streamlit a retenu du dernier choix (filet de sécurité : une
-        #  recherche qui ne trouve RIEN ne doit jamais l'effacer)
-        etat_sur = None
-        if garder_valeur:
-            etat_sur = st.session_state.get(cle_liste or cle)
-            etat_sur = str(etat_sur) if (etat_sur is not None
-                                         and str(etat_sur) in options) else None
-        if deja is None and garder_valeur and not terme.strip():
-            #  Pas de recherche en cours : on remet en tête ce que l'utilisateur avait
-            #  choisi (mémoire de Streamlit). Pendant une recherche, au contraire, on
-            #  montre d'abord ce qui correspond à ce qu'il tape — s'il retombe sur son
-            #  ancien choix, il est de toute façon dans les résultats.
-            etat = st.session_state.get(cle_liste or cle)
-            if etat is not None and str(etat) in options:
-                deja = str(etat)
-        #  « — » = rien de choisi pour l'instant : dans ce cas on n'empêche pas la
-        #  liste de montrer d'abord le résultat de la recherche.
-        vide = deja is None or deja.strip() in ("", "-", "—")
-        if deja and not vide:
-            if deja not in vus:
-                vus = [deja] + vus           # en TÊTE : la ligne garde son ingrédient
-            defaut = vus.index(deja)         # et la liste s'ouvre dessus
-        else:
-            if deja in vus:
-                vus = [o for o in vus if o != deja]   # « — » : le 1ᵉʳ résultat passe devant
-            defaut = 0
-        if not vus:                          # plus rien à montrer : on garde le choix
-            garde = deja or etat_sur               # actuel, sinon on perd la sélection
-            vus = [garde] if garde else options[:1]
-        #  LA LISTE DÉROULANTE (une seule hauteur d'écran, comme avant).
-        #  Sa recherche interne, elle, ne sert à rien : c'est la case 🔍
-        #  au-dessus qui cherche et qui ignore les accents.
-        choix = _liste_deroulante(
-            label, vus, index=defaut, key=cle_liste or cle,
-            help="Ouvre la liste et choisis ta ligne. Pour la trouver sans te tromper "
-                 "d'accent, tape dans la case 🔍 juste au-dessus : « pates » y trouve "
-                 "« Pâtes », « epinard » y trouve « Épinard ». Cette liste-ci ne garde "
-                 "que ce que tu as cherché.")
-        if rien_trouve:                      # rien ne correspond : les appelants s'arrêtent,
-            return None                      # mais la liste ci-dessous garde le choix actuel
-        #  combien de choix sont VRAIMENT montrés (le choix actuel ne compte pas)
-        montres = len([o for o in vus if not (deja and not vide and o == deja)])
-        if len(trouves) > montres:
-            if st.button(f"➕ Voir {min(nombre, len(trouves) - montres)} choix de plus "
-                         f"({montres} sur {len(trouves)})", key=f"{cle}_plus"):
-                st.session_state[f"{cle}_n"] = montres + nombre
-                st.rerun()
-        return choix
+
+    #  ce qui était déjà choisi (une recette à modifier, l'ingrédient d'une ligne…)
+    defaut = None
+    if garder_valeur and valeur is not None and str(valeur) in options:
+        defaut = str(valeur)
+    cle_liste = cle_liste or cle
+
+    if _liste_native_pour_les_tests():          # tests automatiques (pas de navigateur)
+        index = options.index(defaut) if defaut in options else 0
+        return st.selectbox(label, options, index=index, key=cle_liste, help=aide or None)
+
+    widget = _composant_liste()
+    if widget is None:                          # repli : le widget n'a pas pu se créer
+        st.caption(f"⚠️ {_COMPOSANT_ERREUR or 'widget indisponible'}")
+        index = options.index(defaut) if defaut in options else 0
+        return st.selectbox(label, options, index=index, key=cle_liste, help=aide or None)
+
+    retour = widget(options=options, value=defaut, label=label, aide=aide,
+                    placeholder="— Choisir —", key=cle_liste, default=defaut)
+    if retour is None:
+        return None
+    retour = str(retour)
+    return retour if retour in options else None
 
 
 def selecteur_recherche(label: str, options, cle_etat: str, **reste):

@@ -17,7 +17,7 @@ from __future__ import annotations
 #  (« éditeur 2.8 »). S'il affiche autre chose, c'est que ce fichier n'a pas
 #  été recopié sur GitHub.
 # ---------------------------------------------------------------------------
-VERSION = "2.9.2"
+VERSION = "2.9.3"
 
 import datetime as dt
 import traceback
@@ -398,9 +398,8 @@ def page_planifier(ms, target_p: float):
                     noms, ids_ing, cle=f"pl_si_{d}", cle_liste=f"pl_i_{d}",
                     label="🔍 Chercher un ingrédient (tape par ex. « pates »)",
                     type_element="ingrédient",
-                    aide="Tape « pates » : la liste déroulante juste en dessous ne garde "
-                         "que « Pâtes » et « Pâtes à lasagnes ». C'est la seule recherche "
-                         "de l'application, et elle ignore les accents.")
+                    aide="Déroule et clique ta recette, ou tape « curry », « bolognaise »… "
+                         "la liste ne garde que ce qui correspond (accents ignorés).")
                 if not noms:
                     st.caption("Ta base d'ingrédients est vide : remplis-la page "
                                "« Recettes & ingrédients ».")
@@ -793,18 +792,15 @@ def _recherche_dans_liste(libelles, ids, cle: str, label: str,
                           cle_liste: str | None = None):
     """LE module de recherche (il n'y en a qu'un dans toute l'application).
 
-    Il tape « pates » dans la case 🔍 : la liste déroulante juste en dessous ne
-    garde que ce qui correspond — accents et majuscules ignorés — puis il choisit.
-    Aucune autre recherche ne se cache dans la liste (avant, la liste déroulante
-    de Streamlit avait la sienne et répondait « No results » à « pates »).
+    Une seule liste déroulante qui fait les deux : on la déroule et on clique
+    (aucune recherche à faire), ou on tape « pates » dedans et elle ne garde que
+    ce qui correspond — accents et majuscules ignorés, pendant la frappe.
 
     Renvoie (libellé choisi, identifiant) ; « — » = aucun aliment choisi.
     """
     titre = "Recette" if type_element == "recette" else "Ingrédient"
-    choix = MN.chercheur(
-        titre, ["—"] + list(libelles), cle=cle, cle_liste=cle_liste,
-        libelle_recherche=label, type_element=type_element, aide=aide,
-        nombre=25, encadre=True)
+    choix = MN.chercheur(titre, ["—"] + list(libelles), cle=cle, cle_liste=cle_liste,
+                         aide=aide)
     return choix, (ids or {}).get(choix)
 
 
@@ -878,19 +874,11 @@ def _lignes_recette(ms, prefixe: str, actuelles: list | None = None,
     inverse: dict[str, str] = {}
     for lib, ident in ids.items():
         inverse.setdefault(str(ident), lib)
-    # LA case de recherche de la page (une seule, accents ignorés) : elle filtre
-    # les listes de choix de TOUTES les lignes de la recette.
-    recherche = MN.champ_recherche(f"{prefixe}_rech", "🔍 Chercher un ingrédient",
-                         placeholder="pates, courgette, fromage…")
-    if recherche.strip():
-        gardes = MN.filtre_recherche(libelles, recherche)
-        if gardes:
-            st.caption(f"**{len(gardes)}** ingrédient(s) sur {len(libelles)} correspondent "
-                       f"à « {recherche} » — les listes de chaque ligne suivent. "
-                       "Efface la case pour tout revoir.")
-        else:
-            st.warning(f"Rien ne correspond à « {recherche} ». Efface la case pour revoir "
-                       f"les {len(libelles)} aliments.")
+    # PLUS DE CASE À CÔTÉ : chaque liste déroulante de ligne cherche toute seule
+    # (accents et majuscules ignorés). Une seule ligne de choix à l'écran.
+    st.caption(f"Chaque ligne a sa liste déroulante : déroule-la et clique, ou tape "
+               f"« pates », « courgete »… directement dedans (accents ignorés). "
+               f"{len(libelles)} aliments disponibles.")
     options = ["—"] + libelles
 
     lignes = st.session_state[etat]
@@ -906,8 +894,9 @@ def _lignes_recette(ms, prefixe: str, actuelles: list | None = None,
         courant = inverse.get(str(ligne.get("ingredient_id"))) or "—"
         with c1:
             choix_ligne = MN.chercheur(
-                "Ingrédient", options, cle=k, terme=recherche, valeur=courant,
-                nombre=10, encadre=False, horizontal=True, type_element="ingrédient")
+                "Ingrédient", options, cle=k, valeur=courant,
+                aide="Déroule la liste et clique ta ligne, ou tape « pates » : "
+                     "elle ne garde que ce qui correspond, accents ignorés.")
         if choix_ligne and choix_ligne != "—":
             ligne["ingredient_id"] = ids.get(choix_ligne) or ligne.get("ingredient_id")
         elif choix_ligne == "—":
