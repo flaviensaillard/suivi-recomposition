@@ -17,7 +17,7 @@ from __future__ import annotations
 #  (« éditeur 2.8 »). S'il affiche autre chose, c'est que ce fichier n'a pas
 #  été recopié sur GitHub.
 # ---------------------------------------------------------------------------
-VERSION = "1.0.1"
+VERSION = "1.0.6"
 
 import datetime as dt
 import traceback
@@ -249,7 +249,14 @@ def _sans_accent(t: str) -> str:
 # ---------------------------------------------------------------------------
 #  1. PLANIFIER LA SEMAINE
 # ---------------------------------------------------------------------------
-def page_planifier(ms, target_p: float):
+def page_planifier(ms, target_p: float, partage: bool = False):
+    """La semaine de repas de la famille.
+
+    `partage=True` (espace partagé, pour ta femme) : le résumé qui compare les
+    protéines de la semaine à TON objectif personnel n'est pas affiché — il ne
+    la concerne pas. Tout le reste (planifier, changer un plat, les quantités,
+    les courses) est identique et entièrement modifiable.
+    """
     st.title("📅 Planifier mes menus")
     st.caption("Ta semaine de repas. Un repas peut être une **recette**, un **ingrédient seul** "
                "(ex. un fruit) ou du **texte libre** (ex. « Restaurant »).")
@@ -304,16 +311,20 @@ def page_planifier(ms, target_p: float):
             jours_ok += 1
         else:
             jours_light.append((d, tot))
-    c3, c4 = st.columns(2)
-    c3.metric("Jours qui atteignent la cible", f"{jours_ok} / 7")
-    c4.metric("Jours à compléter", f"{len(jours_light)} / 7")
-    if jours_light:
-        st.caption("Il manque des protéines le "
-                   + ", ".join(f"**{JOURS_COURT[d.weekday()]} {d.strftime('%d/%m')}**"
-                               for d, _ in jours_light)
-                   + ". Prévois un en-cas : shaker, œufs durs, skyr (20 à 30 g).")
+    if partage:
+        #  Espace partagé : aucun objectif personnel à l'écran.
+        st.divider()
+    else:
+        c3, c4 = st.columns(2)
+        c3.metric("Jours qui atteignent la cible", f"{jours_ok} / 7")
+        c4.metric("Jours à compléter", f"{len(jours_light)} / 7")
+        if jours_light:
+            st.caption("Il manque des protéines le "
+                       + ", ".join(f"**{JOURS_COURT[d.weekday()]} {d.strftime('%d/%m')}**"
+                                   for d, _ in jours_light)
+                       + ". Prévois un en-cas : shaker, œufs durs, skyr (20 à 30 g).")
 
-    st.divider()
+        st.divider()
 
     # ---- LA RECHERCHE EST DANS CHAQUE LISTE (choix du 30/09) ----
     #  Avant : une barre « 🔍 Rechercher une recette ou un ingrédient » en haut de
