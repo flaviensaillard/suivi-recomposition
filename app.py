@@ -35,7 +35,7 @@ from db import LocalStore, SupaStore
 
 #  Le numéro de version du lot de fichiers déposé sur GitHub : les 5 fichiers
 #  (celui-ci, editeurs.py, menus.py, pdf_menus.py, repas_plats.py) le portent.
-VERSION = "1.0.1"
+VERSION = "1.0.2"
 APP = "Équilibre"
 
 
@@ -167,21 +167,23 @@ st.markdown("""
                    font-weight:500}
 
   /* --- la couleur de l'application (le vert du logo) sur les boutons
-         d'action : sans ça, Streamlit met son rouge par défaut --- */
+         d'action : sans ça, Streamlit met son rouge par défaut.
+         En mode sombre, le vert est ÉCLAIRCI (#14b8a6) et le texte posé
+         dessus est foncé : c'est ce qui se lit le mieux. --- */
   [data-testid^="stBaseButton-primary"],
   [data-testid^="stDownloadButton"] button {
-      background-color:#0d9488 !important; border-color:#0d9488 !important}
+      background-color:#14b8a6 !important; border-color:#14b8a6 !important}
   [data-testid^="stBaseButton-primary"]:hover,
   [data-testid^="stDownloadButton"] button:hover {
-      background-color:#0b7f74 !important; border-color:#0b7f74 !important}
-  [data-testid^="stBaseButton-primary"] p {color:#ffffff !important}
+      background-color:#0fa89a !important; border-color:#0fa89a !important}
+  [data-testid^="stBaseButton-primary"] p {color:#04201c !important}
 
   /* --- les choix horizontaux (« Modifier / Créer ») : de vrais onglets --- */
   div[role="radiogroup"]{gap:.3rem; flex-wrap:wrap}
-  div[role="radiogroup"] > label{background:#f4f7fa; border:1px solid #e6ebf1;
+  div[role="radiogroup"] > label{background:#1f2c36; border:1px solid #2c3b47;
       border-radius:9px; padding:.3rem .65rem; margin:0 .2rem .2rem 0; transition:.12s}
-  div[role="radiogroup"] > label:hover{border-color:#c9d6e0}
-  div[role="radiogroup"] > label:has(input:checked){background:#e6f4f1; border-color:#0d9488}
+  div[role="radiogroup"] > label:hover{border-color:#3e5261}
+  div[role="radiogroup"] > label:has(input:checked){background:#123b38; border-color:#14b8a6}
   div[role="radiogroup"] > label p{font-size:.92rem}
 
   /* --- les tableaux ---------------------------------------------------- */
@@ -190,20 +192,20 @@ st.markdown("""
   /* --- les cadres ------------------------------------------------------ */
   .stExpander{border-radius:10px !important}
   [data-testid="stVerticalBlockBorderWrapper"]{border-radius:12px}
-  [data-testid="stForm"]{border:1px solid #e6ebf1; border-radius:12px; padding:1rem 1.1rem}
+  [data-testid="stForm"]{border:1px solid #2c3b47; border-radius:12px; padding:1rem 1.1rem}
 
   /* --- le petit texte d'aide ------------------------------------------- */
-  [data-testid="stCaptionContainer"] p{font-size:.86rem; color:#5b6b7c}
+  [data-testid="stCaptionContainer"] p{font-size:.86rem; color:#9fb0bc}
 
   /* --- « appuie sur Entrée » : inutile, tout réagit tout de suite ------- */
   [data-testid="InputInstructions"]{display:none !important}
 
-  .hint{color:#5b6b7c; font-size:.85rem}
-  .bloc-card{background:#f4f7fa; border:1px solid #dfe6ec; border-radius:12px;
+  .hint{color:#9fb0bc; font-size:.85rem}
+  .bloc-card{background:#17212a; border:1px solid #2c3b47; border-radius:12px;
              padding:.8rem 1rem; margin:.3rem 0 .9rem 0}
-  .bloc-title{font-weight:700; color:#0f2a43; font-size:1rem}
-  .sess-a{color:#0d9488; font-weight:700}
-  .sess-b{color:#1b4b6b; font-weight:700}
+  .bloc-title{font-weight:700; color:#eaf2f6; font-size:1rem}
+  .sess-a{color:#14b8a6; font-weight:700}
+  .sess-b{color:#60a5fa; font-weight:700}
 
   /* --- téléphone ------------------------------------------------------- */
   @media (max-width:640px){
@@ -651,13 +653,13 @@ def page_dashboard():
             x=alt.X("date:T", title=None),
             y=alt.Y("kg:Q", scale=alt.Scale(zero=False), title="kg"),
             color=alt.Color("Série:N", scale=alt.Scale(
-                domain=["Poids", "Moyenne 7 jours"], range=["#9ec9d9", "#0d9488"]),
+                domain=["Poids", "Moyenne 7 jours"], range=["#7dd3fc", "#14b8a6"]),
                 legend=alt.Legend(orient="bottom")),
             strokeWidth=alt.condition(alt.datum["Série"] == "Moyenne 7 jours",
                                       alt.value(3), alt.value(1.4)),
         ).properties(height=260, width="container")
         rule = alt.Chart(pd.DataFrame({"y": [TARGET_W]})).mark_rule(
-            color="#d97706", strokeDash=[5, 4]).encode(y="y:Q")
+            color="#fbbf24", strokeDash=[5, 4]).encode(y="y:Q")
         st.altair_chart(line + rule)
 
     # état du jour
@@ -763,11 +765,11 @@ def page_pesee():
         ch = alt.Chart(melt).mark_line().encode(
             x=alt.X("date:T", title=None), y=alt.Y("kg:Q", scale=alt.Scale(zero=False), title="kg"),
             color=alt.Color("Série:N", legend=alt.Legend(orient="bottom"), scale=alt.Scale(
-                domain=["Poids", "Moyenne 7 jours"], range=["#c8d8e2", "#0d9488"])),
+                domain=["Poids", "Moyenne 7 jours"], range=["#7dd3fc", "#14b8a6"])),
             strokeWidth=alt.condition(alt.datum["Série"] == "Moyenne 7 jours", alt.value(3), alt.value(1.2)),
         ).properties(height=240, width="container")
         st.altair_chart(ch + alt.Chart(pd.DataFrame({"y": [TARGET_W]})).mark_rule(
-            color="#d97706", strokeDash=[5, 4]).encode(y="y:Q"))
+            color="#fbbf24", strokeDash=[5, 4]).encode(y="y:Q"))
 
     if not daily.empty:
         st.markdown("**Mes 14 derniers jours** — *clique dans une case pour corriger*")
@@ -865,7 +867,7 @@ def page_mensurations():
     if not meas.empty and meas["waist_cm"].dropna().shape[0] >= 2:
         m = meas.dropna(subset=["waist_cm"]).rename(columns={"meas_date": "date", "waist_cm": "Tour de taille"})
         st.altair_chart(
-            alt.Chart(m).mark_line(point=True, color="#0f2a43").encode(
+            alt.Chart(m).mark_line(point=True, color="#eaf2f6").encode(
                 x=alt.X("date:T", title=None),
                 y=alt.Y("Tour de taille:Q", scale=alt.Scale(zero=False), title="cm"),
             ).properties(height=230, width="container"))
@@ -1399,10 +1401,10 @@ def page_proteines():
             pb = protein_by_day(today - dt.timedelta(days=21))
             if not pb.empty:
                 pb = pb.rename(columns={"entry_date": "date", "total": "Protéines"})
-                st.altair_chart(alt.Chart(pb).mark_bar(color="#0d9488").encode(
+                st.altair_chart(alt.Chart(pb).mark_bar(color="#14b8a6").encode(
                     x=alt.X("date:T", title=None), y=alt.Y("Protéines:Q", title="g/jour"),
                 ).properties(height=200, width="container") + alt.Chart(
-                    pd.DataFrame({"y": [TARGET_P]})).mark_rule(color="#d97706",
+                    pd.DataFrame({"y": [TARGET_P]})).mark_rule(color="#fbbf24",
                                                                strokeDash=[5, 4]).encode(y="y:Q"))
 
     with st.expander("🧊 Repas type & batch cooking du dimanche (45 min)"):

@@ -121,14 +121,15 @@ def open_pdf_button(pdf_bytes: bytes):
     b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
     
     html_component = f"""
+    <style>html,body{{margin:0;padding:0;background:transparent}}</style>
     <button id="open-pdf-btn" style="
         width: 100%;
         padding: 12px 20px;
-        color: white;
-        background-color: #4CAF50;
+        color: #04201c;
+        background-color: #14b8a6;
         border: none;
         border-radius: 8px;
-        font-weight: bold;
+        font-weight: 600;
         font-size: 16px;
         cursor: pointer;
         margin-bottom: 10px;">
