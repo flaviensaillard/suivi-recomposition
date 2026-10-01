@@ -35,7 +35,12 @@ from db import LocalStore, SupaStore
 
 #  Le numéro de version du lot de fichiers déposé sur GitHub : les 5 fichiers
 #  (celui-ci, editeurs.py, menus.py, pdf_menus.py, repas_plats.py) le portent.
-VERSION = "1.0.4"
+VERSION = "1.0.6"
+#  La version attendue de CHAQUE fichier compagnon (voir `_bandeau_fichiers_a_jour`) :
+#  ainsi, l'application peut évoluer sans que le bandeau accuse à tort les
+#  fichiers qui n'ont pas changé.
+VERSIONS_FICHIERS = {"editeurs": "1.0.6", "menus": "1.0.1",
+                     "pdf_menus": "1.0.1", "repas_plats": "1.0.1"}
 APP = "Équilibre"
 
 
@@ -258,6 +263,12 @@ def read_secrets():
                     #  ta clé personnelle : elle vit dans l'adresse (…?cle=…) et
                     #  n'apparaît nulle part à l'écran, jamais dans GitHub.
                     "cle": str(cfg.get("cle", "") or "").strip(),
+                    #  FACULTATIF — le compte « Public » (espace partagé du foyer).
+                    #  S'il est renseigné, l'espace partagé ouvre une session avec
+                    #  ce compte ; sinon il lit et écrit avec la clé publique de
+                    #  l'application (ce qui suffit : vérifié sur la base réelle).
+                    "partage_email": str(cfg.get("partage_email", "") or "").strip(),
+                    "partage_password": str(cfg.get("partage_password", "") or ""),
                 }
     except Exception:
         return None
@@ -318,6 +329,90 @@ def lien_personnel(cle: str) -> str:
     return f"l'adresse de ton application + ?cle={cle}"
 
 
+ADRESSE_COMPTES = ("https://supabase.com/dashboard/project/jwqaspdomehuzqwvflri"
+                   "/auth/users")
+
+
+def explique_refus(e) -> str:
+    """Traduit un refus de la base en français, avec la marche à suivre.
+
+    La base répond en anglais (« Invalid login credentials ») : personne ne peut
+    comprendre ça. On dit ce qui s'est passé et quoi faire, sans jargon.
+    """
+    t = str(e).lower()
+    if "invalid login credentials" in t or "invalid_credentials" in t:
+        return ("**l'e-mail ou le mot de passe a été refusé par la base.**\n\n"
+                "*Ce n'est pas une panne : l'un des deux ne correspond pas au compte.*\n"
+                "1. Vérifie l'adresse exacte du compte : "
+                f"[Supabase → Authentication → Users]({ADRESSE_COMPTES}).\n"
+                "2. Sur la ligne de ton compte, menu **…** → **Reset password** : "
+                "tu reçois un e-mail pour en choisir un nouveau.\n"
+                "3. Recopie **cette adresse et ce nouveau mot de passe** dans les "
+                "Secrets (lignes `email` et `password`), puis **Reboot** et remets "
+                "le lien personnel en favori.")
+    if "email not confirmed" in t:
+        return ("**l'adresse du compte n'a pas été confirmée dans Supabase.**\n\n"
+                f"Va sur [Authentication → Users]({ADRESSE_COMPTES}), menu **…** → "
+                "**Confirm email** sur la ligne de ton compte.")
+    if any(mot in t for mot in ("name or service not known", "connect", "timed out",
+                                "timeout", "network", "temporary failure")):
+        return ("**la base n'est pas joignable** (internet, ou projet Supabase en pause).\n\n"
+                "Regarde sur [supabase.com/dashboard](https://supabase.com/dashboard) "
+                "si le projet est en pause, puis « Restore ». Sinon réessaie dans un "
+                "moment.")
+    return f"la base a répondu : {e}"
+
+
+#  Identifiant neutre, utilisé par l'espace partagé (voir `entrer_en_partage`).
+IDENTIFIANT_PARTAGE = "00000000-0000-0000-0000-000000000000"
+
+
+def demande_partage() -> bool:
+    """Vrai quand l'adresse contient `?partage=1` — le lien de la famille.
+
+    C'est le lien que ta femme met en favori : elle l'ouvre, elle est dans
+    l'espace partagé. Aucun mot de passe, aucun compte à créer.
+    """
+    try:
+        v = str(st.query_params.get("partage", "") or "").strip().lower()
+    except Exception:
+        return False
+    return v not in ("", "0", "non", "false")
+
+
+def est_partage() -> bool:
+    """Vrai quand cette session est dans l'espace partagé (recettes, menus, courses)."""
+    return bool(st.session_state.get("mode_partage"))
+
+
+def entrer_en_partage(store, cfg) -> None:
+    """Ouvrir l'espace partagé — sans rien taper.
+
+    Deux façons, dans cet ordre :
+      ① le compte « Public » (lignes `partage_email` / `partage_password` des
+         Secrets) : l'application ouvre une session avec lui ;
+      ② s'il n'existe pas : la clé publique de l'application suffit — c'est ce
+         qui est vérifié sur la base réelle (recettes, menus et courses
+         entièrement accessibles ; ton suivi personnel renvoie zéro ligne).
+    """
+    #  ⓘ Pourquoi cet identifiant « vide » :
+    #  l'application lit le profil au démarrage. Sans compte, cette lecture
+    #  partait avec la valeur « None », que PostgreSQL refuse
+    #  (« invalid input syntax for type uuid »). Avec cet identifiant neutre,
+    #  la requête est valide et la base répond « rien » : c'est exactement ce
+    #  qu'on veut — l'espace partagé ne voit aucune donnée personnelle.
+    store.user_id = IDENTIFIANT_PARTAGE
+    pe = str((cfg or {}).get("partage_email") or "").strip()
+    pm = str((cfg or {}).get("partage_password") or "")
+    if pe and pm:
+        try:
+            st.session_state["sb_session"] = store.sign_in(pe, pm)
+            st.session_state.pop("_echec_partage", None)
+        except Exception as e:
+            st.session_state["_echec_partage"] = explique_refus(e)
+    st.session_state["mode_partage"] = True
+
+
 def connexion_automatique(store: "SupaStore", cfg) -> bool:
     """ENTRER SANS RIEN TAPER.
 
@@ -348,7 +443,7 @@ def connexion_automatique(store: "SupaStore", cfg) -> bool:
         st.session_state.pop("_echec_auto", None)
         return True
     except Exception as e:
-        st.session_state["_echec_auto"] = str(e)
+        st.session_state["_echec_auto"] = explique_refus(e)
         return False
 
 
@@ -383,8 +478,8 @@ def login_page(store: SupaStore, cfg=None):
     echec = st.session_state.pop("_echec_auto", None)
     if echec:
         st.warning("L'identification automatique n'a pas fonctionné : " + echec +
-                   "\n\n*(Ton mot de passe a peut-être changé : reprends-le ci-dessous, "
-                   "puis remets-le à jour dans les Secrets.)*")
+                   "\n\n*(Tu peux te connecter à la main ci-dessous, puis remettre à "
+                   "jour les lignes `email` et `password` dans les Secrets.)*")
     elif (cfg or {}).get("cle"):
         st.caption("🔒 Tu es arrivé sur l'adresse normale : l'entrée directe demande ton "
                    "**lien personnel** (celui qui finit par `?cle=…`). Mets-le en favori sur "
@@ -407,7 +502,17 @@ def login_page(store: SupaStore, cfg=None):
                 st.session_state["sb_session"] = sess
                 st.rerun()
         except Exception as e:
-            st.error(f"Échec : {e}")
+            st.error("Échec : " + explique_refus(e))
+    st.divider()
+    st.markdown("#### 👨‍👩‍👧‍👦 Espace partagé (Public)")
+    st.caption("Les recettes, les menus de la semaine et la liste de courses — pour la "
+               "famille. **Aucun mot de passe à taper**, et aucun accès à ton suivi "
+               "personnel (repas, pesées, séances, mesures).")
+    if st.button("👨‍👩‍👧‍👦 Entrer dans l'espace partagé", use_container_width=True):
+        st.session_state["_vers_partage"] = True
+        st.rerun()
+    st.caption("💡 Le lien à mettre en favori : **l'adresse de l'application suivie de "
+               "`?partage=1`** — il ouvre directement cet espace.")
     if (cfg or {}).get("email") and st.session_state.get("sans_auto"):
         if st.button("🔓 Revenir à l'identification automatique"):
             st.session_state.pop("sans_auto", None)
@@ -479,7 +584,20 @@ def init_store():
             except Exception:
                 st.session_state.pop("sb_session", None)
         if not st.session_state.get("sb_session"):
-            login_page(store, cfg)
+            #  ⓘ L'ESPACE PARTAGÉ PASSE AVANT L'ÉCRAN DE CONNEXION.
+            #  Si l'adresse contient ?partage=1 (ou si on a appuyé sur le bouton
+            #  « Entrer dans l'espace partagé »), on ouvre l'espace du foyer :
+            #  recettes, menus, courses. Rien à taper.
+            #  Ta clé personnelle garde la priorité : avec elle, ton espace.
+            #  (la clé personnelle, si elle est RÉGLÉE et CORRECTE, garde la
+            #   priorité : `acces_libere` seul ne suffit pas ici, parce qu'il
+            #   répond « oui » quand aucune clé n'est rangée du tout.)
+            _cle_perso_ok = bool(str((cfg or {}).get("cle") or "").strip()) and acces_libere(cfg)
+            if not _cle_perso_ok and (st.session_state.pop("_vers_partage", False)
+                                      or demande_partage()):
+                entrer_en_partage(store, cfg)
+            else:
+                login_page(store, cfg)
         st.session_state["store"] = store
         return store
     store = LocalStore()
@@ -1554,22 +1672,27 @@ def page_proteines():
 def page_planifier():
     ms = menus_store()
     if ms is None:
-        R.page_repas(store, menus_store, TARGET_P)
+        R.page_repas(store, menus_store, TARGET_P, partage=est_partage())
         return
     st.session_state.setdefault("_pid", None)
-    ED.page_planifier(ms, TARGET_P)
+    ED.page_planifier(ms, TARGET_P, partage=est_partage())
 
 
 def _bandeau_fichiers_a_jour():
     """Avertit si les fichiers posés sur GitHub ne sont pas ceux de cette version."""
     manquants = []
-    for nom, fichier in (("editeurs", "editeurs.py"), ("menus", "menus.py"),
-                         ("pdf_menus", "pdf_menus.py"), ("repas_plats", "repas_plats.py")):
+    for nom, fichier, attendu in (("editeurs", "editeurs.py", VERSIONS_FICHIERS["editeurs"]),
+                                  ("menus", "menus.py", VERSIONS_FICHIERS["menus"]),
+                                  ("pdf_menus", "pdf_menus.py", VERSIONS_FICHIERS["pdf_menus"]),
+                                  ("repas_plats", "repas_plats.py", VERSIONS_FICHIERS["repas_plats"])):
         module = _sys.modules.get(nom)
         if module is None:
             continue                       # ce fichier n'est pas encore utilisé par cette page
-        vu = getattr(module, "VERSION", VERSION)
-        if vu != VERSION:
+        vu = getattr(module, "VERSION", attendu)
+        if vu != attendu:
+            #  ⓘ on compare chaque fichier à LA SIENNE, et non à la version de
+            #  l'application : sinon le bandeau criait au loup dès qu'une seule
+            #  version changeait (menus.py resté en 1.0.1, par exemple).
             manquants.append(f"**{fichier}** (celui de {vu})")
     if not manquants:
         return
@@ -1587,7 +1710,7 @@ def page_recettes_edition():
     _bandeau_fichiers_a_jour()
     ms = menus_store()
     if ms is None:
-        R.page_repas(store, menus_store, TARGET_P)
+        R.page_repas(store, menus_store, TARGET_P, partage=est_partage())
         return
     ED.page_recettes_edition(ms)
 
@@ -1595,13 +1718,13 @@ def page_recettes_edition():
 def page_ingredients():
     ms = menus_store()
     if ms is None:
-        R.page_repas(store, menus_store, TARGET_P)
+        R.page_repas(store, menus_store, TARGET_P, partage=est_partage())
         return
     ED.page_ingredients(ms)
 
 
 def page_cuisine():
-    R.page_repas(store, menus_store, TARGET_P)
+    R.page_repas(store, menus_store, TARGET_P, partage=est_partage())
 
 
 # ============================================================================
@@ -1776,6 +1899,16 @@ try:
 except Exception:
     pass
 
+# ---------------------------------------------------------------------------
+#  EN MODE PARTAGÉ, la barre de gauche ne montre QUE les pages du foyer.
+#  « Mon suivi (personnel) » et « Réglages » ne sont même pas construits :
+#  ils n'existent donc pas pour un visiteur — pas de page vide, pas de lien.
+# ---------------------------------------------------------------------------
+if est_partage():
+    #  (attention à la majuscule et à l'accent : le titre est « … (partagé) »)
+    pages = {titre: liste for titre, liste in pages.items()
+             if "partag" in titre.lower()}
+
 if FICHIERS_RECHARGES:
     st.sidebar.success("♻️ Fichiers rechargés à l'instant : "
                        + ", ".join(sorted(set(FICHIERS_RECHARGES))))
@@ -1791,7 +1924,15 @@ _v_editeur = getattr(ED, "VERSION", "ancien")
 _v_menus = getattr(MN, "VERSION", "ancien")
 st.sidebar.markdown(f"**{APP}** <span class='hint'>v{VERSION}</span>", unsafe_allow_html=True)
 st.sidebar.caption(f"éditeur {_v_editeur} · menus {_v_menus}  \n{store.label}")
-st.sidebar.caption(f"Objectif : **{TARGET_W:.0f} kg** · **{TARGET_P} g** de protéines/jour")
+if est_partage():
+    st.sidebar.caption("👨‍👩‍👧‍👦 **Espace partagé** — recettes, menus et courses de la "
+                       "famille. Rien de personnel ici.")
+    if st.sidebar.button("🔑 Je suis Flavien : revenir à mon espace"):
+        for _c in ("mode_partage", "store", "sb_session", "_menus_store"):
+            st.session_state.pop(_c, None)
+        st.rerun()
+else:
+    st.sidebar.caption(f"Objectif : **{TARGET_W:.0f} kg** · **{TARGET_P} g** de protéines/jour")
 
 # Hook de test (utilisé par test_app.py pour vérifier chaque page sans navigateur)
 _test_page = _os.environ.get("APP_TEST_PAGE")
