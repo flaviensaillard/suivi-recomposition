@@ -35,7 +35,7 @@ from db import LocalStore, SupaStore
 
 #  Le numéro de version du lot de fichiers déposé sur GitHub : les 5 fichiers
 #  (celui-ci, editeurs.py, menus.py, pdf_menus.py, repas_plats.py) le portent.
-VERSION = "1.0.6"
+VERSION = "1.0.7"
 #  La version attendue de CHAQUE fichier compagnon (voir `_bandeau_fichiers_a_jour`) :
 #  ainsi, l'application peut évoluer sans que le bandeau accuse à tort les
 #  fichiers qui n'ont pas changé.
@@ -269,6 +269,13 @@ def read_secrets():
                     #  l'application (ce qui suffit : vérifié sur la base réelle).
                     "partage_email": str(cfg.get("partage_email", "") or "").strip(),
                     "partage_password": str(cfg.get("partage_password", "") or ""),
+                    #  SON ESPACE À ELLE (facultatif) : son compte et sa clé.
+                    #  Ses données vivent dans les mêmes tables que les tiennes,
+                    #  mais chaque ligne porte son identifiant de compte : la
+                    #  base ne lui rend que les siennes (comme à toi les tiennes).
+                    "elle_email": str(cfg.get("elle_email", "") or "").strip(),
+                    "elle_password": str(cfg.get("elle_password", "") or ""),
+                    "cle_elle": str(cfg.get("cle_elle", "") or "").strip(),
                 }
     except Exception:
         return None
@@ -286,6 +293,29 @@ def cle_personnelle() -> str:
     return str(v or "").strip()
 
 
+def espace_actuel() -> str:
+    """Dans quel espace suis-je ? « flavien » (toi) ou « elle »."""
+    return str(st.session_state.get("espace", "flavien"))
+
+
+def espaces_rangees(cfg) -> list:
+    """Les espaces personnels rangés dans les Secrets : (nom, clé, compte, mdp).
+
+    • « flavien » — ton espace (lignes `cle`, `email`, `password`) ;
+    • « elle »    — son espace à elle (lignes `cle_elle`, `elle_email`,
+                    `elle_password`), s'il est renseigné.
+    """
+    out = []
+    cfg = cfg or {}
+    if (cfg.get("cle") or "").strip() or (cfg.get("email") or "").strip():
+        out.append(("flavien", (cfg.get("cle") or "").strip(),
+                    (cfg.get("email") or "").strip(), cfg.get("password") or ""))
+    if (cfg.get("cle_elle") or "").strip() or (cfg.get("elle_email") or "").strip():
+        out.append(("elle", (cfg.get("cle_elle") or "").strip(),
+                    (cfg.get("elle_email") or "").strip(), cfg.get("elle_password") or ""))
+    return out
+
+
 def acces_libere(cfg) -> bool:
     """AI-JE LE DROIT D'ENTRER SANS RIEN TAPER ?
 
@@ -299,13 +329,16 @@ def acces_libere(cfg) -> bool:
     import hmac
     if st.session_state.get("cle_ok"):
         return True
-    cle = (cfg or {}).get("cle") or ""
-    if not cle:
-        return True
+    rangees = [(nom, cle) for nom, cle, _c, _m in espaces_rangees(cfg) if cle]
+    if not rangees:
+        return True                     # aucune clé rangée : comme la 1.0.3
     apportee = cle_personnelle()
-    if apportee and hmac.compare_digest(apportee, cle):
-        st.session_state["cle_ok"] = True
-        return True
+    if apportee:
+        for nom, cle in rangees:
+            if hmac.compare_digest(apportee, cle):
+                st.session_state["cle_ok"] = True
+                st.session_state["espace"] = nom
+                return True
     return False
 
 
@@ -362,6 +395,11 @@ def explique_refus(e) -> str:
                 "moment.")
     return f"la base a répondu : {e}"
 
+
+#  « Elle » = son espace personnel (voir les Secrets : `cle_elle`). Ses pages
+#  s'adaptent : pas de séances (elle n'en fait pas), pas de séances dans les
+#  alertes du tableau de bord.
+ELLE = espace_actuel() == "elle"
 
 #  Identifiant neutre, utilisé par l'espace partagé (voir `entrer_en_partage`).
 IDENTIFIANT_PARTAGE = "00000000-0000-0000-0000-000000000000"
@@ -433,9 +471,15 @@ def connexion_automatique(store: "SupaStore", cfg) -> bool:
         st.session_state["_echec_auto"] = ("la session n'a pas tenu après 3 essais "
                                            "(internet instable ?).")
         return False
-    email = (cfg or {}).get("email") or ""
-    mdp = (cfg or {}).get("password") or ""
+    espace_voulu = st.session_state.get("espace", "flavien")
+    comptes = {nom: (c, m) for nom, _cle, c, m in espaces_rangees(cfg)}
+    email, mdp = comptes.get(espace_voulu, ("", ""))
     if not (email and mdp):
+        if espace_voulu == "elle":
+            st.session_state["_echec_auto"] = (
+                "**l'espace de ton épouse n'est pas encore configuré.**\n\n"
+                "Ajoute ses trois lignes dans les Secrets (`elle_email`, "
+                "`elle_password`, `cle_elle`), puis **Reboot**.")
         return False
     st.session_state["_auto_essais"] = essais + 1
     try:
@@ -500,6 +544,12 @@ def login_page(store: SupaStore, cfg=None):
             else:
                 sess = store.sign_in(email, pwd)
                 st.session_state["sb_session"] = sess
+                #  ⓘ on note QUI vient de se connecter : si c'est l'adresse de
+                #  son espace, ses pages s'adaptent (pas de séances, pas de
+                #  réglages de Flavien) et la barre de gauche affiche son nom.
+                for _nom, _cle, _c, _m in espaces_rangees(cfg or {}):
+                    if _c and _c.lower() == str(email).strip().lower():
+                        st.session_state["espace"] = _nom
                 st.rerun()
         except Exception as e:
             st.error("Échec : " + explique_refus(e))
@@ -614,13 +664,28 @@ def prof(key, default):
     return default if v in (None, "") else v
 
 
-TARGET_W = float(prof("target_weight_kg", C.TARGET_WEIGHT))
-TARGET_P = int(prof("target_protein_g", C.TARGET_PROTEIN))
-TARGET_G = int(prof("target_carbs_g", getattr(C, "TARGET_CARBS", 140)))
-TARGET_L = int(prof("target_fat_g", getattr(C, "TARGET_FAT", 50)))
-TARGET_KCAL = int(prof("target_kcal", getattr(C, "TARGET_KCAL", 1700)))
-START_W = float(prof("start_weight_kg", C.START_WEIGHT))
-HEIGHT = float(prof("height_cm", C.HEIGHT_CM))
+#  ⓘ PROFIL VIERGE (l'espace de ta femme au premier jour) : on n'affiche
+#  AUCUNE de tes valeurs. Tant qu'elle n'a pas enregistré son profil dans
+#  ⚙️ Réglages, l'application travaille avec des repères neutres — jamais les
+#  tiens (sinon ses écrans afficheraient ton poids et tes 130 g de protéines).
+PROFIL_VIERGE = not PROFILE
+_NEUTRE = dict(height_cm=170.0, start_weight_kg=70.0, target_weight_kg=70.0,
+               target_protein_g=100, target_carbs_g=140, target_fat_g=55,
+               target_kcal=1900, tdee_kcal=2200)
+
+
+def _rep(cle, valeur_perso):
+    """Le repère à utiliser : tes valeurs, ou des repères neutres si profil vide."""
+    return _NEUTRE[cle] if PROFIL_VIERGE else valeur_perso
+
+
+TARGET_W = float(prof("target_weight_kg", _rep("target_weight_kg", C.TARGET_WEIGHT)))
+TARGET_P = int(prof("target_protein_g", _rep("target_protein_g", C.TARGET_PROTEIN)))
+TARGET_G = int(prof("target_carbs_g", _rep("target_carbs_g", getattr(C, "TARGET_CARBS", 140))))
+TARGET_L = int(prof("target_fat_g", _rep("target_fat_g", getattr(C, "TARGET_FAT", 50))))
+TARGET_KCAL = int(prof("target_kcal", _rep("target_kcal", getattr(C, "TARGET_KCAL", 1700))))
+START_W = float(prof("start_weight_kg", _rep("start_weight_kg", C.START_WEIGHT)))
+HEIGHT = float(prof("height_cm", _rep("height_cm", C.HEIGHT_CM)))
 
 
 def _enregistrer_profil(data: dict):
@@ -913,12 +978,15 @@ def page_dashboard():
     row = daily[daily["log_date"] == today]
     p_today = 0 if prot.empty else int(prot[prot["entry_date"] == today]["total"].sum())
     lined = lambda ok: "✅" if ok else "⬜"
-    st.markdown(
-        f"{lined(not row.empty)} **Pesée du matin**  ·  "
-        f"{lined(p_today >= TARGET_P)} **Protéines {p_today}/{TARGET_P} g**  ·  "
-        f"{lined(n_sess >= (2 if today.weekday() >= 4 else 1))} **Séances cette semaine : {n_sess}/2**"
-        f"{' (' + ', '.join(sess_list) + ')' if sess_list else ''}  ·  "
-        f"{lined(not meas.empty)} **Mensurations**")
+    _etat = [f"{lined(not row.empty)} **Pesée du matin**",
+             f"{lined(p_today >= TARGET_P)} **Protéines {p_today}/{TARGET_P} g**"]
+    if not ELLE:
+        _etat.append(
+            f"{lined(n_sess >= (2 if today.weekday() >= 4 else 1))} "
+            f"**Séances cette semaine : {n_sess}/2**"
+            f"{' (' + ', '.join(sess_list) + ')' if sess_list else ''}")
+    _etat.append(f"{lined(not meas.empty)} **Mensurations**")
+    st.markdown("  ·  ".join(_etat))
     if row.empty:
         st.info("Pense à enregistrer ta pesée du matin (page **⚖️ Pesée**).")
 
@@ -928,7 +996,7 @@ def page_dashboard():
         alertes.append("Perte > 0,8 kg/semaine → **ajoute 200 kcal** (glucides).")
     if p_avg is not None and p_avg < TARGET_P - 15:
         alertes.append(f"Protéines à {p_avg:.0f} g/j : c'est le levier n°1. Ajoute un shaker à 10 h 30 et 200 g de fromage blanc à 16 h.")
-    if n_sess < 2 and today.weekday() >= 4:
+    if not ELLE and n_sess < 2 and today.weekday() >= 4:
         alertes.append("Il te reste une séance à faire cette semaine (lundi/vendredi).")
     if alertes:
         with st.container(border=True):
@@ -943,7 +1011,8 @@ def page_dashboard():
                     "- Sommeil agité, réveils nocturnes\n"
                     "- Frilosité, mains froides\n"
                     "- Libido en chute, envies de sucre incontrôlables\n"
-                    "- Récupération du rugby > 3 jours, blessures à répétition")
+                    + ("" if ELLE else
+                       "\n- Récupération du rugby > 3 jours, blessures à répétition"))
 
 
 # ============================================================================
@@ -1753,6 +1822,19 @@ def page_reglages():
             st.caption("⬆️ **Mets ce lien en favori** (sur ton ordinateur) : il t'ouvre "
                        "l'application sans rien taper. La clé se change dans les Secrets "
                        "(ligne `cle = …` dans [supabase]).")
+        _cle_elle = ""
+        try:
+            _cle_elle = (read_secrets() or {}).get("cle_elle") or ""
+        except Exception:
+            _cle_elle = ""
+        if _cle_elle:
+            st.caption("👤 **Son espace à elle.** Ce lien lui ouvre **son** espace — ses "
+                       "recettes, ses menus, son suivi. Elle ne voit jamais tes données, et "
+                       "tu ne vois jamais les siennes : dans la base, chaque ligne porte le "
+                       "nom du compte qui l'a écrite.")
+            st.code(lien_personnel(_cle_elle), language=None)
+            st.caption("⬆️ À mettre en favori sur **ses** appareils. Ses trois lignes dans les "
+                       "Secrets : `cle_elle`, `elle_email`, `elle_password`.")
         if st.session_state.get("auto_connexion"):
             st.caption("✅ **Identification automatique** : l'application t'ouvre directement "
                        "ton espace, sans rien te demander. Ton adresse et ton mot de passe sont "
@@ -1806,7 +1888,7 @@ def page_reglages():
         kcal = c8.number_input("Calories cibles (kcal/jour)", 1000, 4000,
                                int(bornes(TARGET_KCAL, 1000, 4000, 1700)), step=50)
         tdee = st.number_input("Dépense estimée (kcal/jour)", 1500, 4000,
-                               int(bornes(prof("tdee_kcal", C.TDEE), 1500, 4000, 2400)),
+                               int(bornes(prof("tdee_kcal", _rep("tdee_kcal", C.TDEE)), 1500, 4000, 2400)),
                                step=50)
         if st.form_submit_button("💾 Enregistrer le profil", type="primary", width="stretch"):
             ok, msg = _enregistrer_profil(dict(
@@ -1908,6 +1990,19 @@ if est_partage():
     #  (attention à la majuscule et à l'accent : le titre est « … (partagé) »)
     pages = {titre: liste for titre, liste in pages.items()
              if "partag" in titre.lower()}
+elif ELLE:
+    #  Son espace : elle n'a pas de séances (elle n'en fait pas) — la page
+    #  disparaît, avec ce qui l'accompagne (compteurs, alertes du tableau de bord).
+    pages = {titre: [pg for pg in liste
+                     if getattr(pg, "title", "") != "Mes séances"]
+             for titre, liste in pages.items()}
+
+#  Pour les tests : la liste des pages réellement construites pour cette session.
+try:
+    st.session_state["_pages_vues"] = [getattr(pg, "title", "")
+                                       for liste in pages.values() for pg in liste]
+except Exception:
+    pass
 
 if FICHIERS_RECHARGES:
     st.sidebar.success("♻️ Fichiers rechargés à l'instant : "
@@ -1931,8 +2026,25 @@ if est_partage():
         for _c in ("mode_partage", "store", "sb_session", "_menus_store"):
             st.session_state.pop(_c, None)
         st.rerun()
+elif espace_actuel() == "elle":
+    _prenom = str(prof("display_name", "") or "ton espace")
+    st.sidebar.caption(f"👤 **{_prenom}** — tes menus, tes recettes et ton suivi à toi.")
+    if PROFIL_VIERGE:
+        st.sidebar.info("Commence par ⚙️ **Réglages** → « Mon profil et mes objectifs » : "
+                        "l'application saura alors à qui elle parle.")
+    else:
+        st.sidebar.caption(f"Objectif : **{TARGET_W:.0f} kg** · "
+                           f"**{TARGET_P} g** de protéines/jour")
+    if st.sidebar.button("🔑 Revenir à l'espace de Flavien"):
+        for _c in ("espace", "store", "sb_session", "_menus_store", "_auto_essais"):
+            st.session_state.pop(_c, None)
+        st.rerun()
 else:
-    st.sidebar.caption(f"Objectif : **{TARGET_W:.0f} kg** · **{TARGET_P} g** de protéines/jour")
+    if PROFIL_VIERGE:
+        st.sidebar.info("⚙️ **Réglages → Mon profil** : renseigne ton profil pour que "
+                        "les calculs s'appuient sur TES chiffres.")
+    else:
+        st.sidebar.caption(f"Objectif : **{TARGET_W:.0f} kg** · **{TARGET_P} g** de protéines/jour")
 
 # Hook de test (utilisé par test_app.py pour vérifier chaque page sans navigateur)
 _test_page = _os.environ.get("APP_TEST_PAGE")
