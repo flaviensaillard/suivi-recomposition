@@ -1,0 +1,27 @@
+Équilibre version ordinateur 1.0.8 — MD5
+========================================
+(masse grasse en kilos · tableaux corrigeables · corrections d'audit)
+
+app.py               9bb006fc16c5ceb1ab06a6ab39b94e0e   (105569 octets)
+content.py           934371530a70896f9f2c8791275eed54   (12961 octets)
+corrections.py       8ffccb4c833693ce8055be8403fe9740   (9049 octets)
+db.py                10f5f37af77a18fdc1e48798df8cf4a1   (21494 octets)
+tableaux.py          635bd0964227f3a089c8a9e905066f2b   (9997 octets)
+requirements.txt     66e7f78c7b8921fbce604ca6efe3e1bf   (66 octets)
+
+Fichiers à copier sur GitHub : ces 6 fichiers, à la racine du dépôt.
+Inchangés : editeurs.py (1.0.6), repas.py, menus.py (1.0.1), pdf_menus.py (1.0.1),
+repas_plats.py (1.0.1), .streamlit/config.toml, le dossier .streamlit.
+
+Repères : v1.0.8 en bas de la barre de gauche.
+  · la masse grasse se saisit ET s'affiche en KILOS (le % reste en dessous)
+  · dans les tableaux : on corrige tout, y compris la DATE d'une ligne
+  · déplacer une journée sur une date occupée est REFUSÉ (rien n'est écrasé)
+
+Notice et rapport (dans le zip aussi) :
+A_LIRE.md            b6cd19b1437dad667c9f6828f48dbb8d   (5262 octets)
+AUDIT_1.0.8.md       01cbe5d66a0f68f431cf0030db0ed2fe   (13278 octets)
+
+Fichiers à copier sur GitHub : les 6 fichiers .py / requirements ci-dessus.
+L'empreinte du zip lui-même est donnée dans mon message (elle changerait si
+on la mettait dedans).

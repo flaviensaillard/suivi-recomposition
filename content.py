@@ -20,6 +20,7 @@ PHASES = [
 ]
 
 
+VERSION = "1.0.8"        # vérifié au démarrage par app.py
 def phase_for(d):
     """Renvoie (nom du bloc, objectif kcal du jour) — le même objectif pour tous."""
     for start, end, label in PHASES:
@@ -215,6 +216,23 @@ def bmi(weight_kg, height_cm=HEIGHT_CM):
 def fat_mass_kg(weight_kg, bf_pct):
     try:
         return round(float(weight_kg) * float(bf_pct) / 100, 1)
+    except Exception:
+        return None
+
+
+def masse_grasse_pct(weight_kg, fat_kg):
+    """Le pourcentage qui correspond à X kg de masse grasse.
+
+    C'est l'inverse de `fat_mass_kg` : tu saisis des kilos (comme sur ta
+    balance), l'application range le pourcentage — c'est lui que suivent la
+    courbe et la moyenne 7 jours.
+    """
+    try:
+        poids = float(weight_kg)
+        gras = float(fat_kg)
+        if poids <= 0 or gras < 0:
+            return None
+        return round(min(60.0, max(3.0, gras / poids * 100)), 1)
     except Exception:
         return None
 

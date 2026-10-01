@@ -30,6 +30,7 @@ import streamlit as st
 COL_SUPPR = "🗑️"
 
 
+VERSION = "1.0.8"        # vérifié au démarrage par app.py
 # ---------------------------------------------------------------------------
 #  petites fabriques de colonnes (pour un affichage propre)
 # ---------------------------------------------------------------------------
@@ -203,7 +204,11 @@ def tableau_editable(df: pd.DataFrame, cle: str, sauver=None, colonnes=None, des
                 r = sauver(ident, ch)
                 if isinstance(r, tuple):
                     r = r[0]
-                if r is False:
+                if isinstance(r, str) and r:
+                    #  la correction explique elle-même pourquoi elle n'a pas pu
+                    #  être enregistrée (ex. la date existe déjà) : on l'affiche
+                    erreurs.append(f"**{_affiche(ident)}** — {r}")
+                elif r is False:
                     erreurs.append(f"{ident} : refusé")
             except Exception as e:                     # noqa: BLE001
                 erreurs.append(f"{ident} : {type(e).__name__} — {e}")

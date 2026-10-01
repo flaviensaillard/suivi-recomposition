@@ -50,6 +50,7 @@ create table if not exists integration_map(
 """
 
 
+VERSION = "1.0.8"        # vérifié au démarrage par app.py
 def _df(rows, cols=()):
     if not rows:
         return pd.DataFrame(columns=list(cols))
@@ -224,13 +225,15 @@ class LocalStore:
         On n'écrit que les champs réellement fournis : le reste de la ligne
         n'est pas touché.
         """
-        autorise = ("item", "protein_g", "carbs_g", "fat_g", "qty")
+        autorise = ("item", "protein_g", "carbs_g", "fat_g", "qty", "entry_date")
         sets, vals = [], []
         for k, v in champs.items():
             if k not in autorise or v is None:
                 continue
             if k == "item":
                 sets.append("item=?"); vals.append(str(v))
+            elif k == "entry_date":
+                sets.append("entry_date=?"); vals.append(str(v))
             elif k == "qty":
                 sets.append("qty=?"); vals.append(float(v))
             else:
