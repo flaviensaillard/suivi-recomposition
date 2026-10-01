@@ -63,10 +63,16 @@ def _bouton_journal(store, quand, nom: str, proteines: float, cle: str,
 # ---------------------------------------------------------------------------
 #  PAGE — REPAS & MENUS
 # ---------------------------------------------------------------------------
-def page_repas(store, menus_store, target_p: float, jours_visibles: int = 10):
+def page_repas(store, menus_store, target_p: float, jours_visibles: int = 10,
+               partage: bool = False):
+    """Repas & menus de la famille.
+
+    `partage=True` (espace partagé) : ni « ma part », ni comparaison à TON
+    objectif de protéines. Les recettes, les plats à préparer et les quantités
+    restent affichés — ce sont les informations utiles au foyer.
+    """
     st.title("🍽️ Repas & menus")
-    st.caption("Tes menus, tes recettes, tes macros — **sans rien ressaisir**. "
-               "Tout vient de ta base : les quantités, les parts et la composition des aliments.")
+    st.caption("Tes menus, tes recettes et leurs macros — tout vient de ta base.")
 
     ms = menus_store()
     if ms is None:
@@ -96,13 +102,8 @@ def page_repas(store, menus_store, target_p: float, jours_visibles: int = 10):
         st.warning(f"Un détail : {ms.erreur}")
 
     if getattr(ms, "demo", False):
-        st.warning("**Mode aperçu — ce n'est pas encore ta base.** Cet extrait est livré avec "
-                   "l'application pour que tu puisses cliquer partout. Il contient tes 104 "
-                   "recettes, tes 153 ingrédients et ton planning, mais seulement **161 des 331 "
-                   "lignes d'ingrédients** de tes recettes : certaines recettes affichent donc "
-                   "des calories partielles. Dès que tes clés Supabase seront branchées, tout "
-                   "sera complet.\n\n"
-                   "**Dis-moi ce que tu voudrais changer** : je corrige et je relance l'aperçu.")
+        st.warning("**Mode aperçu** — ce n'est pas encore ta base : certaines recettes "
+                   "affichent des calories partielles. Branche tes clés Supabase pour tout voir.")
 
     onglets = st.tabs(["🍳 Plats à préparer", "🗓️ Ma semaine", "📖 Mes recettes"])
 
@@ -120,11 +121,11 @@ def page_repas(store, menus_store, target_p: float, jours_visibles: int = 10):
 
     # ---------------------------------------------------------------- semaine
     with onglets[1]:
-        _onglet_semaine(ms, target_p)
+        _onglet_semaine(ms, target_p, partage)
 
     # ---------------------------------------------------------------- recettes
     with onglets[2]:
-        _onglet_recettes(ms, nb_ing, nb_rec, nb_lig, nb_rep)
+        _onglet_recettes(ms, nb_ing, nb_rec, nb_lig, nb_rep, partage)
 
 
 def _onglet_jour(store, ms, target_p: float):
@@ -185,7 +186,7 @@ def _onglet_jour(store, ms, target_p: float):
                             glucides=mp["macros"]["glucides"], lipides=mp["macros"]["lipides"])
 
 
-def _onglet_semaine(ms, target_p: float):
+def _onglet_semaine(ms, target_p: float, partage: bool = False):
     debut = st.date_input("À partir du", value=dt.date.today(), format="DD/MM/YYYY", key="rep_debut")
     planning = ms.planning()
     recettes = ms.recette_par_id()
@@ -206,8 +207,12 @@ def _onglet_semaine(ms, target_p: float):
         st.info("Aucun repas après cette date.")
         return
 
-    st.caption("Protéines estimées pour **une part** de chaque plat. "
-               "La ligne « total » te dit si la journée tient sur ta cible.")
+    if partage:
+        st.caption("Protéines estimées pour **une part** de chaque plat, et le total "
+                   "de la journée.")
+    else:
+        st.caption("Protéines estimées pour **une part** de chaque plat. "
+                   "La ligne « total » te dit si la journée tient sur ta cible.")
     for d in dates:
         repas = sorted(jours[d], key=lambda x: x.get("meal_type") or "")
         jour_dt = dt.date.fromisoformat(d)
@@ -232,7 +237,9 @@ def _onglet_semaine(ms, target_p: float):
             c1, c2 = st.columns([2, 5])
             c1.markdown(f"**{titre}**")
             c1.caption(f"{tot['kcal']:.0f} kcal · **{tot['proteines']:.0f} g P**"
-                       + (f"  ·  il manque {manque:.0f} g" if manque > 5 else "  ·  cible atteinte ✅"))
+                       + ("" if partage else
+                          (f"  ·  il manque {manque:.0f} g" if manque > 5
+                           else "  ·  cible atteinte ✅")))
             c2.dataframe(pd.DataFrame(lines, columns=["Repas", "Plat", "1 part"]),
                          hide_index=True, width="stretch")
 
@@ -251,9 +258,8 @@ def _verif_calcul(ms, recettes, c=None):
                     f"({len(ings) - len(avec)} sans — ils comptent pour 0)")
         if len(avec) < len(ings) * 0.5:
             st.error("❌ Moins de la moitié de tes aliments ont des valeurs nutritionnelles : "
-                     "c'est ce qui fausse les totaux. Lance le script **`7_nutrition.sql`** "
-                     "dans Supabase (10 s) : il remplit automatiquement les valeurs manquantes "
-                     "depuis la table Ciqual.")
+                     "c'est ce qui fausse les totaux. Dis-le moi et je remets ces valeurs "
+                     "à jour dans ta base.")
         sans = [dict(Aliment=(i.get("nom_affiche") or i.get("name")),
                      Rayon=i.get("category"), Utilisé="oui" if i.get("code_ciqual") else "perso")
                 for i in ings if not i.get("proteines_100g")]
@@ -263,7 +269,7 @@ def _verif_calcul(ms, recettes, c=None):
         st.caption("Ces chiffres viennent directement de ta base Supabase, en direct.")
 
 
-def _onglet_recettes(ms, nb_ing, nb_rec, nb_lig, nb_rep):
+def _onglet_recettes(ms, nb_ing, nb_rec, nb_lig, nb_rep, partage: bool = False):
     st.caption(f"Ta base : **{nb_ing} aliments** · "
                f"**{nb_rec} recettes** · **{nb_lig} lignes d'ingrédients** · "
                f"**{nb_rep} repas planifiés**. Toutes les lignes sont reliées : "
@@ -302,10 +308,8 @@ def _onglet_recettes(ms, nb_ing, nb_rec, nb_lig, nb_rep):
                          "lipides_part": st.column_config.NumberColumn("L / part (g)"),
                      })
         nb_vides = sum(1 for d in data if float(d["kcal_part"]) < 5)
-        st.caption("**Toutes les valeurs sont par part** (une part = ce que tu mets dans ton "
-                   "assiette). Trie une colonne d'un appui : par exemple sur **P / part** pour "
-                   "voir tes recettes les plus protéinées. Clique une ligne pour l'ouvrir en "
-                   "entier, ingrédient par ingrédient.")
+        st.caption("**Toutes les valeurs sont par part.** Trie sur **P / part** pour voir "
+                   "tes recettes les plus protéinées.")
         if nb_vides:
             st.info(f"ℹ️ {nb_vides} ligne(s) affichent moins de 5 kcal par part : ce sont les "
                     f"entrées **« [Ing] … »** de ton planning (un ingrédient seul, ex. « [Ing] "
@@ -327,12 +331,10 @@ def _onglet_recettes(ms, nb_ing, nb_rec, nb_lig, nb_rep):
                f"{c['total']['kcal']:.0f} kcal · {c['total']['proteines']:.0f} g P · "
                f"{c['total']['glucides']:.0f} g G · {c['total']['lipides']:.0f} g L")
     if c["inconnues"]:
-        st.warning("**Ces ingrédients n'ont aucune valeur nutritionnelle dans ta base : "
+        st.warning("**Sans valeurs nutritionnelles dans ta base : "
                    + ", ".join(dict.fromkeys(c["inconnues"]))
-                   + ".** Leurs grammes comptent, mais pas leurs protéines/calories : les "
-                     "totaux sont donc **sous-estimés**. Lance le script **`7_nutrition.sql`** "
-                     "dans Supabase (10 s) : il remplit ces valeurs depuis la table Ciqual.",
-                   icon="⚠️")
+                   + ".** Leurs grammes comptent, mais pas leurs protéines ni leurs calories : "
+                     "les totaux sont donc **sous-estimés**.", icon="⚠️")
     for pb in alerte_quantites(c):
         st.warning(f"Quantités à vérifier : {pb}", icon="⚠️")
 
@@ -360,15 +362,23 @@ def _onglet_recettes(ms, nb_ing, nb_rec, nb_lig, nb_rep):
                       "quantité, corrige-la dans **Recettes → modifier** : le calcul "
                       "suivra tout seul.", icon="ℹ️")
         if c["inconnues"]:
-            st.caption("Aliments **sans valeurs nutritionnelles** dans ta base (comptés pour 0) : "
-                       + ", ".join(c["inconnues"]) + " → script `7_nutrition.sql`.")
+            st.caption("Aliments **sans valeurs nutritionnelles** dans ta base (comptés "
+                       "pour 0) : " + ", ".join(c["inconnues"]) + ".")
     with col2:
-        st.markdown("**Ma part**")
-        mp = MN.ma_part(c, "parts", MN.part_defaut(c["parts"]))
-        st.markdown(f"### {ligne_macros(mp['macros'])}")
-        st.caption(f"1 part sur {c['parts']:g} · {mp['grammes']:.0f} g")
-        st.caption(f"Foyer (2 adultes + 2 enfants) : {MN.portion_foyer():.1f} portions "
-                   f"→ il reste {max(0.0, c['parts'] - MN.portion_foyer()):.1f} portion de rab.")
+        if partage:
+            #  Espace partagé : « ma part » ne s'affiche pas (ce qu'il doit
+            #  prendre à lui). On garde ce qui est utile au foyer.
+            st.markdown("**Portions du foyer**")
+            st.caption(f"Recette prévue pour **{c['parts']:g} personnes**.")
+            st.caption(f"Foyer (2 adultes + 2 enfants) : {MN.portion_foyer():.1f} portions "
+                       f"→ il reste {max(0.0, c['parts'] - MN.portion_foyer()):.1f} portion de rab.")
+        else:
+            st.markdown("**Ma part**")
+            mp = MN.ma_part(c, "parts", MN.part_defaut(c["parts"]))
+            st.markdown(f"### {ligne_macros(mp['macros'])}")
+            st.caption(f"1 part sur {c['parts']:g} · {mp['grammes']:.0f} g")
+            st.caption(f"Foyer (2 adultes + 2 enfants) : {MN.portion_foyer():.1f} portions "
+                       f"→ il reste {max(0.0, c['parts'] - MN.portion_foyer()):.1f} portion de rab.")
     if c.get("instructions"):
         with st.expander("📋 Préparation", expanded=False):
             st.markdown(str(c["instructions"]).replace("\\n", "\n"))
@@ -384,7 +394,7 @@ def _onglet_recettes(ms, nb_ing, nb_rec, nb_lig, nb_rep):
         if vides:
             st.error(f"❌ {len(vides)} ingrédient(s) sans valeurs nutritionnelles : "
                      + ", ".join(l["nom_court"] for l in vides)
-                     + " → **c'est la cause d'un total trop bas.** Lance `7_nutrition.sql`.")
+                     + " — **c'est la cause d'un total trop bas.**")
         else:
             st.success("✅ Tous les ingrédients de cette recette ont leurs valeurs : le calcul "
                        "est complet.")
