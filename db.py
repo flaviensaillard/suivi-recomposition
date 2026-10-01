@@ -330,6 +330,19 @@ class SupaStore:
         self.user_id = sess["user_id"]
         self.email = sess.get("email")
 
+    def session_valide(self) -> bool:
+        """Le droit d'accès est-il encore bon ?
+
+        Supabase en donne un qui vit une heure : à l'ouverture de l'application,
+        on vérifie donc qu'il tient encore, sinon on se reconnecte tout seul
+        (au lieu d'afficher des erreurs au premier clic).
+        """
+        try:
+            self.client.auth.get_user()
+            return True
+        except Exception:
+            return False
+
     def sign_out(self):
         try:
             self.client.auth.sign_out()
