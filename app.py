@@ -35,7 +35,7 @@ from db import LocalStore, SupaStore
 
 #  Le numéro de version du lot de fichiers déposé sur GitHub : les 5 fichiers
 #  (celui-ci, editeurs.py, menus.py, pdf_menus.py, repas_plats.py) le portent.
-VERSION = "1.0.2"
+VERSION = "1.0.4"
 APP = "Équilibre"
 
 
@@ -238,17 +238,118 @@ def _libelles_uniques(libelles: list) -> list:
 #  INITIALISATION : stockage + authentification
 # ============================================================================
 def read_secrets():
-    """Lit les Secrets (`.streamlit/secrets.toml` ou Streamlit Cloud) et nettoie les valeurs."""
+    """Lit les Secrets (`.streamlit/secrets.toml` ou Streamlit Cloud) et nettoie les valeurs.
+
+    Depuis la 1.0.3, on peut y ranger aussi ton adresse et ton mot de passe :
+    l'application entre alors TOUTE SEULE, sans écran de connexion. Ces deux
+    lignes restent dans les Secrets (chez Streamlit), jamais dans le dépôt GitHub
+    et jamais visibles par un visiteur.
+    """
     try:
         if "supabase" in st.secrets:
             cfg = st.secrets["supabase"]
             url = str(cfg.get("url", "") or "").strip().rstrip("/")
             key = str(cfg.get("anon_key", "") or "").strip()
             if url and key:
-                return {"url": url, "anon_key": key}
+                return {
+                    "url": url, "anon_key": key,
+                    "email": str(cfg.get("email", "") or "").strip(),
+                    "password": str(cfg.get("password", "") or ""),
+                    #  ta clé personnelle : elle vit dans l'adresse (…?cle=…) et
+                    #  n'apparaît nulle part à l'écran, jamais dans GitHub.
+                    "cle": str(cfg.get("cle", "") or "").strip(),
+                }
     except Exception:
         return None
     return None
+
+
+def cle_personnelle() -> str:
+    """La clé que tu portes dans l'adresse de ton lien personnel (?cle=…)."""
+    try:
+        v = st.query_params.get("cle", "")
+    except Exception:
+        return ""
+    if isinstance(v, (list, tuple)):
+        v = v[0] if v else ""
+    return str(v or "").strip()
+
+
+def acces_libere(cfg) -> bool:
+    """AI-JE LE DROIT D'ENTRER SANS RIEN TAPER ?
+
+    • Si une clé personnelle est rangée dans les Secrets : il faut la retrouver
+      dans l'adresse (c'est ton lien personnel, celui que tu mets en favori).
+      Quelqu'un qui ouvre l'adresse normale tombe sur l'écran de connexion.
+    • Si aucune clé n'est rangée : l'application entre toute seule (comme la
+      1.0.3) — tu es chez toi, l'application n'est de toute façon pas accessible
+      sans être passé par le compte Streamlit qui la détient.
+    """
+    import hmac
+    if st.session_state.get("cle_ok"):
+        return True
+    cle = (cfg or {}).get("cle") or ""
+    if not cle:
+        return True
+    apportee = cle_personnelle()
+    if apportee and hmac.compare_digest(apportee, cle):
+        st.session_state["cle_ok"] = True
+        return True
+    return False
+
+
+def adresse_application() -> str:
+    """L'adresse de l'application, pour construire ton lien personnel."""
+    try:
+        entetes = st.context.headers
+        hote = (entetes.get("Host") or entetes.get("host") or "").strip()
+        if hote:
+            protocole = "http" if (":" in hote and "streamlit.app" not in hote) else "https"
+            return f"{protocole}://{hote}"
+    except Exception:
+        pass
+    return ""
+
+
+def lien_personnel(cle: str) -> str:
+    base = adresse_application()
+    if base:
+        return f"{base}/?cle={cle}"
+    return f"l'adresse de ton application + ?cle={cle}"
+
+
+def connexion_automatique(store: "SupaStore", cfg) -> bool:
+    """ENTRER SANS RIEN TAPER.
+
+    Tes identifiants sont rangés dans les Secrets : on s'en sert pour ouvrir ta
+    session au démarrage. Si ça ne marche pas (mot de passe changé depuis, par
+    exemple), on retombe proprement sur l'écran de connexion, avec l'explication.
+    """
+    if st.session_state.get("sans_auto"):
+        return False                     # tu as demandé à te déconnecter : on respecte
+    if not acces_libere(cfg):
+        #  pas de clé personnelle dans l'adresse : on ne donne rien, on demande
+        #  à se connecter. C'est ce que voit quelqu'un qui n'a pas ton lien.
+        return False
+    #  GARDE-FOU : si la session ne tient pas (panne, réseau, réglage), on ne
+    #  s'acharne pas — au bout de 3 essais on affiche l'écran de connexion.
+    essais = st.session_state.get("_auto_essais", 0)
+    if essais >= 3:
+        st.session_state["_echec_auto"] = ("la session n'a pas tenu après 3 essais "
+                                           "(internet instable ?).")
+        return False
+    email = (cfg or {}).get("email") or ""
+    mdp = (cfg or {}).get("password") or ""
+    if not (email and mdp):
+        return False
+    st.session_state["_auto_essais"] = essais + 1
+    try:
+        st.session_state["sb_session"] = store.sign_in(email, mdp)
+        st.session_state.pop("_echec_auto", None)
+        return True
+    except Exception as e:
+        st.session_state["_echec_auto"] = str(e)
+        return False
 
 
 def problemes_secrets(cfg) -> list:
@@ -271,11 +372,26 @@ def problemes_secrets(cfg) -> list:
     return pbs
 
 
-def login_page(store: SupaStore):
+def login_page(store: SupaStore, cfg=None):
+    # ---- d'abord : entrer tout seul, si les identifiants sont dans les Secrets
+    if connexion_automatique(store, cfg):
+        st.rerun()
     if _os.path.exists(LOGO):
         st.image(LOGO, width=96)
     st.title(APP)
     st.caption("Connexion à ton espace")
+    echec = st.session_state.pop("_echec_auto", None)
+    if echec:
+        st.warning("L'identification automatique n'a pas fonctionné : " + echec +
+                   "\n\n*(Ton mot de passe a peut-être changé : reprends-le ci-dessous, "
+                   "puis remets-le à jour dans les Secrets.)*")
+    elif (cfg or {}).get("cle"):
+        st.caption("🔒 Tu es arrivé sur l'adresse normale : l'entrée directe demande ton "
+                   "**lien personnel** (celui qui finit par `?cle=…`). Mets-le en favori sur "
+                   "tes appareils — sinon connecte-toi ci-dessous.")
+    elif (cfg or {}).get("email"):
+        st.info("L'identification automatique est prête mais désactivée pour cette session. "
+                "Tu peux la relancer ci-dessous.")
     mode = st.radio("Action", ["Se connecter", "Créer un compte"], horizontal=True, label_visibility="collapsed")
     with st.form("login"):
         email = st.text_input("Email")
@@ -292,6 +408,11 @@ def login_page(store: SupaStore):
                 st.rerun()
         except Exception as e:
             st.error(f"Échec : {e}")
+    if (cfg or {}).get("email") and st.session_state.get("sans_auto"):
+        if st.button("🔓 Revenir à l'identification automatique"):
+            st.session_state.pop("sans_auto", None)
+            st.session_state.pop("store", None)
+            st.rerun()
     st.stop()
 
 
@@ -345,14 +466,20 @@ def init_store():
                        "`.streamlit/secrets.toml`.)*")
             st.stop()
         store = SupaStore(cfg["url"], cfg["anon_key"])
+        st.session_state["auto_connexion"] = bool(cfg.get("email") and cfg.get("password"))
         sess = st.session_state.get("sb_session")
         if sess:
             try:
                 store.resume(sess)
+                #  le droit d'accès expire au bout d'une heure : on vérifie qu'il
+                #  est encore bon, sinon on se reconnecte tout seul (avec les
+                #  identifiants des Secrets) au lieu d'afficher une erreur.
+                if not store.session_valide():
+                    st.session_state.pop("sb_session", None)
             except Exception:
                 st.session_state.pop("sb_session", None)
         if not st.session_state.get("sb_session"):
-            login_page(store)
+            login_page(store, cfg)
         st.session_state["store"] = store
         return store
     store = LocalStore()
@@ -1490,11 +1617,38 @@ def page_reglages():
         st.warning("**Mode local** : tes données restent sur cet appareil (pas de synchronisation "
                    "entre le PC et le téléphone).")
     else:
-        if st.button("Se déconnecter"):
-            store.sign_out()
-            st.session_state.pop("sb_session", None)
-            st.session_state.pop("store", None)
-            st.rerun()
+        cle = ""
+        try:
+            cle = (read_secrets() or {}).get("cle") or ""
+        except Exception:
+            cle = st.session_state.get("_cle_pour_reglages", "")
+        if cle:
+            st.caption("🔒 **Accès protégé par ta clé personnelle.** Sans cette clé dans "
+                       "l'adresse, personne ne voit autre chose que l'écran de connexion — "
+                       "même quelqu'un qui aurait l'adresse de l'application.")
+            st.code(lien_personnel(cle), language=None)
+            st.caption("⬆️ **Mets ce lien en favori** (sur ton ordinateur) : il t'ouvre "
+                       "l'application sans rien taper. La clé se change dans les Secrets "
+                       "(ligne `cle = …` dans [supabase]).")
+        if st.session_state.get("auto_connexion"):
+            st.caption("✅ **Identification automatique** : l'application t'ouvre directement "
+                       "ton espace, sans rien te demander. Ton adresse et ton mot de passe sont "
+                       "rangés dans les Secrets de l'application (chez Streamlit) — jamais dans "
+                       "le dépôt, jamais visibles par un visiteur.")
+            if st.button("🚪 Me déconnecter (afficher l'écran de connexion)"):
+                store.sign_out()
+                st.session_state.pop("sb_session", None)
+                st.session_state.pop("store", None)
+                st.session_state["sans_auto"] = True
+                st.rerun()
+            st.caption("Pour la remettre en route : recharge la page (F5), ou appuie sur "
+                       "« 🔓 Revenir à l'identification automatique » sur l'écran de connexion.")
+        else:
+            if st.button("Se déconnecter"):
+                store.sign_out()
+                st.session_state.pop("sb_session", None)
+                st.session_state.pop("store", None)
+                st.rerun()
 
     st.subheader("Mon profil et mes objectifs")
     st.caption(f"Objectifs actuels : **{TARGET_KCAL} kcal** · **{TARGET_P} g de protéines** · "
