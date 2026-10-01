@@ -1,134 +1,192 @@
-# 💪 Suivi Recomposition — application de suivi
+# MonPortefeuille 2
 
-> 🚀 **Tu débutes ? Ne lis pas ce fichier tout de suite : ouvre `GUIDE_DEMARRAGE.md`.**
-> Il t'emmène pas à pas de zéro jusqu'à l'application installée sur ton téléphone.
+Application de suivi de portefeuille, construite sur les mêmes bases que la v1 —
+**Streamlit, Supabase, GitHub Actions** — avec la mécanique de calcul corrigée et
+les tâches répétitives automatisées.
 
-Application mobile de suivi pour la perte de gras sans perte de muscle.
-Stack : **Streamlit** (interface) + **Supabase** (base de données cloud, gratuite) + **GitHub** (code et hébergement).
-
-Elle remplace le fichier Excel : pesée du matin, séances de 30 minutes, compteur de protéines,
-mensurations, liste de courses. Les données sont synchronisées entre le PC et le téléphone.
-
----
-
-## 1. Ce que fait l'application
-
-| Page | Contenu |
-|---|---|
-| 🏠 **Tableau de bord** | Poids moyen 7 jours, tour de taille, masse grasse, protéines moyennes, séances de la semaine, progression vers 77 kg, **alertes automatiques du coach** |
-| ⚖️ **Pesée & tendance** | Saisie du matin (poids, % gras balance, pas, sommeil, énergie), graphique poids + moyenne 7 jours |
-| 💪 **Séance 30 min** | Séance A (lundi) / B (vendredi) en supersets, **chrono de repos**, saisie des séries, rappel de la dernière performance, détection « monte d'un niveau », suivi des tractions |
-| 🍽️ **Cuisine & menus** | Passerelle avec ton application de menus : repas prévus détectés automatiquement, protéines calculées, un appui pour les compter. Détail : `JUMELAGE.md` |
-| 🥗 **Protéines** | **3 modes** : ① repas prévu depuis gestion-menus avec la quantité mangée, ② ingrédient + quantité + unité (g, kg, ml, cl, l, pièce, tranche, c. à s./c. à c.), ③ raccourcis. Compteur, moyennes 7/30 j, historique — détail : `PROTEINES_SAISIE.md` |
-| 📏 **Mensurations** | Tour de taille au nombril (la vraie mesure), calcul du % de gras par la formule Marine en plus de la balance |
-| 🛒 **Courses** | Liste hebdomadaire cochable, par rayon, avec prix indicatifs et total |
-| ⚙️ **Réglages** | Profil, objectifs, export CSV de toutes les données |
-
-**Autonomie** : sans Supabase configuré, l'application fonctionne en **mode local** (fichier SQLite).
-Elle est utilisable immédiatement, hors ligne, sans compte. Supabase sert à synchroniser PC ↔ mobile.
+Le portefeuille suivi est celui de l'**Université de l'Épargne**, et les indicateurs
+sont choisis pour refléter la méthode de Charles Gave plutôt que les conventions de
+la finance de marché.
 
 ---
 
-## 2. Démarrage local (5 minutes)
+## Ce qui change par rapport à la v1
+
+La v1 fonctionnait, mais six défauts faussaient ses résultats. Ils sont tous
+corrigés, et chacun est verrouillé par un test.
+
+| # | Défaut de la v1 | Correction |
+|---|---|---|
+| 1 | L'assiette de rééquilibrage ignorait les `🏦 Cash réserve` (12 277 €, 13 % du patrimoine). Toutes les dérives affichées étaient fausses. | Le périmètre est porté par le modèle : `INVESTI` / `PRECAUTION` / `COURANT`. L'épargne de précaution est exclue *pour une raison énoncée*, pas oubliée par un filtre de type. |
+| 2 | `TG_Score TWR %` était une copie littérale de `Score TWR %`. Deux performances cumulées divergeant de 21 points, dont une fausse. | Une seule mesure par concept. Le TWR n'est jamais stocké : il est calculé à la demande depuis les snapshots. |
+| 3 | Barèmes fiscaux sur-indexés d'environ 1,3 %, endpoint `api.gouv.fr` inexistant masqué par un `try/except`, et **un seul jeu de barèmes pour tous les exercices**. | Barèmes indexés par **année de cession**, table datée et sourcée, fiabilité affichée honnêtement. |
+| 4 | Or ETC et or physique confondus : tout au régime des valeurs mobilières. | Trois régimes distincts : 150-0 A, 150 VH bis (avec l'abattement de 305 € qui manquait), 150 VI. |
+| 5 | Projection retraite en dollars déflatés par l'inflation française, sans conversion. Apports futurs indexés sur l'inflation du mauvais scénario. | Projection en **euros**, chaque scénario avec sa propre inflation, et une sensibilité au taux de change affichée. |
+| 6 | Replis silencieux : `1,05` pour EUR/USD, `1,0` pour les devises, `2 000 $` pour l'or, `0 %` pour l'inflation 2026. | **Aucune valeur de repli.** Une donnée manquante lève une exception et affiche un bandeau. |
+
+### La correction de fond
+
+La v1 collectait le prix de l'or à chaque apport de capital, dans une colonne
+`Montant Or` dédiée, et **ne s'en servait jamais**. Or pour Gave, l'or n'est pas un
+placement mais l'étalon de valeur : *« l'or montera tant que les monnaies ne
+redeviendront pas des réserves de valeur »*.
+
+La v2 fait de la **performance en onces d'or** une métrique de premier plan, à côté
+de la performance en euros et en euros réels. Une seule courbe répond à la question
+qui compte, et elle est sur la page Suivi.
+
+---
+
+## Installation
+
+### 1. Créer le schéma Supabase
+
+Dans l'éditeur SQL de Supabase, exécutez `migrations/001_init.sql`.
+
+Les tables sont préfixées `pf2_` : **la v1 n'est pas touchée** et continue de
+fonctionner pendant la transition.
+
+### 2. Révoquer l'ancienne clé
+
+La v1 commitait son URL et sa clé Supabase **en dur** dans `take_snapshot.py` et
+`calc_perf.py`, sur un repo public.
+
+1. Supabase → Settings → API → révoquer l'ancienne clé publishable
+2. Créer une nouvelle clé
+3. La stocker dans les secrets GitHub et `.streamlit/secrets.toml` — jamais dans le code
+
+### 3. Configurer les secrets
 
 ```bash
-cd app
-python -m venv .venv
-source .venv/bin/activate        # Windows : .venv\Scripts\activate
-pip install -r requirements.txt
+cp .streamlit/secrets.toml.example .streamlit/secrets.toml
+# puis renseigner SUPABASE_URL et SUPABASE_KEY
+```
 
-python seed_demo.py              # optionnel : 6 semaines de données de démonstration
+`.streamlit/secrets.toml` est dans `.gitignore`.
+
+### 4. Lancer
+
+```bash
+pip install -r requirements.txt
 streamlit run app.py
 ```
 
-L'application s'ouvre sur `http://localhost:8501`.
+### 5. Migrer les données de la v1
 
-Pour repartir de zéro : supprime `data/suivi.db` (les données de démo disparaissent avec).
-
----
-
-## 3. Mise en ligne (pour l'utiliser sur ton téléphone)
-
-### Étape 1 — Base de données Supabase (gratuit)
-
-1. Crée un compte sur [supabase.com](https://supabase.com) → **New project** (choisis une région européenne, ex. Paris).
-   *Le plan gratuit limite à **2 projets actifs par organisation**. Si tu as déjà 2 projets :
-   crée une **nouvelle organisation** (2 projets gratuits de plus), mets un projet inutilisé **en pause**
-   (un projet en pause ne compte pas), ou **réutilise un projet existant** — le schéma est intégralement
-   préfixé **`sr_`**, donc aucune collision possible. Procédure détaillée pour un projet déjà utilisé :
-   voir **`SUPABASE_GESTION-MENUS.md`** à la racine du dépôt.*
-2. Dans **SQL Editor → New query**, colle l'intégralité de `schema.sql` puis **Run**.
-   Tu dois voir un tableau de **8 lignes** s'afficher : 8 tables `sr_*` avec la sécurité **RLS** active
-   (chaque ligne n'est lisible que par son propriétaire). Le script est réexécutable sans risque.
-3. **Authentication → Users → Add user** : crée ton compte (email + mot de passe). C'est avec ça que tu te connecteras.
-4. **Authentication → Providers → Email** : décoche « Confirm email » si tu veux éviter l'email de validation.
-5. **Project Settings → API** : note `Project URL` et la clé `anon public`.
-
-### Étape 2 — GitHub
+Un script d'import est fourni : `jobs/importer_v1.py`. Il lit les tables
+`Transaction` et `Historique` de la v1 et écrit dans `pf2_transactions` et
+`pf2_apports`.
 
 ```bash
-cd app
-git init
-git add .
-git commit -m "Suivi recomposition : application Streamlit + Supabase"
-git branch -M main
-git remote add origin git@github.com:<ton-compte>/suivi-recomposition.git
-git push -u origin main
+SUPABASE_URL=... SUPABASE_KEY=... python jobs/importer_v1.py --dry-run
+SUPABASE_URL=... SUPABASE_KEY=... python jobs/importer_v1.py
 ```
-
-> Le `.gitignore` empêche déjà l'envoi de `secrets.toml` et de `data/`. **Ne committe jamais ta clé.**
-> Si tu veux que le dépôt reste privé : GitHub → Settings → General → Change visibility → Private.
-
-### Étape 3 — Streamlit Community Cloud (gratuit)
-
-1. [share.streamlit.io](https://share.streamlit.io) → **Create app** → choisis ton dépôt GitHub.
-2. **Main file path** : `app.py` (ou `app/app.py` si tu as poussé le dossier entier).
-3. **Advanced settings → Secrets** : colle ce bloc avec tes vraies valeurs :
-
-```toml
-[supabase]
-url = "https://xxxxxxxxxxxxx.supabase.co"
-anon_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-```
-
-4. **Deploy**. Tu obtiens une URL du type `https://suivi-recomposition.streamlit.app`.
-
-### Étape 4 — Sur ton mobile
-
-Ouvre l'URL dans Chrome (Android) ou Safari (iPhone) → menu → **Ajouter à l'écran d'accueil**.
-L'application se lance alors en plein écran, comme une application native. Connecte-toi une fois :
-la session est conservée.
 
 ---
 
-## 4. Structure du projet
+## Le plan d'allocation
+
+Défini dans `core/models.py`, modifiable en un endroit.
+
+| Poche | Cible | Bande | Actifs |
+|---|---|---|---|
+| Réserve de valeur (Or + Bitcoin) | 20 % | ±3 pts | IGLN.L, BTCUSDT |
+| Énergie | 30 % | ±5 pts | XDW0.L, FLXC.L |
+| Asie / Chine | 30 % | ±5 pts | RI.PA |
+| Obligations japonaises | 20 % | ±5 pts | XJSE.SW |
+
+**Hors portefeuille**, suivis mais jamais rééquilibrés :
+
+| Périmètre | Actifs |
+|---|---|
+| Épargne de précaution | CHF (livret Swissquote) |
+| Compte courant | EUR, USD, CNY (Revolut) |
+
+La bande est plus serrée sur la réserve de valeur parce que c'est la poche qui
+porte la thèse anti-monnaie-fiduciaire : une dérive y coûte plus en doctrine qu'en
+performance.
+
+---
+
+## Architecture
 
 ```
-app/
-├── app.py                       # interface Streamlit (7 pages)
-├── db.py                        # couche de données : Supabase OU SQLite local
-├── content.py                   # programme 30 min, liste de courses, presets protéines, calculs
-├── integration.py               # passerelle avec l'application de menus (détection des colonnes)
-├── schema.sql                   # schéma Supabase + politiques RLS (à coller dans le SQL Editor)
-├── seed_demo.py                 # jeu de données de démonstration
-├── requirements.txt
-├── .streamlit/
-│   ├── config.toml              # thème, port, options serveur
-│   └── secrets.toml.example     # modèle de configuration Supabase (+ section [apps] facultative)
-└── data/suivi.db                # base locale (mode hors ligne, non committée)
+app.py                  Tableau de bord
+pages/                  Les 7 autres pages (navigation native Streamlit)
+core/
+  models.py             Poches, périmètres, classes d'actifs, régimes fiscaux
+  fiscal_bars.py        Barèmes de l'impôt, indexés par année
+  fx.py                 Taux de change — jamais devinés
+  prices.py             Cours — jamais devinés
+  metrics.py            TWR, rendement réel, rendement en or, IRR, volatilité
+  portfolio.py          Positions calculées depuis les transactions
+  rebalance.py          Rééquilibrage par poche et bande
+  tax.py                Moteur fiscal français
+  config.py             Réglages typés, sans clé en double
+  db.py                 Accès Supabase
+  session.py            Chargement et calcul partagés
+  ui.py                 Helpers d'affichage
+jobs/                   Robots GitHub Actions
+migrations/             Schéma SQL
+tests/                  52 tests, sans réseau ni base
 ```
 
-## 5. Utiliser Supabase depuis Python (hors de l'app)
+### Le principe transversal
 
-La clé `anon` est faite pour être exposée côté client : la sécurité repose sur les **politiques RLS**,
-qui n'autorisent l'accès qu'aux lignes dont `user_id = auth.uid()`. Depuis l'app Streamlit, l'utilisateur
-s'authentifie par email/mot de passe, et toutes les requêtes portent son jeton.
-En aucun cas il ne faut utiliser la clé `service_role` dans ce projet : elle contourne la RLS.
+**Aucune valeur de repli.** Un cours ou un taux de change manquant lève une
+exception, et l'application affiche un bandeau listant ce qui manque. C'est la
+correction structurelle de la v1, où une panne Yahoo produisait des performances
+flatteuses construites sur des chiffres inventés.
 
-## 6. Notes
+---
 
-- Streamlit Community Cloud met l'application en veille après quelques jours sans visite : le premier
-  chargement peut prendre 20 à 30 secondes. C'est normal et gratuit.
-- Sauvegarde : page **Réglages → Export** (ZIP de CSV). À faire une fois par mois.
-- Pour faire évoluer le programme (exercices, variantes, liste de courses) : tout est dans `content.py`,
-  aucune autre modification n'est nécessaire.
+## Automatisation
+
+`.github/workflows/daily.yml` fait tourner quatre robots chaque soir :
+
+| Heure UTC | Robot | Rôle |
+|---|---|---|
+| 21h05 | `update_market_data.py` | Cours et taux de change |
+| 21h35 | `daily_snapshot.py` | Valorisation du jour, en euros **et en onces d'or** |
+| 22h05 | `update_inflation.py` | Inflation annuelle |
+| 22h35 | `fiscal_alerts.py` | Alertes fiscales |
+
+Les secrets `SUPABASE_URL` et `SUPABASE_KEY` doivent être définis dans
+Settings → Secrets and variables → Actions.
+
+`.github/workflows/tests.yml` lance les tests à chaque push.
+
+---
+
+## Ce qu'il reste à vérifier
+
+Le moteur fiscal est une **estimation, pas une déclaration**. À recouper avec le
+BOFiP avant toute déclaration :
+
+- les barèmes et décotes de 2025 et 2026 ;
+- le plafonnement du quotient familial ;
+- la qualification fiscale exacte d'un ETC or (IGLN.L) ;
+- le barème d'abattement de l'or physique (article 150 VI) ;
+- le traitement de l'abattement sur la taxe forfaitaire sur les métaux précieux.
+
+Ces points sont marqués « À VÉRIFIER » dans `core/fiscal_bars.py` et `core/tax.py`.
+
+---
+
+## Tests
+
+```bash
+python -m pytest tests/ -v
+```
+
+52 tests, sans réseau ni base de données. Ils verrouillent notamment :
+
+- le TWR par sous-périodes et la neutralisation des apports ;
+- la relation de Fisher pour le rendement réel ;
+- le rendement en or, qui **refuse** un cours invalide ;
+- l'exclusion de l'épargne de précaution de l'assiette d'allocation ;
+- les bandes par poche et le seuil de rentabilité des ordres ;
+- le barème fiscal, tranche par tranche ;
+- l'abattement de 305 € sur la plus-value crypto ;
+- les deux régimes de l'or physique et le plus favorable des deux ;
+- la CSG déductible dans la comparaison PFU / barème.
