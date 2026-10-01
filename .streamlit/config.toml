@@ -1,0 +1,30 @@
+# Réglages de l'application Streamlit
+# (les réglages serveur ne sont pas nécessaires : Streamlit Cloud les gère lui-même)
+
+# ---------------------------------------------------------------------------
+#  LE THÈME SOMBRE — les mêmes couleurs que l'application du téléphone, pour
+#  que tu passes de l'un à l'autre sans être ébloui.
+#
+#  fond #0E1418 · cartes #17212A · texte #EAF2F6 · vert du logo éclairci #14B8A6
+#
+#  Si un jour tu préfères le fond clair : remplace base = "dark" par
+#  base = "light", et les quatre couleurs par :
+#      primaryColor = "#0d9488"
+#      backgroundColor = "#ffffff"
+#      secondaryBackgroundColor = "#f4f7fa"
+#      textColor = "#1c2530"
+# ---------------------------------------------------------------------------
+
+[theme]
+base = "dark"
+primaryColor = "#14b8a6"
+backgroundColor = "#0e1418"
+secondaryBackgroundColor = "#17212a"
+textColor = "#eaf2f6"
+
+[browser]
+gatherUsageStats = false
+
+[client]
+toolbarMode = "minimal"
+showSidebarNavigation = true
