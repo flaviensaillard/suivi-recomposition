@@ -17,7 +17,7 @@ from __future__ import annotations
 #  (« éditeur 2.8 »). S'il affiche autre chose, c'est que ce fichier n'a pas
 #  été recopié sur GitHub.
 # ---------------------------------------------------------------------------
-VERSION = "1.0.6"
+VERSION = "1.0.10"
 
 import datetime as dt
 import traceback
@@ -398,9 +398,15 @@ def page_planifier(ms, target_p: float, partage: bool = False):
                                  key=f"pl_g_{d}")
             f1, f2 = st.columns([2, 1])
             moment = f1.selectbox("Moment", ["Midi", "Soir"], key=f"pl_m_{d}")
-            convives = f2.number_input("Convives", 1, 12, 4, key=f"pl_c_{d}",
+            #  ⭐ AUCUNE LIMITE SUR LE NOMBRE DE CONVIVES (demandé le 02/10) :
+            #  avant, la case s'arrêtait à 12 (max_value=12) et il était impossible
+            #  de planifier un repas de famille plus nombreux. Maintenant la case
+            #  n'a plus de plafond : écris 15, 30, 60… ce que tu veux.
+            convives = f2.number_input("Convives", min_value=1, max_value=None, value=4,
+                                       step=1, key=f"pl_c_{d}",
                                        help="Le nombre de personnes présentes : les quantités "
-                                            "de la liste de courses en tiennent compte.")
+                                            "de la liste de courses en tiennent compte. "
+                                            "Aucun plafond : mets le nombre que tu veux.")
             choix, qte, unite, ids_ing = None, None, None, None
 
             if genre == "Recette":
@@ -580,12 +586,15 @@ def _editer_repas(ms, p, nom, cle):
     moment = e1.selectbox("Moment", ["Midi", "Soir"],
                           index=0 if (p.get("meal_type") or "Midi") == "Midi" else 1,
                           key=f"pe_m_{cle}")
+    #  ⭐ même règle ici : aucun plafond sur le nombre de convives (02/10).
     convives = e2.number_input(
-        "Convives", 1, 12,
-        int(MN.borne(p.get("servings") or p.get("nb_persons") or 4, 1, 12, 4)),
+        "Convives", min_value=1, max_value=None,
+        value=int(MN.borne(p.get("servings") or p.get("nb_persons") or 4, 1, 1000000, 4)),
+        step=1,
         key=f"pe_c_{cle}",
         help="Le nombre de personnes présentes à ce repas. La liste de courses "
-             "et la fiche PDF recalculent les quantités avec ce nombre.")
+             "et la fiche PDF recalculent les quantités avec ce nombre. "
+             "Aucun plafond.")
     qte, unite = None, None
     if from_ing:
         fiche = _fiche_du_repas(ms, p, nom)

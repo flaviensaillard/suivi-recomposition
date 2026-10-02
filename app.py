@@ -35,15 +35,15 @@ from db import LocalStore, SupaStore
 
 #  Le numéro de version du lot de fichiers déposé sur GitHub : les 5 fichiers
 #  (celui-ci, editeurs.py, menus.py, pdf_menus.py, repas_plats.py) le portent.
-VERSION = "1.0.8"
+VERSION = "1.0.10"
 #  La version attendue de CHAQUE fichier compagnon (voir `_bandeau_fichiers_a_jour`) :
 #  ainsi, l'application peut évoluer sans que le bandeau accuse à tort les
 #  fichiers qui n'ont pas changé.
-VERSIONS_FICHIERS = {"editeurs": "1.0.6", "menus": "1.0.1",
+VERSIONS_FICHIERS = {"editeurs": "1.0.10", "menus": "1.0.10",
                      "pdf_menus": "1.0.1", "repas_plats": "1.0.1",
                      #  les fichiers « socle » : si l'un d'eux est resté en
                      #  arrière, le bandeau le dit au lieu de dégrader en silence
-                     "content": "1.0.8", "corrections": "1.0.8",
+                     "content": "1.0.9", "corrections": "1.0.8",
                      "tableaux": "1.0.8", "db": "1.0.8"}
 APP = "Équilibre"
 
@@ -1511,13 +1511,56 @@ def _ajout_ingredient():
         st.rerun()
 
 
+def _bloc_repas_types(jour) -> None:
+    """⭐ TES REPAS TYPES — un appui, la journée est notée.
+
+    Les trois repas que Flavien mange quasiment tous les jours (gamelle de midi,
+    goûter, petit déjeuner), avec les protéines, les glucides, les lipides et les
+    calories déjà calculés. C'est le même contenu que la carte « ⭐ Mes repas
+    types » du téléphone — mais ici, c'est l'application ordinateur qui écrit
+    directement dans ta base : tu retrouveras la ligne sur ton téléphone.
+
+    AFFICHÉ POUR FLAVIEN UNIQUEMENT : ni dans l'espace partagé du foyer
+    (`?partage=1`), ni dans l'espace de son épouse. Ses chiffres ne peuvent donc
+    jamais apparaître ailleurs.
+    """
+    if st.session_state.get("mode_partage") or espace_actuel() != "flavien":
+        return
+    with st.container(border=True):
+        st.markdown("**⭐ Mes repas types**")
+        st.caption("Tes trois repas habituels : un appui, et la journée est notée avec les "
+                   "bons chiffres. La ligne apparaît aussitôt sur ton téléphone.")
+        cols = st.columns(3)
+        for i, r in enumerate(C.REPAS_TYPES):
+            kcal = C.kcal_repas_type(r)
+            with cols[i]:
+                st.markdown(f"**{r['emoji']} {r['nom']}**")
+                st.caption(r["detail"])
+                st.markdown(f"**{kcal:.0f} kcal** · {r['prot']:.0f} g P · "
+                            f"{r['gluc']:.0f} G · {r['lip']:.0f} L")
+                if st.button(f"➕ Ajouter {kcal:.0f} kcal", key=f"rt_{i}", width="stretch"):
+                    store.add_protein(jour, r["nom"], r["prot"], 1.0,
+                                      carbs=r["gluc"], fat=r["lip"])
+                    st.rerun()
+        tot = C.total_repas_types()
+        tot_kcal = tot["prot"] * 4 + tot["gluc"] * 4 + tot["lip"] * 9
+        st.caption(f"Les trois ensemble : **{tot_kcal:.0f} kcal** · {tot['prot']:.0f} g P · "
+                   f"{tot['gluc']:.0f} G · {tot['lip']:.0f} L — il te resterait "
+                   f"**{max(0.0, TARGET_P - tot['prot']):.0f} g de protéines** et "
+                   f"**{max(0.0, TARGET_KCAL - tot_kcal):.0f} kcal** pour le dîner.")
+        st.caption("Chaque repas déjà noté ce jour-là s'ajoute une deuxième fois : vérifie "
+                   "dans « Mon journal » ci-dessous avant d'appuyer deux fois.")
+
+
 def _ajout_raccourcis():
-    """Mode 3 : les raccourcis rapides + saisie libre."""
+    """Mode 3 : les repas types, les raccourcis rapides + saisie libre."""
     st.caption("Pour les aliments que tu manges tous les jours : un appui, c'est compté.")
     #  ⓘ le jour est réglable : un repas oublié hier se saisit ici, sur la bonne date.
     jour = st.date_input("Pour quel jour ?", value=D.today(), max_value=D.today(),
                          format="DD/MM/YYYY", key="rap_jour",
                          help="Laisse la date du jour, ou choisis hier si tu as oublié de noter.")
+    #  ⭐ d'abord tes repas types (toi seulement), puis les raccourcis aliments.
+    _bloc_repas_types(jour)
     cols = st.columns(2)
     for i, (label, g) in enumerate(C.PROTEIN_PRESETS):
         with cols[i % 2]:

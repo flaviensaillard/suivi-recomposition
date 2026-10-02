@@ -1,71 +1,64 @@
-# Équilibre 1.0.8 — version **vérifiée par audit** · mode opératoire
+# Équilibre 1.0.10 — **le nombre de convives n'a plus de plafond** · mode opératoire
 
-Cette livraison contient **masse grasse en kilos**, **tableaux corrigeables**, et
-**toutes les corrections trouvées pendant l'audit** (six défauts, dont un qui
-pouvait faire perdre une journée de saisie — le rapport complet, en deux passages,
-est fourni ici : `AUDIT_1.0.8.md`).
+Tu ne pouvais pas faire tes menus de la semaine pour plus de 12 personnes : la case
+**« Convives »** s'arrêtait à 12. C'est corrigé, **sur l'ordinateur comme sur le
+téléphone** — et j'ai trouvé deux autres endroits où le même plafond se cachait.
 
 | | |
 |---|---|
-| Version | **1.0.8** (en bas de la barre de gauche) |
-| Fichiers à copier | **6 fichiers** à la racine du dépôt : `app.py`, `content.py`, `corrections.py`, `db.py`, `tableaux.py`, `requirements.txt` |
+| Version | **1.0.10** (en bas de la barre de gauche) |
+| Fichiers à copier | **3 fichiers** à la racine du dépôt : `app.py`, `editeurs.py`, `menus.py` |
 | Secrets | **rien à changer** |
 | Ce qui ne bouge pas | tes données, tes clés, tes liens, l'espace partagé, l'espace de Léa |
 
 ---
 
-## 1. Les deux fonctions que tu as demandées
+## 1. Ce qui était bloqué à 12 (il y avait trois endroits, pas un)
 
-**Masse grasse en kilos** — la case de la page ⚖️ Pesée dit maintenant
-**« Masse grasse (kg) »**, et juste en dessous : *« ↳ soit 18,8 % de ton poids
-(80,0 kg) »*. Le tableau des 14 derniers jours a une colonne **« Masse grasse (kg) »**,
-le 🏠 Tableau de bord affiche **15,1 kg** (avec le % en petit), et 📏 Mensurations
-aussi. Le pourcentage reste rangé en base (c'est lui qui fait la moyenne 7 jours).
+| Endroit | Ce que ça faisait |
+|---|---|
+| **① La case « Convives »** de 📅 Planifier la semaine | Impossible de monter au-dessus de 12 : la case refusait 13, 20, 40… |
+| **② La fenêtre « ✏️ Modifier »** d'un repas déjà prévu | Même plafond, donc impossible de dire « finalement on est 20 » |
+| **③ Le calcul des quantités** (le plus sournois) | Un aliment noté « **20 convives** » comptait **0 g** dans la liste de courses : au-delà de 12 portions, mon calcul ne prenait plus la quantité et achetait… rien. Tu ne le voyais pas dans la case : ça se passait dans le calcul, en silence |
 
-**Tableaux corrigeables** — tu cliques dans une case, tu corriges, tu cliques
-**💾 Enregistrer les corrections**. Trois nouveautés :
-
-- le **journal montre plusieurs jours** (sélecteur « Jours affichés » : Aujourd'hui ·
-  7 · **14 derniers jours** · 30 · Tout) ;
-- la **date est modifiable** dans le journal, la pesée et les mensurations :
-  la ligne déménage sous le bon jour ;
-- la **saisie rapide** demande **« Pour quel jour ? »** (pour un oubli d'hier).
+Et une cerise : « **1 convive** » d'un aliment comptait aussi **0 g** (le calcul
+démarrait à 2). Un repas pour une personne n'achetait rien. Réparé en même temps.
 
 ---
 
-## 2. Les corrections de l'audit (elles sont dans ces fichiers)
+## 2. Ce que tu peux faire maintenant
 
-| Défaut trouvé | Ce qu'il provoquait | Correction |
-|---|---|---|
-| **① Déplacer une journée sur une date déjà remplie** | La journée d'arrivée était **écrasée sans avertissement** (perte de données) | La correction est **refusée**, avec la phrase : *« la journée du 29/09/2026 existe déjà : rien n'a été écrasé. Si tu veux vraiment la remplacer : coche 🗑️… »*. Même garde-fou pour les mensurations |
-| **② Masse grasse en kg sur une journée sans poids** | La conversion était impossible et la correction **disparaissait sans rien dire** | Message clair : *« il faut d'abord le poids de cette journée… »* |
-| **③ Bandeau « fichier d'avant »** | Il accusait un fichier **plus récent** que prévu, et ne voyait pas les fichiers « socle » restés en arrière | Les versions sont **comparées** (plus ancienne / plus récente), et **8 fichiers** sont surveillés au lieu de 4 |
-| **④ `requirements.txt`** | Il autorisait une version de Streamlit trop ancienne pour le code livré | `streamlit>=1.50` (ta version actuelle est au-dessus) |
+Dans 📅 **Planifier la semaine**, la case **« Convives »** accepte **n'importe quel
+nombre** : 15, 20, 40, 60, 200… Tape-le ou utilise les flèches, il n'y a plus de
+plafond. Idem dans **✏️ Modifier** pour un repas déjà prévu, et dans la liste de
+courses : 20 convives de pâtes achètent maintenant **20 × 80 g = 1,6 kg** (avant :
+0 g).
+
+Le texte d'aide de la case le dit maintenant en clair : *« Aucun plafond : mets le
+nombre que tu veux. »*
 
 ---
 
 ## 3. Installation (clic par clic)
 
 1. **github.com** → dépôt `suivi-recomposition`.
-2. Pour **chacun** des 6 fichiers : crayon **✏️** → **Ctrl+A** → supprimer →
-   coller le nouveau → **Commit changes**.
-   *`requirements.txt` est nouveau ? Non : il existe déjà dans ton dépôt (c'est lui
-   qui installe Streamlit). Remplace-le comme les autres.*
-3. **share.streamlit.io** → **Manage app** → **⋮** → **Reboot app**.
-   *(Le redémarrage réinstalle les paquets selon le nouveau `requirements.txt` :
-   c'est normal qu'il soit un peu plus long.)*
-4. Navigateur : **Ctrl+Maj+R**.
-5. **Vérifier** :
-   - **v1.0.8** en bas de la barre de gauche ;
-   - ⚖️ **Pesée** → la case dit **« Masse grasse (kg) »** et la conversion s'affiche
-     dessous ;
-   - 🥗 **Nutrition** → le journal a un sélecteur **« Jours affichés »** ;
-   - aucune bandeau rouge : le contrôle des 8 fichiers est silencieux quand tout
-     est à jour.
-6. **Le test de non-perte** (30 secondes, facultatif mais rassurant) : dans ⚖️ Pesée,
-   change la date d'une journée vers une date qui **existe déjà** → l'application
-   doit **refuser** avec le message « rien n'a été écrasé ». C'est le défaut ①,
-   corrigé.
+2. Pour **chacun des 3 fichiers** (`app.py`, `editeurs.py`, `menus.py`) : crayon **✏️**
+   → **Ctrl+A** → supprimer → coller le nouveau → **Commit changes**.
+3. **Si tu n'as pas encore installé la 1.0.9** (les repas types sur l'ordinateur) :
+   prends aussi son **`content.py`** dans le dossier `MAJ_1.0.9/` — c'est lui qui
+   contient les trois repas types. Les trois autres fichiers de la 1.0.9 sont déjà
+   remplacés par ceux-ci.
+4. **share.streamlit.io** → **Manage app** → **⋮** → **Reboot app**.
+5. Navigateur : **Ctrl+Maj+R**.
+6. **Vérifier** :
+   - **v1.0.10** en bas de la barre de gauche ;
+   - 📅 **Planifier la semaine** → la case **Convives** du jour → tape **20** : elle
+     le garde (avant, elle revenait à 12) ;
+   - en bas de page, **Générer la fiche PDF** de la semaine si tu veux la liste de
+     courses d'un repas nombreux : les quantités suivent le nombre de convives.
+
+> Si le bandeau rouge du haut cite un fichier resté « d'avant », c'est qu'une copie
+> n'a pas abouti : refais l'étape 2 pour le fichier cité, puis Reboot app.
 
 ---
 
@@ -73,25 +66,41 @@ aussi. Le pourcentage reste rangé en base (c'est lui qui fait la moyenne 7 jour
 
 | Fichier | MD5 |
 |---|---|
-| `MAJ_1.0.8/app.py` | `9bb006fc16c5ceb1ab06a6ab39b94e0e` |
-| `MAJ_1.0.8/content.py` | `934371530a70896f9f2c8791275eed54` |
-| `MAJ_1.0.8/corrections.py` | `8ffccb4c833693ce8055be8403fe9740` |
-| `MAJ_1.0.8/db.py` | `10f5f37af77a18fdc1e48798df8cf4a1` |
-| `MAJ_1.0.8/tableaux.py` | `635bd0964227f3a089c8a9e905066f2b` |
-| `MAJ_1.0.8/requirements.txt` | `66e7f78c7b8921fbce604ca6efe3e1bf` |
-| `MAJ_1.0.8/MAJ_1.0.8.zip` | *(voir le message d'accompagnement)* |
+| `MAJ_1.0.10/app.py` | `05cf44b0ce89c71e3b7012b2f35a5ebb` |
+| `MAJ_1.0.10/editeurs.py` | `424db14f0277a377a491da1f3aaf6b74` |
+| `MAJ_1.0.10/menus.py` | `1187e9242f4bb014505ec8784f911709` |
+| `MAJ_1.0.10/MAJ_1.0.10.zip` | *(voir le message d'accompagnement)* |
 
-**Vérification sur ton PC** (facultatif) : `md5sum app.py` doit afficher
-`9bb006fc16c5ceb1ab06a6ab39b94e0e`.
+Vérification sur ton PC (facultatif) : `md5sum menus.py` doit afficher
+`1187e9242f4bb014505ec8784f911709`.
 
 ---
 
-## 5. Rappel : ce qui reste de ton côté
+## 5. Ce qui a été vérifié avant de te livrer ça
 
-- **Ta connexion** (Reset password du compte dans Supabase → lignes `email`/`password`
-  des Secrets) : si ce n'est pas encore fait, l'application te guide maintenant en
-  français et sans jargon.
-- **Son compte à elle** (`Add user` → Auto Confirm User, puis `elle_email`,
-  `elle_password`, `cle_elle` dans les Secrets) et son lien personnel.
-- **Le téléphone** : `Equilibre-Android-1.0.7.apk` (durci par l'audit — c'est la
-  seule APK à installer).
+**Test complet joué sur l'application, sans navigateur — 28 vérifications, 0 échec :**
+
+- la case Convives garde **13, 20, 40 et 60** (elle refusait tout ça avant) ;
+- la fenêtre **✏️ Modifier** accepte 60 et l'**enregistre vraiment** dans la base
+  (relu après coup, dans `nb_persons` et dans `servings`) ;
+- un repas **ajouté à 40 convives** est bien écrit avec 40 dans la base ;
+- les quantités suivent : **20 convives de pâtes = 1 600 g**, 13 convives = 1 040 g,
+  **1 convive = 80 g** (c'était 0 g avant), et une quantité en kilos n'est pas
+  touchée (2 kg = 2 000 g).
+
+**Et les six suites habituelles, toutes vertes :** audit des 9 pages, connexion,
+espace partagé, espaces séparés, tableaux et masse grasse, repas types (35
+vérifications).
+
+**Côté téléphone :** banc de calculs Kotlin étendu avec les mêmes contrôles
+(1, 12, 13, 20, 40, 200 convives) — APK **1.0.9** fournie à part, avec sa notice.
+
+---
+
+## 6. Rappel : ce qui reste de ton côté
+
+- **Le téléphone** : installer **`TELECHARGER_APK_Equilibre_1.0.9.zip`** (l'APK 1.0.9
+  avec sa notice) — même correction, plus les repas types.
+- Si ce n'est pas encore fait : ta **connexion** (Reset password dans Supabase →
+  lignes `email`/`password` des Secrets) et **son compte à elle** (`elle_email`,
+  `elle_password`, `cle_elle`).

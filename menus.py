@@ -19,7 +19,7 @@ Ce module en déduit, sans aucune saisie :
 Aucune écriture ici : que de la lecture et du calcul. Tu peux tester sans risque.
 """
 
-VERSION = "1.0.1"        # affiché dans la barre de gauche (contrôle des fichiers à jour)
+VERSION = "1.0.10"        # affiché dans la barre de gauche (contrôle des fichiers à jour)
 
 import datetime as dt
 import re
@@ -195,7 +195,11 @@ def grammes_de_ligne(l: dict, ing: dict | None, pseudo: bool = False) -> tuple:
         mini = POIDS_UNITE_MINI.get(u) or 1.0
         return q * mini, True
     p = portion_standard(ing)
-    if p and 2 <= q <= 12:
+    #  ⭐ le plafond était à 12 portions (02/10) : au-delà, l'aliment comptait
+    #     0 g dans la liste de courses — un repas de 20 personnes n'était donc
+    #     plus compté du tout. La borne haute est repoussée très loin : il n'y a
+    #     plus de limite pratique au nombre de convives.
+    if p and 1 <= q <= 1000:
         return q * p, True
     return g, False
 
