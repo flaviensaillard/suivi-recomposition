@@ -35,7 +35,7 @@ from db import LocalStore, SupaStore
 
 #  Le numéro de version du lot de fichiers déposé sur GitHub : les 5 fichiers
 #  (celui-ci, editeurs.py, menus.py, pdf_menus.py, repas_plats.py) le portent.
-VERSION = "1.0.11"
+VERSION = "1.0.12"
 #  La version attendue de CHAQUE fichier compagnon (voir `_bandeau_fichiers_a_jour`) :
 #  ainsi, l'application peut évoluer sans que le bandeau accuse à tort les
 #  fichiers qui n'ont pas changé.
@@ -1844,17 +1844,19 @@ def _bandeau_fichiers_a_jour():
             #  ⓘ on compare chaque fichier à LA SIENNE, et non à la version de
             #  l'application : sinon le bandeau criait au loup dès qu'une seule
             #  version changeait (menus.py resté en 1.0.1, par exemple).
-            manquants.append(f"**{fichier}** (celui de {vu})")
+            #  ⭐ 02/10 : on indique AUSSI la version attendue — le message disait
+            #  « celui de 1.0.8 » sans dire quoi mettre à la place, et renvoyait à
+            #  la ligne « éditeur … · menus … » de la barre de gauche, retirée à
+            #  l'épuration de ce jour.
+            manquants.append(f"**{fichier}** (le tien est le {vu} → il faut le {attendu})")
     if not manquants:
         return
     st.error(
-        "⚠️ **Un fichier encore en mémoire est celui d'avant : " + " et ".join(manquants)
-        + "**\n\n"
-        f"À faire : **github.com** → dépôt **suivi-recomposition** → **Add file → "
-        f"Upload files** → dépose les fichiers de la mise à jour {VERSION} → "
-        "**Commit changes**. Puis **Manage app → ⋮ → Reboot app** et **F5**.\n\n"
-        f"En bas de la barre de gauche, tu dois alors lire **éditeur {VERSION} · "
-        f"menus {VERSION}**.")
+        "⚠️ **Un de tes fichiers est resté en arrière : " + " et ".join(manquants)
+        + ".**\n\n"
+        "À faire : **github.com** → dépôt **suivi-recomposition** → ouvre le fichier "
+        "cité → crayon **✏️** → **Ctrl+A** → colle celui de la mise à jour → "
+        "**Commit changes**. Puis **Manage app → ⋮ → Reboot app** et **F5**.")
 
 
 def page_recettes_edition():
