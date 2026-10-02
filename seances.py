@@ -21,6 +21,7 @@ import json
 import pandas as pd
 import streamlit as st
 
+import menus as MN
 import tableaux as T
 
 MATERIEL = "2 haltères de 5 kg · 1 barre de traction · une chaise ou un banc · le sol"
@@ -654,11 +655,11 @@ def enregistrer(store, session: str, jour: dt.date, duree: int, difficulte: int,
     if not ok:
         conseil = ""
         if "check" in err.lower() or "23514" in err:
-            conseil = (" → Ta base n'autorise pas encore le rugby comme type de séance : "
-                       "lance le script **6_seance_rugby.sql** dans Supabase (10 secondes).")
+            conseil = (" → Ta base n'autorise pas encore le rugby comme type de séance. "
+                       "Dis-le moi : j'ajoute ce qu'il faut.")
         elif "difficulte" in err or "column" in err.lower() or "PGRST" in err:
-            conseil = (" → Lance le script **6_seance_rugby.sql** dans Supabase (10 secondes) "
-                       "pour ajouter les colonnes du ressenti.")
+            conseil = (" → Il manque des colonnes de ressenti dans ta base. "
+                       "Dis-le moi : je les ajoute.")
         return False, f"Enregistrement impossible : {err}{conseil}"
 
     # les séries (uniquement pour le renforcement)
@@ -859,8 +860,9 @@ def _formulaire_validation(store, session: str, nom: str, plan, tab, cle: str,
         with f1:
             jour = st.date_input("Date", value=dt.date.today(), max_value=dt.date.today(),
                                  format="DD/MM/YYYY", key=f"{cle}_date")
-            duree = st.number_input("Durée réelle (min)", 5, 180, duree_defaut, step=5,
-                                    key=f"{cle}_duree")
+            duree = st.number_input("Durée réelle (min)", 5, 180,
+                                    int(MN.borne(duree_defaut, 5, 180, 30)),
+                                    step=5, key=f"{cle}_duree")
         with f2:
             diff = st.select_slider("Difficulté", options=[1, 2, 3, 4, 5], value=3,
                                     format_func=lambda v: {1: "1 · très facile", 2: "2 · facile",
