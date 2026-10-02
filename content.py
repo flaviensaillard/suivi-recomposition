@@ -20,7 +20,7 @@ PHASES = [
 ]
 
 
-VERSION = "1.0.8"        # vérifié au démarrage par app.py
+VERSION = "1.0.9"        # vérifié au démarrage par app.py
 def phase_for(d):
     """Renvoie (nom du bloc, objectif kcal du jour) — le même objectif pour tous."""
     for start, end, label in PHASES:
@@ -240,3 +240,62 @@ def masse_grasse_pct(weight_kg, fat_kg):
 def lean_mass_kg(weight_kg, bf_pct):
     fm = fat_mass_kg(weight_kg, bf_pct)
     return None if fm is None else round(float(weight_kg) - fm, 1)
+
+
+# ---------------------------------------------------------------------------
+#  ⭐ LES REPAS TYPES DE FLAVIEN (01/10)
+#
+#  Tes trois repas habituels : un appui dans 🥗 Nutrition et la journée est
+#  notée, avec les protéines, les glucides, les lipides et les calories déjà
+#  calculés. Les mêmes chiffres que la carte « ⭐ Mes repas types » du téléphone.
+#
+#  D'où viennent ces valeurs : elles sont la somme de la composition, calculée
+#  depuis TA base (valeurs Ciqual de tes aliments) — rien n'est inventé :
+#
+#   ① Gamelle de midi · 3 œufs durs (55 g l'unité = 165 g) + 135 g d'edamames
+#      + 100 g de lentilles vertes CUITES (125 kcal/100 g, Ciqual) + 100 g de
+#      crudités (courgette 33 g + tomate 33 g + aubergine 33 g) + 100 g de skyr
+#      → brut : 587 kcal · 57,0 P · 36,3 G · 24,3 L  → rangé : 58 P · 35 G · 24 L
+#   ② Goûter · 20 amandes grillées à sec (≈ 24 g) + 1 pomme (≈ 150 g)
+#      → brut : 234 kcal · 6,6 P · 19,8 G · 12,9 L   → rangé : 7 P · 20 G · 13 L
+#   ③ Petit déjeuner · thé dans 25 cl d'eau + 1 cuillère à café de jus de citron
+#      → ≈ 2 kcal : une boisson sans sucre, rien à compter (0 partout)
+#
+#  Ces repas ne concernent QUE Flavien : ils ne s'affichent ni dans l'espace
+#  partagé du foyer, ni dans l'espace de son épouse (voir `_bloc_repas_types`
+#  dans app.py, qui fait la vérification).
+# ---------------------------------------------------------------------------
+REPAS_TYPES = [
+    dict(
+        cle="gamelle_midi", emoji="🍱", nom="Gamelle de midi (type)",
+        detail="3 œufs durs · 135 g d'edamames · 100 g de lentilles vertes cuites · "
+               "100 g de crudités (courgette, tomate, aubergine à parts égales) · 100 g de skyr",
+        prot=58.0, gluc=35.0, lip=24.0, poids_g=600.0,
+    ),
+    dict(
+        cle="gouter", emoji="🍎", nom="Goûter (type)",
+        detail="20 amandes grillées à sec (≈ 24 g) · 1 pomme (≈ 150 g)",
+        prot=7.0, gluc=20.0, lip=13.0, poids_g=174.0,
+    ),
+    dict(
+        cle="petit_dejeuner", emoji="☕", nom="Petit déjeuner (type)",
+        detail="Thé dans 25 cl d'eau · 1 cuillère à café de jus de citron",
+        prot=0.0, gluc=0.0, lip=0.0, poids_g=255.0,
+    ),
+]
+
+
+def kcal_repas_type(r: dict) -> float:
+    """Les calories d'un repas type, comptées comme PARTOUT dans l'application :
+    4 kcal par gramme de protéines, 4 par gramme de glucides, 9 par gramme de
+    lipides. C'est ce même chiffre que la version Android affiche."""
+    return r["prot"] * 4 + r["gluc"] * 4 + r["lip"] * 9
+
+
+def total_repas_types() -> dict:
+    """Les trois repas ensemble (pour savoir ce qu'il reste à manger)."""
+    return {
+        "prot": sum(r["prot"] for r in REPAS_TYPES),
+        "gluc": sum(r["gluc"] for r in REPAS_TYPES),
+        "lip": sum(r["lip"] for r in REPAS_TYPES),
+    }
