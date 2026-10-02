@@ -8,10 +8,14 @@ Aucune valeur n'est inventée : si le doute est trop grand, la ligne est marqué
 from __future__ import annotations
 
 import csv
+import os
 import re
 import unicodedata
 
-CIQUAL = "/home/user/app/data/foods_ciqual.csv"
+#  ⓘ Le chemin du fichier Ciqual est calculé par rapport à CE fichier, jamais
+#  écrit en dur : ainsi il fonctionne aussi bien sur ton ordinateur que sur
+#  Streamlit Cloud (où aucun dossier /home/... n'existe).
+CIQUAL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "foods_ciqual.csv")
 
 # Mots trop courants pour être discriminants
 MOTS_VIDES = {
