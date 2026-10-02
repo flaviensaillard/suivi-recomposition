@@ -35,11 +35,11 @@ from db import LocalStore, SupaStore
 
 #  Le numéro de version du lot de fichiers déposé sur GitHub : les 5 fichiers
 #  (celui-ci, editeurs.py, menus.py, pdf_menus.py, repas_plats.py) le portent.
-VERSION = "1.0.10"
+VERSION = "1.0.11"
 #  La version attendue de CHAQUE fichier compagnon (voir `_bandeau_fichiers_a_jour`) :
 #  ainsi, l'application peut évoluer sans que le bandeau accuse à tort les
 #  fichiers qui n'ont pas changé.
-VERSIONS_FICHIERS = {"editeurs": "1.0.10", "menus": "1.0.10",
+VERSIONS_FICHIERS = {"editeurs": "1.0.11", "menus": "1.0.11",
                      "pdf_menus": "1.0.1", "repas_plats": "1.0.1",
                      #  les fichiers « socle » : si l'un d'eux est resté en
                      #  arrière, le bandeau le dit au lieu de dégrader en silence
@@ -1028,8 +1028,7 @@ def page_dashboard():
 # ============================================================================
 def page_pesee():
     st.title("⚖️ Pesée & tendance")
-    st.caption("À jeun, même balance, même heure. C'est la **moyenne 7 jours** qui pilote "
-               "les décisions — pas le chiffre du jour.")
+    st.caption("À jeun, même balance, même heure — c'est la **moyenne 7 jours** qui compte.")
     daily = load_daily()
     today = D.today()
     existing = daily[daily["log_date"] == today]
@@ -1142,8 +1141,7 @@ def page_pesee():
 # ============================================================================
 def page_mensurations():
     st.title("📏 Mensurations")
-    st.caption("Le **tour de taille au nombril** est ta vraie mesure de perte de gras. "
-               "Lundi matin, à jeun, sans serrer, ventre relâché.")
+    st.caption("Tour de taille au nombril, lundi matin à jeun.")
     meas = load_meas()
     today = D.today()
     last_meas = None if meas.empty else meas.iloc[-1]
@@ -1275,20 +1273,12 @@ def _ajout_repas_prevu():
     """
     ms = menus_store()
     if ms is None:
-        st.info("Ce mode lit ta base de menus : il a besoin des clés Supabase "
-                "(voir le guide, étape « Les 2 clés »). En attendant, l'onglet "
-                "**Mes raccourcis** fonctionne normalement.")
+        st.info("Cette page a besoin des clés Supabase (⚙️ Réglages).")
         return
 
     c1, c2 = st.columns([1, 2])
     with c1:
         jour = st.date_input("Jour", value=D.today(), format="DD/MM/YYYY", key="pr_jour")
-    with c2:
-        st.write("")
-        st.caption("Les repas viennent directement de ta base **gestion-menus** "
-                   "(`planned_meals` + `recipes` + `ingredients`) : ce sont les mêmes "
-                   "chiffres que la page **🍽️ Repas & menus**.")
-
     with st.spinner("Lecture de ton planning…"):
         try:
             repas = ms.repas_du_jour(jour)
@@ -1297,9 +1287,7 @@ def _ajout_repas_prevu():
             st.warning(f"Lecture impossible pour l'instant ({type(e).__name__}). "
                        "Réessaie dans quelques secondes.")
     if not repas:
-        st.info(f"Rien de prévu le **{jour.strftime('%d/%m/%Y')}** dans ton planning. "
-                "Change la date ci-dessus, ou ajoute ce repas dans ton application de menus. "
-                "Tu peux aussi utiliser l'onglet **🥕 Ingrédient + quantité**.")
+        st.info(f"Rien de prévu le **{jour.strftime('%d/%m/%Y')}**.")
         return
 
     def _etiquette(i):
@@ -1390,8 +1378,7 @@ def _ajout_ingredient():
     """Mode 2 : choisir un ingrédient de sa base, avec quantité et unité."""
     client, tables, mapping = contexte_menus()
     if not client:
-        st.info("Ce mode lit ta table `ingredients` : il a besoin des clés Supabase. "
-                "En attendant, l'onglet **Mes raccourcis** fonctionne normalement.")
+        st.info("Cette page a besoin des clés Supabase (⚙️ Réglages).")
         return
 
     c1, c2 = st.columns([3, 1])
@@ -1411,8 +1398,7 @@ def _ajout_ingredient():
                    "**🍽️ Cuisine & menus → Étape 2**.")
         return
     with c1:
-        st.caption(f"{len(liste)} ingrédients chargés depuis ta base — tape les premières lettres "
-                   "pour filtrer la liste.")
+        st.caption(f"{len(liste)} ingrédients — tape pour filtrer.")
 
     compte = {}
     for x in liste:
@@ -1467,10 +1453,6 @@ def _ajout_ingredient():
     else:
         with c2:
             qte = st.number_input("Quantité", 0.0, 5000.0, 100.0, 10.0, key=f"ing_q_{idx}_{unite}")
-        with c3:
-            st.write("")
-            st.caption("Tu peux taper une valeur précise.")
-
     grammes, explication = IT.convertir_grammes(qte, unite, poids_piece)
     base = st.radio("Dans ta base, les protéines sont indiquées…",
                     ["pour 100 g", "par portion ou par unité"],
@@ -1528,8 +1510,7 @@ def _bloc_repas_types(jour) -> None:
         return
     with st.container(border=True):
         st.markdown("**⭐ Mes repas types**")
-        st.caption("Tes trois repas habituels : un appui, et la journée est notée avec les "
-                   "bons chiffres. La ligne apparaît aussitôt sur ton téléphone.")
+        st.caption("Un appui, la journée est notée — et la ligne arrive sur ton téléphone.")
         cols = st.columns(3)
         for i, r in enumerate(C.REPAS_TYPES):
             kcal = C.kcal_repas_type(r)
@@ -1548,13 +1529,11 @@ def _bloc_repas_types(jour) -> None:
                    f"{tot['gluc']:.0f} G · {tot['lip']:.0f} L — il te resterait "
                    f"**{max(0.0, TARGET_P - tot['prot']):.0f} g de protéines** et "
                    f"**{max(0.0, TARGET_KCAL - tot_kcal):.0f} kcal** pour le dîner.")
-        st.caption("Chaque repas déjà noté ce jour-là s'ajoute une deuxième fois : vérifie "
-                   "dans « Mon journal » ci-dessous avant d'appuyer deux fois.")
+        st.caption("Un deuxième appui ajoute une deuxième ligne : jette un œil au journal ci-dessous.")
 
 
 def _ajout_raccourcis():
     """Mode 3 : les repas types, les raccourcis rapides + saisie libre."""
-    st.caption("Pour les aliments que tu manges tous les jours : un appui, c'est compté.")
     #  ⓘ le jour est réglable : un repas oublié hier se saisit ici, sur la bonne date.
     jour = st.date_input("Pour quel jour ?", value=D.today(), max_value=D.today(),
                          format="DD/MM/YYYY", key="rap_jour",
@@ -1610,10 +1589,7 @@ def _bloc_reparation(store, a_completer: list, nb_jour: int):
             return
         perdues = st.session_state.get("pr_perdues", 0)
         if not props:
-            st.info("Aucune correspondance trouvée dans tes recettes. Ces repas sont soit des "
-                    "saisies manuelles (raccourcis, restaurant), soit libellés autrement. "
-                    "Tu peux les ressaisir : les nouvelles entrées compteront les trois "
-                    "macros automatiquement.")
+            st.info("Aucune correspondance dans tes recettes : ressaisis ces repas en un appui.")
             return
         st.dataframe(pd.DataFrame([
             dict(Repas=p["item"], Retrouvé=p["source"], Protéines=f"{p['proteines']:.0f} g",
@@ -1621,9 +1597,6 @@ def _bloc_reparation(store, a_completer: list, nb_jour: int):
                  Vérification="✅ cohérent" if p["coherent"] else f"⚠️ écart de {p['ecart_proteines']:.0f} g")
             for p in props]), hide_index=True, width="stretch")
         n_surs = sum(1 for p in props if p["coherent"])
-        if perdues:
-            st.caption(f"{perdues} autre(s) repas resteront sans valeurs (saisies manuelles ou "
-                       "libellés non reconnus) : tu pourras les ressaisir en un appui.")
         if st.button(f"✅ Compléter {n_surs} repas sur {len(props)} (seuls les cohérents)",
                      key="pr_applique", type="primary", width="stretch"):
             ok, ko, refus = 0, 0, 0
@@ -1656,9 +1629,8 @@ def _bloc_reparation(store, a_completer: list, nb_jour: int):
 
 def page_proteines():
     st.title("🥗 Nutrition")
-    st.caption(f"**Protéines : {TARGET_P} g** — le plancher à ne jamais descendre. "
-               f"Glucides : {TARGET_G} g · Lipides : {TARGET_L} g · "
-               f"Calories : {TARGET_KCAL} kcal.")
+    st.caption(f"Objectif du jour : **{TARGET_KCAL} kcal** · {TARGET_P} g P · "
+               f"{TARGET_G} G · {TARGET_L} L")
     today = D.today()
     df = store.protein_df()
     if not df.empty:
@@ -1739,9 +1711,6 @@ def page_proteines():
         lignes.append(dict(Nutriment=nom, Aujourdhui=val_txt, Cible=f"{cible} {unite}",
                            Verdict=verdict))
     st.dataframe(pd.DataFrame(lignes), hide_index=True, width="stretch")
-    st.caption("Ces lignes viennent de tes saisies du jour (menu, ingrédient, raccourcis). "
-               "Remplis-les via **Repas & menus** ou l'onglet **Repas prévu** ci-dessous : "
-               "le compteur se met à jour tout seul.")
     t1, t2, t3 = st.tabs(["🍽️ Repas prévu", "🥕 Ingrédient + quantité", "⚡ Mes raccourcis"])
     with t1:
         _ajout_repas_prevu()
@@ -1917,7 +1886,7 @@ def page_reglages():
     flash = st.session_state.pop("_flash_profil", None)
     if flash:
         (st.success if flash.startswith("✅") else st.warning)(flash)
-    st.caption(f"Stockage actuel : **{store.label}**")
+    st.caption(f"Stockage : **{store.label}**")
     if store.kind == "local":
         st.warning("**Mode local** : tes données restent sur cet appareil (pas de synchronisation "
                    "entre le PC et le téléphone).")
@@ -1928,39 +1897,25 @@ def page_reglages():
         except Exception:
             cle = st.session_state.get("_cle_pour_reglages", "")
         if cle:
-            st.caption("🔒 **Accès protégé par ta clé personnelle.** Sans cette clé dans "
-                       "l'adresse, personne ne voit autre chose que l'écran de connexion — "
-                       "même quelqu'un qui aurait l'adresse de l'application.")
+            st.caption("🔒 Accès protégé par ta clé personnelle.")
             st.code(lien_personnel(cle), language=None)
-            st.caption("⬆️ **Mets ce lien en favori** (sur ton ordinateur) : il t'ouvre "
-                       "l'application sans rien taper. La clé se change dans les Secrets "
-                       "(ligne `cle = …` dans [supabase]).")
+            st.caption("⬆️ En favori sur ton ordinateur : il t'ouvre l'application sans rien taper.")
         _cle_elle = ""
         try:
             _cle_elle = (read_secrets() or {}).get("cle_elle") or ""
         except Exception:
             _cle_elle = ""
         if _cle_elle:
-            st.caption("👤 **Son espace à elle.** Ce lien lui ouvre **son** espace — ses "
-                       "recettes, ses menus, son suivi. Elle ne voit jamais tes données, et "
-                       "tu ne vois jamais les siennes : dans la base, chaque ligne porte le "
-                       "nom du compte qui l'a écrite.")
+            st.caption("👤 Son lien à elle :")
             st.code(lien_personnel(_cle_elle), language=None)
-            st.caption("⬆️ À mettre en favori sur **ses** appareils. Ses trois lignes dans les "
-                       "Secrets : `cle_elle`, `elle_email`, `elle_password`.")
         if st.session_state.get("auto_connexion"):
-            st.caption("✅ **Identification automatique** : l'application t'ouvre directement "
-                       "ton espace, sans rien te demander. Ton adresse et ton mot de passe sont "
-                       "rangés dans les Secrets de l'application (chez Streamlit) — jamais dans "
-                       "le dépôt, jamais visibles par un visiteur.")
+            st.caption("✅ Identification automatique active.")
             if st.button("🚪 Me déconnecter (afficher l'écran de connexion)"):
                 store.sign_out()
                 st.session_state.pop("sb_session", None)
                 st.session_state.pop("store", None)
                 st.session_state["sans_auto"] = True
                 st.rerun()
-            st.caption("Pour la remettre en route : recharge la page (F5), ou appuie sur "
-                       "« 🔓 Revenir à l'identification automatique » sur l'écran de connexion.")
         else:
             if st.button("Se déconnecter"):
                 store.sign_out()
@@ -2053,10 +2008,9 @@ def page_reglages():
 
     with st.expander("🔧 Comment ça marche"):
         st.markdown(
-            "- **Tes données** : Supabase (Postgres), protégé — toi seul y accèdes.\n"
-            "- **Le code** : GitHub. **L'interface** : Streamlit.\n"
-            "- **Sur le téléphone** : ouvre l'adresse de l'application dans Chrome ou Safari → "
-            "*Ajouter à l'écran d'accueil* : elle se lance plein écran, comme une application.")
+            "- **Tes données** : Supabase, protégé — toi seul y accèdes.\n"
+            "- **Sur le téléphone** : ouvre l'adresse de l'application dans Chrome → "
+            "*Ajouter à l'écran d'accueil*.")
 
 
 # ============================================================================
@@ -2128,36 +2082,14 @@ if _os.path.exists(LOGO) and hasattr(st, "logo"):
     except Exception:
         pass
 
-_v_editeur = getattr(ED, "VERSION", "ancien")
-_v_menus = getattr(MN, "VERSION", "ancien")
-st.sidebar.markdown(f"**{APP}** <span class='hint'>v{VERSION}</span>", unsafe_allow_html=True)
-st.sidebar.caption(f"éditeur {_v_editeur} · menus {_v_menus}  \n{store.label}")
-if est_partage():
-    st.sidebar.caption("👨‍👩‍👧‍👦 **Espace partagé** — recettes, menus et courses de la "
-                       "famille. Rien de personnel ici.")
-    if st.sidebar.button("🔑 Je suis Flavien : revenir à mon espace"):
-        for _c in ("mode_partage", "store", "sb_session", "_menus_store"):
-            st.session_state.pop(_c, None)
-        st.rerun()
-elif espace_actuel() == "elle":
-    _prenom = str(prof("display_name", "") or "ton espace")
-    st.sidebar.caption(f"👤 **{_prenom}** — tes menus, tes recettes et ton suivi à toi.")
-    if PROFIL_VIERGE:
-        st.sidebar.info("Commence par ⚙️ **Réglages** → « Mon profil et mes objectifs » : "
-                        "l'application saura alors à qui elle parle.")
-    else:
-        st.sidebar.caption(f"Objectif : **{TARGET_W:.0f} kg** · "
-                           f"**{TARGET_P} g** de protéines/jour")
-    if st.sidebar.button("🔑 Revenir à l'espace de Flavien"):
-        for _c in ("espace", "store", "sb_session", "_menus_store", "_auto_essais"):
-            st.session_state.pop(_c, None)
-        st.rerun()
-else:
-    if PROFIL_VIERGE:
-        st.sidebar.info("⚙️ **Réglages → Mon profil** : renseigne ton profil pour que "
-                        "les calculs s'appuient sur TES chiffres.")
-    else:
-        st.sidebar.caption(f"Objectif : **{TARGET_W:.0f} kg** · **{TARGET_P} g** de protéines/jour")
+#  ⭐ 02/10 — BARRE DE GAUCHE ÉPURÉE. Elle affichait les numéros de version de
+#  chaque fichier, le mode de stockage et des phrases d'explication : du bruit
+#  technique, inutile au quotidien (et incompréhensible pour un invité). Il ne
+#  reste que la version, une ligne discrète, et seulement dans ton espace : c'est
+#  elle qui te permet de vérifier d'un coup d'œil qu'une mise à jour est arrivée.
+#  Dans l'espace partagé et chez Léa : plus rien.
+if not est_partage() and espace_actuel() != "elle":
+    st.sidebar.caption(f"v{VERSION}")
 
 # Hook de test (utilisé par test_app.py pour vérifier chaque page sans navigateur)
 _test_page = _os.environ.get("APP_TEST_PAGE")

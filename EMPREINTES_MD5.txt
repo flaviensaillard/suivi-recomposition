@@ -1,21 +1,22 @@
-Équilibre version ordinateur 1.0.10 — MD5
+Équilibre version ordinateur 1.0.11 — MD5
 =========================================
-(le nombre de convives n'a plus de plafond — 02/10/2026)
+(interface épurée : les textes inutiles retirés — 02/10/2026)
 
-app.py        05cf44b0ce89c71e3b7012b2f35a5ebb   (108063 octets)
-editeurs.py   424db14f0277a377a491da1f3aaf6b74   (70100 octets)
-menus.py      1187e9242f4bb014505ec8784f911709   (82543 octets)
+app.py       47958cfea79dec74e31cdbdb1c80d62e   (103386 octets)
+editeurs.py  cfedbdb5c41a8d0c00b3cf35e26c6c2f   (68532 octets)
+menus.py     6b8f367108e14ab4c79bc9f13d9bcd35   (82543 octets)
+repas.py     d3101c6ca2197df8b87b68c1f11ac783   (21499 octets)
 
-Fichiers à copier sur GitHub : CES TROIS FICHIERS, à la racine du dépôt.
-Inchangés (déjà en place) : content.py (1.0.9), corrections.py (1.0.8),
-db.py (1.0.8), tableaux.py (1.0.8), requirements.txt, les autres fichiers,
-.streamlit, tes données et tes clés.
+Fichiers à copier sur GitHub : CES QUATRE FICHIERS, à la racine du dépôt.
+Inchangés (déjà en place) : content.py (1.0.9), corrections.py, db.py,
+tableaux.py, requirements.txt, .streamlit, tes données et tes clés.
 
-Repères : v1.0.10 en bas de la barre de gauche.
-  · 📅 Planifier la semaine → case « Convives » : 13, 20, 40, 60… acceptés
-  · ✏️ Modifier un repas déjà prévu : même chose
-  · les quantités suivent : 20 convives de pâtes = 1,6 kg (c'était 0 g)
-  · « 1 convive » compte aussi (c'était 0 g)
+Repères : « v1.0.11 » en bas de la barre de gauche (dans ton espace seulement).
+  · barre de gauche vidée : plus de numéros de version, plus de mode de stockage
+  · 46 textes d'explication retirés ou raccourcis
+  · GARDÉ : les descriptions des mouvements de tes séances, tes chiffres,
+    les avertissements utiles, les messages d'erreur
+  · GARDÉ : les repas types (⭐) et la case Convives sans plafond
 
 Notice (dans le zip aussi) : A_LIRE.md
 L'empreinte du zip lui-même est donnée dans mon message.

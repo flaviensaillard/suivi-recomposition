@@ -17,7 +17,7 @@ from __future__ import annotations
 #  (« éditeur 2.8 »). S'il affiche autre chose, c'est que ce fichier n'a pas
 #  été recopié sur GitHub.
 # ---------------------------------------------------------------------------
-VERSION = "1.0.10"
+VERSION = "1.0.11"
 
 import datetime as dt
 import traceback
@@ -80,8 +80,7 @@ def _colonnes(ms, table: str) -> list:
 def bloc_diagnostic(ms):
     """Bouton « Diagnostic » : montre ce que ta base renvoie et teste une écriture."""
     with st.expander("🧪 Diagnostic de l'enregistrement (à ouvrir en cas de problème)"):
-        st.caption("Cet outil **ne modifie rien** : il lit les colonnes de tes 4 tables, "
-                   "puis fait un test d'écriture qu'il annule aussitôt.")
+        st.caption("Outil de contrôle : il **ne modifie rien**.")
         c1, c2 = st.columns(2)
         relire = c2.button("🔄 Vider le cache et relire", key="diag_relire")
         if relire and mode_ecriture(ms):
@@ -116,13 +115,6 @@ def bloc_diagnostic(ms):
             except Exception as e:
                 st.error(f"❌ Écriture impossible : {type(e).__name__} — {e}")
                 st.caption("Envoie-moi cette phrase : elle contient la cause exacte.")
-            st.caption("Si un tableau ci-dessus affiche « ⚠️ », cette table a un problème de "
-                       "droits ou de nom : envoie-moi la capture.")
-
-        st.divider()
-        st.caption("Ces nombres sont lus **en direct** dans ta base : c'est ta référence. "
-                   "S'ils changent d'une fois sur l'autre, c'est qu'un fichier n'a pas été "
-                   "recopié sur GitHub.")
 
 
 def mode_ecriture(ms) -> bool:
@@ -170,8 +162,7 @@ def _erreur(action: str, e: Exception, details: dict | None = None):
         if details:
             st.json(details, expanded=False)
         st.code(traceback.format_exc(), language="text")
-        st.caption("Copie-colle ce cadre (ou une capture) : il contient la ligne exacte "
-                   "où ça bloque. Utilise aussi « 🧪 Diagnostic » en bas de la page Planifier.")
+        st.caption("Copie-moi ce cadre : il contient la ligne exacte où ça bloque.")
 
 
 def _nb_base(ms) -> int:
@@ -258,8 +249,6 @@ def page_planifier(ms, target_p: float, partage: bool = False):
     les courses) est identique et entièrement modifiable.
     """
     st.title("📅 Planifier mes menus")
-    st.caption("Ta semaine de repas. Un repas peut être une **recette**, un **ingrédient seul** "
-               "(ex. un fruit) ou du **texte libre** (ex. « Restaurant »).")
     if st.session_state.pop("pl_sql_manquant", False):
         st.warning("Ton repas est enregistré, mais **l'unité n'a pas pu l'être** : ta base "
                    "n'a pas encore la colonne prévue pour ça. En attendant, l'application "
@@ -322,7 +311,7 @@ def page_planifier(ms, target_p: float, partage: bool = False):
             st.caption("Il manque des protéines le "
                        + ", ".join(f"**{JOURS_COURT[d.weekday()]} {d.strftime('%d/%m')}**"
                                    for d, _ in jours_light)
-                       + ". Prévois un en-cas : shaker, œufs durs, skyr (20 à 30 g).")
+                       + ". Prévois un en-cas (shaker, œufs durs, skyr).")
 
         st.divider()
 
@@ -806,8 +795,6 @@ def arrondir_agregat(agg: dict) -> None:
 # ---------------------------------------------------------------------------
 def page_recettes_edition(ms):
     st.title("🥣 Mes recettes")
-    st.caption("Créer, modifier ou supprimer une recette. Une recette se compose "
-               "d'ingrédients et d'étapes numérotées.")
 
     onglet = st.radio("Action", ["✏️ Modifier une recette", "➕ Créer une recette"],
                       horizontal=True, label_visibility="collapsed")
@@ -907,9 +894,7 @@ def _lignes_recette(ms, prefixe: str, actuelles: list | None = None,
         inverse.setdefault(str(ident), lib)
     # PLUS DE CASE À CÔTÉ : chaque liste déroulante de ligne cherche toute seule
     # (accents et majuscules ignorés). Une seule ligne de choix à l'écran.
-    st.caption(f"Chaque ligne a sa liste déroulante : déroule-la et clique, ou tape "
-               f"« pates », « courgete »… directement dedans (accents ignorés). "
-               f"{len(libelles)} aliments disponibles.")
+    st.caption(f"{len(libelles)} aliments — **tape pour chercher** dans la liste.")
     options = ["—"] + libelles
 
     lignes = st.session_state[etat]
@@ -1074,9 +1059,8 @@ def _modifier_recette(ms):
         st.warning("Sans valeurs nutritionnelles dans ta base (comptés pour 0) : "
                    + ", ".join(calc["inconnues"]), icon="⚠️")
     if calc.get("estimees"):
-        st.info("Quantités déduites automatiquement (une portion par personne) : "
-                + ", ".join(calc["estimees"][:6]) + ". Corrige-les ci-dessous si besoin.",
-                icon="ℹ️")
+        st.info("Quantités déduites (une portion par personne) : "
+                + ", ".join(calc["estimees"][:6]) + ".", icon="ℹ️")
 
     f1, f2 = st.columns([3, 1])
     nom = f1.text_input("Nom", value=choix, key=f"{prefixe}_nom")
@@ -1087,9 +1071,7 @@ def _modifier_recette(ms):
         st.success(flash)
 
     st.markdown("**Ingrédients de la recette**")
-    st.caption("La **❌** supprime la ligne **tout de suite** (c'est enregistré dans ta base). "
-               "Tu peux aussi **changer l'ingrédient** de chaque ligne : choisis-en un autre "
-               "dans la liste.")
+    st.caption("La **❌** supprime la ligne **tout de suite** (c'est enregistré).")
     tout = st.checkbox(f"🌍 Inclure les aliments de référence ({_nb_base(ms)})",
                        value=True, key=f"{prefixe}_tout",
                        help="Décoche pour ne voir que tes propres ingrédients.")
@@ -1151,8 +1133,7 @@ def _modifier_recette(ms):
 # ---------------------------------------------------------------------------
 def page_ingredients(ms):
     st.title("🥕 Ingrédients")
-    st.caption("Tes ingrédients, et les aliments de référence qui donnent les valeurs "
-               "nutritionnelles (ceux-là ne se modifient pas).")
+    st.caption("Tes aliments + la base de référence (non modifiable).")
 
     onglet = st.radio("Action", ["📋 Consulter", "➕ Ajouter", "✏️ Modifier"],
                       horizontal=True, label_visibility="collapsed")
@@ -1214,9 +1195,7 @@ def page_ingredients(ms):
                        "Choisis **Afficher → ⚠️ Doublons** pour les voir : les vrais "
                        "doublons peuvent être regroupés (dis-le moi).")
         st.caption(f"{len(vus)} ligne(s) sur {len(ms.ingredients())} · valeurs pour 100 g. "
-                   f"Les deux dernières colonnes se cochent **dans le tableau** : "
-                   f"**🚪 Fond de placard** (hors liste de courses) · "
-                   f"**🔁 Récurrent** (à racheter chaque semaine).")
+                   f"Coche **🚪 fond de placard** ou **🔁 récurrent** dans le tableau.")
         if not vus:
             st.info("Aucun ingrédient avec ce filtre.")
             return
@@ -1299,8 +1278,8 @@ def page_ingredients(ms):
         tous = liste_ingredients(ms, tout=True)
         mes = [i for i in tous if _est_a_moi(i)]
         if not mes:
-            st.info("Aucun ingrédient personnel à modifier. Ceux de la base française ne se "
-                    "modifient pas : ils servent de référence.")
+            st.info("Aucun ingrédient personnel à modifier (ceux de la base de référence ne "
+                    "se modifient pas).")
             return
         noms = {nom_affiche(i): i for i in mes}
         choix = MN.selecteur_recherche("Ingrédient", list(noms.keys()), "ing_edit",

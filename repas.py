@@ -72,15 +72,9 @@ def page_repas(store, menus_store, target_p: float, jours_visibles: int = 10,
     restent affichés — ce sont les informations utiles au foyer.
     """
     st.title("🍽️ Repas & menus")
-    st.caption("Tes menus, tes recettes et leurs macros — tout vient de ta base.")
-
     ms = menus_store()
     if ms is None:
-        st.info("**Cette page lit ta base de menus, qui vit dans Supabase.**\n\n"
-                "Déploie l'application (guide de démarrage) et renseigne tes deux clés : "
-                "tu verras ici tes repas du jour, tes recettes et leurs macros.\n\n"
-                "Tout le reste de l'application (pesée, séances, protéines, mensurations) "
-                "fonctionne déjà sans ça.")
+        st.info("Cette page a besoin des clés Supabase (⚙️ Réglages).")
         return
 
     with st.spinner("Lecture de ta base…"):
@@ -140,13 +134,12 @@ def _onglet_jour(store, ms, target_p: float):
     with st.spinner("Calcul…"):
         repas = ms.repas_du_jour(quand)
     if not repas:
-        st.info(f"Rien de prévu le {quand.strftime('%d/%m/%Y')} dans ton planning. "
-                "Choisis une autre date, ou ajoute ce repas dans ton application de menus.")
+        st.info(f"Rien de prévu le {quand.strftime('%d/%m/%Y')}.")
         return
 
     total_1_part = sum(r["calcul"]["par_part"]["proteines"] for r in repas if r.get("calcul"))
     jauge_proteines(total_1_part, target_p)
-    st.caption("Estimation si tu manges **une part** de chaque plat. Ajuste ci-dessous repas par repas.")
+    st.caption("Estimé pour **une part** de chaque plat.")
 
     pf = MN.portion_foyer()
     for i, r in enumerate(sorted(repas, key=lambda x: x["heure"] or "")):
@@ -208,11 +201,9 @@ def _onglet_semaine(ms, target_p: float, partage: bool = False):
         return
 
     if partage:
-        st.caption("Protéines estimées pour **une part** de chaque plat, et le total "
-                   "de la journée.")
+        st.caption("Estimé pour **une part** de chaque plat.")
     else:
-        st.caption("Protéines estimées pour **une part** de chaque plat. "
-                   "La ligne « total » te dit si la journée tient sur ta cible.")
+        st.caption("Estimé pour **une part** de chaque plat.")
     for d in dates:
         repas = sorted(jours[d], key=lambda x: x.get("meal_type") or "")
         jour_dt = dt.date.fromisoformat(d)
@@ -266,14 +257,11 @@ def _verif_calcul(ms, recettes, c=None):
         if sans:
             st.markdown(f"**{len(sans)} aliments sans valeurs** (les 20 premiers) :")
             st.dataframe(pd.DataFrame(sans[:20]), hide_index=True, width="stretch")
-        st.caption("Ces chiffres viennent directement de ta base Supabase, en direct.")
-
 
 def _onglet_recettes(ms, nb_ing, nb_rec, nb_lig, nb_rep, partage: bool = False):
     st.caption(f"Ta base : **{nb_ing} aliments** · "
                f"**{nb_rec} recettes** · **{nb_lig} lignes d'ingrédients** · "
-               f"**{nb_rep} repas planifiés**. Toutes les lignes sont reliées : "
-               f"les macros sont calculées pour de vrai.")
+               f"**{nb_rep} repas planifiés**.")
 
     vraies = [r for r in ms.recettes()
               if not (r.get("name") or "").startswith(("[Ing]", "[Txt]"))]
@@ -285,8 +273,7 @@ def _onglet_recettes(ms, nb_ing, nb_rec, nb_lig, nb_rep, partage: bool = False):
     if choix is None:
         choix = "— toutes —"
     if choix == "— toutes —":
-        st.caption(f"{len(vraies)} vraies recettes (les entrées « [Ing] » et « [Txt] » de ton "
-                   "planning — ingrédient seul ou texte libre — sont masquées).")
+        st.caption(f"{len(vraies)} recettes (les ingrédients seuls sont masqués).")
         data = []
         for r in vraies:
             c = ms.recette(r["id"])
@@ -308,13 +295,10 @@ def _onglet_recettes(ms, nb_ing, nb_rec, nb_lig, nb_rep, partage: bool = False):
                          "lipides_part": st.column_config.NumberColumn("L / part (g)"),
                      })
         nb_vides = sum(1 for d in data if float(d["kcal_part"]) < 5)
-        st.caption("**Toutes les valeurs sont par part.** Trie sur **P / part** pour voir "
-                   "tes recettes les plus protéinées.")
+        st.caption("Valeurs **par part** — trie sur **P / part**.")
         if nb_vides:
-            st.info(f"ℹ️ {nb_vides} ligne(s) affichent moins de 5 kcal par part : ce sont les "
-                    f"entrées **« [Ing] … »** de ton planning (un ingrédient seul, ex. « [Ing] "
-                    f"Pâtes ») — leur quantité est un **nombre de personnes**, pas un poids. "
-                    f"C'est normal, ce ne sont pas de vraies recettes.")
+            st.info(f"ℹ️ {nb_vides} ligne(s) à moins de 5 kcal/part : ce sont les ingrédients "
+                    f"seuls de ton planning (leur quantité est un nombre de personnes).")
         _verif_calcul(ms, vraies, None)
         return
 
@@ -351,16 +335,11 @@ def _onglet_recettes(ms, nb_ing, nb_rec, nb_lig, nb_rep, partage: bool = False):
             column_config={"Protéines": st.column_config.NumberColumn("P (g)"),
                            "Glucides": st.column_config.NumberColumn("G (g)"),
                            "Lipides": st.column_config.NumberColumn("L (g)")})
-        st.caption("Ces valeurs sont pour **la recette entière**, ligne par ligne. "
-                   "Divise par le nombre de parts pour avoir ton assiette.")
+        st.caption("Valeurs pour **la recette entière**.")
         if c["estimees"]:
-            st.info("**(*) quantité déduite automatiquement** pour : "
+            st.info("**(*) quantité déduite automatiquement** : "
                     + ", ".join(f"**{n}**" for n in c["estimees"][:6])
-                    + ". Dans ta base, la ligne ne donne pas d'unité exploitable : "
-                      "l'application a compté **une portion standard par personne** "
-                      "(100 g pour les aliments Ciqual). Si ce n'est pas la bonne "
-                      "quantité, corrige-la dans **Recettes → modifier** : le calcul "
-                      "suivra tout seul.", icon="ℹ️")
+                    + " → une portion standard par personne.", icon="ℹ️")
         if c["inconnues"]:
             st.caption("Aliments **sans valeurs nutritionnelles** dans ta base (comptés "
                        "pour 0) : " + ", ".join(c["inconnues"]) + ".")
@@ -409,10 +388,7 @@ def bloc_courses_auto(store, menus_store):
     if ms is None:
         return
     st.subheader("🧾 Ce que demandent tes menus")
-    st.caption("Calculé à partir de ton planning : les quantités de chaque recette sont "
-               "additionnées, puis multipliées par le **nombre de convives écrit sur le "
-               "repas** (un repas pour 6 personnes achète 1,5 × une recette de 4). "
-               "Les articles marqués « hors liste » sont ignorés.")
+    st.caption("Quantités multipliées par le **nombre de convives** de chaque repas.")
     mode = st.radio(
         "Portions à acheter",
         ["🍽️ Selon les convives de chaque repas", "👨‍👩‍👧‍👦 Portions du foyer (2 adultes + 2 enfants)"],
