@@ -319,7 +319,6 @@ def _valeur(ligne: dict, mapping: dict, cle: str):
 def _nom_du_plat(client, mapping, ligne) -> str | None:
     """Retrouve le nom du plat : colonne directe, sinon jointure sur la table recettes."""
     col_nom = (mapping["cols"].get("recipe_name") or {})
-    t_nom = col_nom.get("table")
     c_nom = col_nom.get("col")
     if c_nom and c_nom in ligne and isinstance(ligne[c_nom], str) and not _est_un_id(ligne[c_nom]):
         return ligne[c_nom]
