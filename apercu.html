@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Équilibre 1.2.0 — Nouvelle APK Android & Aperçu</title>
+    <style>
+        :root {
+            --bg: #0B0F17;
+            --card: #131A26;
+            --card-2: #18212F;
+            --line: rgba(255, 255, 255, 0.08);
+            --teal: #0D9488;
+            --teal-light: #14B8A6;
+            --txt: #F2F5FA;
+            --txt-2: #9AA7BC;
+            --txt-3: #6B7789;
+            --gold: #F5C451;
+            --up: #10B981;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            padding: 0;
+            background: var(--bg);
+            color: var(--txt);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            line-height: 1.5;
+        }
+        .header {
+            padding: 32px 20px 24px;
+            text-align: center;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 12px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 700;
+            background: rgba(13, 148, 136, 0.2);
+            color: var(--teal-light);
+            border: 1px solid rgba(13, 148, 136, 0.4);
+            margin-bottom: 12px;
+        }
+        h1 {
+            font-size: 32px;
+            font-weight: 800;
+            margin: 0 0 10px;
+            letter-spacing: -0.02em;
+        }
+        p.lead {
+            font-size: 16px;
+            color: var(--txt-2);
+            max-width: 680px;
+            margin: 0 auto 24px;
+        }
+        .actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            justify-content: center;
+            margin-bottom: 30px;
+        }
+        .btn-telecharger {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            background: linear-gradient(135deg, var(--teal), #0F766E);
+            color: #FFFFFF;
+            font-weight: 750;
+            font-size: 15px;
+            padding: 13px 24px;
+            border-radius: 14px;
+            text-decoration: none;
+            box-shadow: 0 4px 20px rgba(13, 148, 136, 0.35);
+            transition: transform .12s ease, opacity .2s ease;
+        }
+        .btn-telecharger:hover { transform: translateY(-1px); }
+        .btn-telecharger:active { transform: translateY(1px); }
+        .btn-secondaire {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: var(--card-2);
+            color: var(--txt);
+            font-weight: 650;
+            font-size: 14.5px;
+            padding: 13px 20px;
+            border-radius: 14px;
+            text-decoration: none;
+            border: 1px solid var(--line);
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px 40px;
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 32px;
+        }
+        @media (min-width: 900px) {
+            .container {
+                grid-template-columns: 420px 1fr;
+                align-items: start;
+            }
+        }
+        /* Cadre mobile */
+        .mockup-wrapper {
+            position: sticky;
+            top: 20px;
+            display: flex;
+            justify-content: center;
+        }
+        .phone-frame {
+            width: 390px;
+            height: 780px;
+            background: #000000;
+            border-radius: 44px;
+            box-shadow: 0 25px 60px rgba(0, 0, 0, 0.7), 0 0 0 8px #1F2937, 0 0 0 10px #374151;
+            overflow: hidden;
+            position: relative;
+        }
+        .phone-island {
+            position: absolute;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 110px;
+            height: 24px;
+            background: #000;
+            border-radius: 16px;
+            z-index: 100;
+        }
+        .phone-frame iframe {
+            width: 100%;
+            height: 100%;
+            border: 0;
+            display: block;
+        }
+        /* Contenu descriptif */
+        .content-card {
+            background: var(--card);
+            border: 1px solid var(--line);
+            border-radius: 20px;
+            padding: 22px;
+            margin-bottom: 18px;
+        }
+        .content-card h2 {
+            margin: 0 0 12px;
+            font-size: 20px;
+            font-weight: 750;
+            color: var(--txt);
+        }
+        .grid-features {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-top: 14px;
+        }
+        .feature-item {
+            background: var(--card-2);
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            padding: 14px;
+        }
+        .feature-item h3 {
+            margin: 0 0 4px;
+            font-size: 15px;
+            font-weight: 700;
+            color: var(--teal-light);
+        }
+        .feature-item p {
+            margin: 0;
+            font-size: 13px;
+            color: var(--txt-2);
+        }
+        .instructions ol {
+            padding-left: 20px;
+            color: var(--txt-2);
+            margin: 8px 0;
+        }
+        .instructions li {
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+        .instructions code {
+            background: rgba(255, 255, 255, 0.08);
+            padding: 2px 6px;
+            border-radius: 4px;
+            color: var(--gold);
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="badge">🚀 Version 1.2.0 · Nouvelle Ergonomie Native</div>
+        <h1>Équilibre · Recomposition & Menus</h1>
+        <p class="lead">
+            Nouvelle APK mobile Android inspirée du design system moderne et fluide de MonPortefeuille2 :
+            tuiles interactives, pesée rapide avec graphiques SVG, séances 30 min avec minuteur de repos, menus et liste de courses synchronisée.
+        </p>
+        <div class="actions">
+            <a href="https://github.com/flaviensaillard/suivi-recomposition/releases/latest/download/Equilibre.apk" class="btn-telecharger" id="btnDlDirect">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="7 10 12 15 17 10"></polyline>
+                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                Télécharger l'APK (Lien direct)
+            </a>
+            <a href="https://github.com/flaviensaillard/suivi-recomposition/releases/download/v1.2.0/Equilibre-1.2.0.apk" class="btn-secondaire">
+                APK v1.2.0 (Equilibre-1.2.0.apk)
+            </a>
+            <a href="https://github.com/flaviensaillard/suivi-recomposition/releases" class="btn-secondaire" target="_blank">
+                Toutes les releases GitHub
+            </a>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- Mockup interactif -->
+        <div class="mockup-wrapper">
+            <div class="phone-frame">
+                <div class="phone-island"></div>
+                <iframe src="app/src/main/assets/www/index.html" title="Aperçu mobile Équilibre"></iframe>
+            </div>
+        </div>
+
+        <!-- Détails de la version & Améliorations -->
+        <div class="details">
+            <div class="content-card">
+                <h2>✨ Nouveautés de la version 1.2.0</h2>
+                <div class="grid-features">
+                    <div class="feature-item">
+                        <h3>📊 Tableau de bord & Tuiles</h3>
+                        <p>Tuiles cliquables métriques (poids, calories, protéines, séance du jour) et boutons repas 1-clic.</p>
+                    </div>
+                    <div class="feature-item">
+                        <h3>⚖️ Pesée & Graphiques</h3>
+                        <p>Graphiques SVG vectoriels de tendance (poids réel vs moyenne mobile 7j) et saisie tactile instantanée.</p>
+                    </div>
+                    <div class="feature-item">
+                        <h3>⏱️ Séances & Minuteur</h3>
+                        <p>Programme A / B (30 min), supersets, notes de progression, saisie de charges et minuteur de repos intégré.</p>
+                    </div>
+                    <div class="feature-item">
+                        <h3>🛒 Menus & Courses</h3>
+                        <p>Planning de la semaine pour 2 personnes, fiches recettes complètes et liste de courses interactive cochable.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="content-card instructions">
+                <h2>📱 Comment installer l'APK sur Android</h2>
+                <ol>
+                    <li>Téléchargez le fichier <code>Equilibre.apk</code> via le lien direct ci-dessus.</li>
+                    <li>Ouvrez le fichier téléchargé depuis vos notifications ou le gestionnaire de fichiers.</li>
+                    <li>Si Android vous demande l'autorisation d'installer des applications depuis cette source, validez <em>« Autoriser cette source »</em>.</li>
+                    <li>Appuyez sur <strong>Installer</strong> puis ouvrez <strong>Équilibre</strong>.</li>
+                    <li>L'application s'ouvre directement avec vos données locales hors-ligne et synchronisables avec votre base de données Supabase.</li>
+                </ol>
+            </div>
+
+            <div class="content-card">
+                <h2>🌐 Coque d'applications Web Streamlit</h2>
+                <p style="color: var(--txt-2); margin-top: 0;">
+                    L'onglet <strong>Apps Web</strong> de l'application permet de retrouver en un geste vos deux déploiements Streamlit (<code>suivi-recomposition-corporelle.streamlit.app</code> et <code>menus-foyer.streamlit.app</code>) sans jamais quitter l'application, avec le bouton de bascule instantanée.
+                </p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

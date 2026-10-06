@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="app_bg">#FF0B0F17</color>
+    <color name="app_surface">#FF131A26</color>
+    <color name="app_accent">#FF0D9488</color>
+    <color name="app_accent_light">#FF14B8A6</color>
+    <color name="app_gold">#FFF5C451</color>
+    <color name="app_up">#FF2ECC71</color>
+    <color name="app_down">#FFE74C3C</color>
+    <color name="app_blue">#FF38BDF8</color>
+    <color name="app_status">#FF0B0F17</color>
+    <color name="app_nav">#FF0B0F17</color>
+</resources>

@@ -1,0 +1,86 @@
+name: Construire et Publier l'APK
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/apk.yml'
+      - 'app/**'
+      - 'android/**'
+      - 'build.sh'
+
+permissions:
+  contents: write
+
+jobs:
+  construire:
+    name: Compilation Android APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      VERSION_NAME: '1.2.0'
+      VERSION_CODE: '12'
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v4
+
+      - name: Configurer Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Installer le SDK Android
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools'
+
+      - name: Installer la plateforme 34 et build-tools 34.0.0
+        run: |
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          yes | sdkmanager --install "platforms;android-34" "build-tools;34.0.0"
+
+      - name: Mettre en cache le trousseau de clés
+        uses: actions/cache@v4
+        with:
+          path: keystore
+          key: apk-keystore-equilibre-v1
+
+      - name: Compiler et signer l'APK
+        run: bash build.sh
+
+      - name: Publier la release sur GitHub
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          TAG="v${VERSION_NAME}"
+          cp dist/Equilibre.apk "dist/Equilibre-${VERSION_NAME}.apk"
+          
+          # Créer la release si elle n'existe pas
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
+            || gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
+                 --title "Équilibre ${VERSION_NAME}" \
+                 --notes "Application mobile Android native d'Équilibre (Suivi de recomposition corporelle & Menus) inspirée du design system de MonPortefeuille2."
+          
+          # Téléverser les binaires APK
+          gh release upload "$TAG" "dist/Equilibre.apk" "dist/Equilibre-${VERSION_NAME}.apk" "dist/suivi-recomposition.apk" \
+            --repo "$GITHUB_REPOSITORY" --clobber
+
+      - name: Archiver l'APK en tant qu'artefact de build
+        uses: actions/upload-artifact@v4
+        with:
+          name: Equilibre-${{ env.VERSION_NAME }}.apk
+          path: dist/Equilibre.apk
+          if-no-files-found: error
+
+      - name: Résumé du build
+        run: |
+          echo "## 🎉 APK Android disponible au téléchargement direct" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "L'application **Équilibre v${VERSION_NAME}** a été générée et signée avec succès." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### 📥 Liens de téléchargement direct :" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Release directe v${VERSION_NAME}** : [Equilibre-${VERSION_NAME}.apk](https://github.com/$GITHUB_REPOSITORY/releases/download/v${VERSION_NAME}/Equilibre-${VERSION_NAME}.apk)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Lien permanent Dernière Version** : [Equilibre.apk (Dernière version)](https://github.com/$GITHUB_REPOSITORY/releases/latest/download/Equilibre.apk)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Nom de dépôt alternatif** : [suivi-recomposition.apk](https://github.com/$GITHUB_REPOSITORY/releases/latest/download/suivi-recomposition.apk)" >> "$GITHUB_STEP_SUMMARY"

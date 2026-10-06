@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#0B0F17">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Équilibre · Recomposition Corporelle</title>
+    <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Barre supérieure -->
+        <header class="topbar">
+            <h1 id="titreOnglet">
+                Tableau de bord
+                <span class="sub" id="sousTitre">recomposition corporelle</span>
+            </h1>
+            <button class="iconbtn" id="btnRefresh" title="Actualiser" aria-label="Actualiser">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="23 4 23 10 17 10"></polyline>
+                    <polyline points="1 20 1 14 7 14"></polyline>
+                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                </svg>
+            </button>
+            <button class="iconbtn" id="btnReglages" title="Objectifs & Paramètres" aria-label="Objectifs & Paramètres">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="3"></circle>
+                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                </svg>
+            </button>
+        </header>
+
+        <!-- Conteneur principal de la vue active -->
+        <main id="view" class="enter"></main>
+
+        <!-- Barre de navigation basse à 5 onglets -->
+        <nav class="bottom" id="nav">
+            <button data-onglet="bord" class="actif">
+                <svg viewBox="0 0 24 24">
+                    <rect x="3" y="3" width="7" height="9" rx="1"></rect>
+                    <rect x="14" y="3" width="7" height="5" rx="1"></rect>
+                    <rect x="14" y="12" width="7" height="9" rx="1"></rect>
+                    <rect x="3" y="16" width="7" height="5" rx="1"></rect>
+                </svg>
+                <span>Bord</span>
+            </button>
+            <button data-onglet="pesee">
+                <svg viewBox="0 0 24 24">
+                    <path d="M12 3v18M3 9l9-6 9 6"></path>
+                    <path d="M6 13l-3 6h6l-3-6zM18 13l-3 6h6l-3-6z"></path>
+                </svg>
+                <span>Pesée</span>
+            </button>
+            <button data-onglet="seances">
+                <svg viewBox="0 0 24 24">
+                    <path d="M6 5v14M18 5v14M2 9v6M22 9v6M6 12h12"></path>
+                </svg>
+                <span>Séances</span>
+            </button>
+            <button data-onglet="menus">
+                <svg viewBox="0 0 24 24">
+                    <path d="M18 8h1a4 4 0 0 1 0 8h-1"></path>
+                    <path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"></path>
+                    <line x1="6" y1="1" x2="6" y2="4"></line>
+                    <line x1="10" y1="1" x2="10" y2="4"></line>
+                    <line x1="14" y1="1" x2="14" y2="4"></line>
+                </svg>
+                <span>Menus</span>
+            </button>
+            <button data-onglet="apps">
+                <svg viewBox="0 0 24 24">
+                    <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+                    <polyline points="2 17 12 22 22 17"></polyline>
+                    <polyline points="2 12 12 17 22 12"></polyline>
+                </svg>
+                <span>Apps Web</span>
+            </button>
+        </nav>
+
+        <!-- Feuille modale tactile -->
+        <div class="voile" id="voile"></div>
+        <div class="feuille" id="feuille">
+            <div class="poignee"></div>
+            <div id="feuilleCorps"></div>
+        </div>
+
+        <!-- Notification Toast -->
+        <div class="toast" id="toast"></div>
+    </div>
+
+    <!-- Scripts modulaires -->
+    <script src="js/util.js"></script>
+    <script src="js/models.js"></script>
+    <script src="js/store.js"></script>
+    <script src="js/net.js"></script>
+    <script src="js/ui.js"></script>
+    <script src="js/views.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>

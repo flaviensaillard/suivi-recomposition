@@ -1,0 +1,24 @@
+# Build & artefacts
+build/
+dist/
+.gradle/
+*.class
+*.dex
+*.apk
+*.ap_
+
+# Keystore sensible généré localement (sauf si configuré)
+# keystore/*.jks
+
+# Python & caches
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+*.egg-info/
+
+# OS & Editeurs
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
