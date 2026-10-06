@@ -724,7 +724,9 @@
             '<button class="btn btn-flat" id="btnResetDemo" style="min-height:38px; font-size:12.5px; color:var(--txt-3);">' +
                 'Réinitialiser les données de démonstration' +
             '</button>' +
-            '<div style="font-size:11.5px; color:var(--txt-3); margin-top:10px;">Équilibre v1.2.0 · Coque Android native &amp; Web</div>' +
+            '<div style="font-size:11.5px; color:var(--txt-3); margin-top:10px;">Équilibre v' +
+                ((typeof Native !== 'undefined' && Native.versionName) ? Native.versionName() : '1.0.12') +
+                ' · Coque Android native &amp; Web</div>' +
         '</div>';
 
         UI.feuille({

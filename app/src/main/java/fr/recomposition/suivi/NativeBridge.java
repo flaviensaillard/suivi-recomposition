@@ -44,7 +44,7 @@ public class NativeBridge {
     private static final int TIMEOUT_MS = 25000;
     private static final String UA =
             "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) "
-                    + "Chrome/124.0.0.0 Mobile Safari/537.36 EquilibreApp/1.2.0";
+                    + "Chrome/124.0.0.0 Mobile Safari/537.36 EquilibreApp/1.0.12";
 
     private final Activity activity;
     private final JsRunner js;
@@ -218,7 +218,7 @@ public class NativeBridge {
 
     @JavascriptInterface
     public int versionCode() {
-        return 12;
+        return 13;
     }
 
     @JavascriptInterface
@@ -227,7 +227,7 @@ public class NativeBridge {
             return activity.getPackageManager()
                     .getPackageInfo(activity.getPackageName(), 0).versionName;
         } catch (Exception e) {
-            return "1.2.0";
+            return "1.0.12";
         }
     }
 }
