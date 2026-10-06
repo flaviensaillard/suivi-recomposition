@@ -1,192 +1,117 @@
-# MonPortefeuille 2
+# Équilibre · Suivi de Recomposition Corporelle & Menus
 
-Application de suivi de portefeuille, construite sur les mêmes bases que la v1 —
-**Streamlit, Supabase, GitHub Actions** — avec la mécanique de calcul corrigée et
-les tâches répétitives automatisées.
+Application mobile Android native et interface de suivi de recomposition corporelle (perte de masse grasse, maintien du muscle, apport protéique optimal) et de gestion des repas & courses du foyer.
 
-Le portefeuille suivi est celui de l'**Université de l'Épargne**, et les indicateurs
-sont choisis pour refléter la méthode de Charles Gave plutôt que les conventions de
-la finance de marché.
+Cette nouvelle version apporte une refonte ergonomique et visuelle complète inspirée du design system moderne et fluide de **MonPortefeuille2** : cartes posées, tuiles interactives cliquables, typographie contrastée, graphiques vectoriels SVG, animations fluides et retour haptique.
 
 ---
 
-## Ce qui change par rapport à la v1
+## 📥 Téléchargement direct de l'APK Android
 
-La v1 fonctionnait, mais six défauts faussaient ses résultats. Ils sont tous
-corrigés, et chacun est verrouillé par un test.
+L'APK Android est construite, signée et publiée directement via GitHub Actions :
 
-| # | Défaut de la v1 | Correction |
-|---|---|---|
-| 1 | L'assiette de rééquilibrage ignorait les `🏦 Cash réserve` (12 277 €, 13 % du patrimoine). Toutes les dérives affichées étaient fausses. | Le périmètre est porté par le modèle : `INVESTI` / `PRECAUTION` / `COURANT`. L'épargne de précaution est exclue *pour une raison énoncée*, pas oubliée par un filtre de type. |
-| 2 | `TG_Score TWR %` était une copie littérale de `Score TWR %`. Deux performances cumulées divergeant de 21 points, dont une fausse. | Une seule mesure par concept. Le TWR n'est jamais stocké : il est calculé à la demande depuis les snapshots. |
-| 3 | Barèmes fiscaux sur-indexés d'environ 1,3 %, endpoint `api.gouv.fr` inexistant masqué par un `try/except`, et **un seul jeu de barèmes pour tous les exercices**. | Barèmes indexés par **année de cession**, table datée et sourcée, fiabilité affichée honnêtement. |
-| 4 | Or ETC et or physique confondus : tout au régime des valeurs mobilières. | Trois régimes distincts : 150-0 A, 150 VH bis (avec l'abattement de 305 € qui manquait), 150 VI. |
-| 5 | Projection retraite en dollars déflatés par l'inflation française, sans conversion. Apports futurs indexés sur l'inflation du mauvais scénario. | Projection en **euros**, chaque scénario avec sa propre inflation, et une sensibilité au taux de change affichée. |
-| 6 | Replis silencieux : `1,05` pour EUR/USD, `1,0` pour les devises, `2 000 $` pour l'or, `0 %` pour l'inflation 2026. | **Aucune valeur de repli.** Une donnée manquante lève une exception et affiche un bandeau. |
+- **Lien direct (Dernière version)** : [Equilibre.apk](https://github.com/flaviensaillard/suivi-recomposition/releases/latest/download/Equilibre.apk)
+- **Lien direct v1.2.0** : [Equilibre-1.2.0.apk](https://github.com/flaviensaillard/suivi-recomposition/releases/download/v1.2.0/Equilibre-1.2.0.apk)
+- **Lien direct alternatif** : [suivi-recomposition.apk](https://github.com/flaviensaillard/suivi-recomposition/releases/latest/download/suivi-recomposition.apk)
+- **Releases GitHub** : [Toutes les versions publiées](https://github.com/flaviensaillard/suivi-recomposition/releases)
 
-### La correction de fond
-
-La v1 collectait le prix de l'or à chaque apport de capital, dans une colonne
-`Montant Or` dédiée, et **ne s'en servait jamais**. Or pour Gave, l'or n'est pas un
-placement mais l'étalon de valeur : *« l'or montera tant que les monnaies ne
-redeviendront pas des réserves de valeur »*.
-
-La v2 fait de la **performance en onces d'or** une métrique de premier plan, à côté
-de la performance en euros et en euros réels. Une seule courbe répond à la question
-qui compte, et elle est sur la page Suivi.
+### Installation sur votre smartphone Android
+1. Téléchargez le fichier `Equilibre.apk` via l'un des liens directs ci-dessus.
+2. Touchez le fichier dans votre panneau de notifications ou dans votre gestionnaire de fichiers.
+3. Si Android vous demande d'autoriser l'installation d'applications inconnues pour votre navigateur ou explorateur, appuyez sur **Autoriser cette source**.
+4. Validez l'installation et profitez d'une expérience fluide et instantanée !
 
 ---
 
-## Installation
+## ✨ Nouveautés ergonomiques & Fonctionnalités
 
-### 1. Créer le schéma Supabase
+### 1. 📊 Tableau de bord & Tuiles cliquables
+- **Carte Hero** : Poids actuel, cible (77 kg), delta total et moyenne mobile 7 jours.
+- **Tuiles métriques interactives** :
+  - *Déficit calorique* : Calories du jour vs objectif (1 700 kcal).
+  - *Protéines* : Jauge temps réel par rapport à l'objectif de 130 g/jour.
+  - *Séance du jour* : Type de séance recommandée (A ou B) avec accès direct.
+  - *Repas & Courses* : Aperçu du déjeuner et nombre d'articles restants à acheter.
+- **Boutons 1-clic repas types** : Ajout instantané de votre gamelle déjeuner (58 g prot), goûter (7 g prot) ou thé menthe sans formulaire superflu.
 
-Dans l'éditeur SQL de Supabase, exécutez `migrations/001_init.sql`.
+### 2. ⚖️ Pesée & Tendance
+- **Graphique vectoriel interactif SVG** : Visualisation de l'évolution du poids réel (points tactiles) et de la courbe de tendance (moyenne mobile 7 jours).
+- **Graphique d'apport protéique** : Histogramme hebdomadaire avec ligne repère à 130 g.
+- **Feuille modale de pesée** : Saisie tactile ultra-rapide (poids, calories, protéines, commentaires).
+- **Suivi des mensurations** : Historique et saisie du tour de taille (ombilic), hanches, poitrine, cuisses et bras.
 
-Les tables sont préfixées `pf2_` : **la v1 n'est pas touchée** et continue de
-fonctionner pendant la transition.
+### 3. ⏱️ Séances d'entraînement (30 minutes)
+- **Programme optimisé** : Séances A (Dos, Pectoraux, Cuisses) et B (Épaules, Ischios, Bras, Gainage) spécialement conçues pour un créneau court de 30 minutes.
+- **Supersets & Notes de progression** : Alternance d'exercices pour maximiser l'intensité et le temps de repos sans perte de temps.
+- **Minuteur de repos intégré** : Choix rapide 60s, 90s ou 120s avec compte à rebours, alertes sonores de fin de repos et vibration haptique.
+- **Validation en 1 clic** : Sauvegarde dans l'historique d'entraînement.
 
-### 2. Révoquer l'ancienne clé
+### 4. 🛒 Menus du foyer & Liste de courses interactive
+- **Planning de la semaine** : Répartition midi et soir pour 2 personnes.
+- **Fiches recettes détaillées** : Ingrédients, temps de préparation, étapes de cuisson et apports nutritionnels.
+- **Liste de courses interactive** : Articles classés par rayon (Frais, Épicerie, Primeur), cases à cocher tactiles avec mémorisation instantanée.
 
-La v1 commitait son URL et sa clé Supabase **en dur** dans `take_snapshot.py` et
-`calc_perf.py`, sur un repo public.
+### 5. 🌐 Coque d'applications Web Streamlit
+- Bascule instantanée entre **Suivi Recomposition** (`suivi-recomposition-corporelle.streamlit.app`) et **Menus du Foyer** (`menus-foyer.streamlit.app`).
+- Bouton d'actualisation rapide et ouverture externe dans le navigateur si nécessaire.
 
-1. Supabase → Settings → API → révoquer l'ancienne clé publishable
-2. Créer une nouvelle clé
-3. La stocker dans les secrets GitHub et `.streamlit/secrets.toml` — jamais dans le code
+---
 
-### 3. Configurer les secrets
+## 🛠️ Architecture technique
+
+L'application repose sur une double architecture hybride hautement performante :
+
+```
+suivi-recomposition/
+├── app/
+│   └── src/main/
+│       ├── AndroidManifest.xml          # Déclaration permissions, icône et orientation
+│       ├── java/fr/recomposition/suivi/
+│       │   ├── MainActivity.java        # WebView matérielle, accélération GPU, pont JS
+│       │   └── NativeBridge.java        # Pont natif (vibration haptique, toast, HTTP async)
+│       ├── res/                         # Icônes mipmap adaptatives, styles et thèmes sombres
+│       └── assets/www/                  # Application mobile autonome hors-ligne
+│           ├── index.html               # Structure HTML5 épurée
+│           ├── css/app.css              # Design system sombre moderne (cibles >= 44px)
+│           └── js/
+│               ├── util.js              # Formatage dates, nombres, sanitisation HTML
+│               ├── models.js            # Données statiques, séances A/B, recettes, repas types
+│               ├── store.js             # Moteur de persistance local (LocalStorage / Cache)
+│               ├── net.js               # Synchronisation REST avec Supabase
+│               ├── ui.js                # Feuilles modales, toasts, haptique, SVG
+│               ├── views.js             # Rendu modulaire des 5 écrans
+│               └── app.js               # Contrôleur principal et routage
+├── android/                             # Arborescence projet Gradle alternative
+├── .github/workflows/apk.yml            # Pipeline CI/CD GitHub Actions de compilation & release
+├── build.sh                             # Script de compilation autonome ultra-rapide (aapt2/d8)
+└── apercu.html                          # Page de présentation avec simulateur mobile interactif
+```
+
+---
+
+## 🔨 Compilation locale de l'APK (sans Gradle)
+
+Le script `build.sh` compile l'application en quelques secondes avec les outils standard du SDK Android (`aapt2`, `javac`, `d8`, `zipalign`, `apksigner`) :
 
 ```bash
-cp .streamlit/secrets.toml.example .streamlit/secrets.toml
-# puis renseigner SUPABASE_URL et SUPABASE_KEY
-```
+# Vérifier la présence du SDK Android et de Java 17
+export ANDROID_SDK_ROOT="/path/to/android-sdk"
+export JAVA_HOME="/path/to/jdk-17"
 
-`.streamlit/secrets.toml` est dans `.gitignore`.
+# Lancer la compilation et signature
+bash build.sh
 
-### 4. Lancer
-
-```bash
-pip install -r requirements.txt
-streamlit run app.py
-```
-
-### 5. Migrer les données de la v1
-
-Un script d'import est fourni : `jobs/importer_v1.py`. Il lit les tables
-`Transaction` et `Historique` de la v1 et écrit dans `pf2_transactions` et
-`pf2_apports`.
-
-```bash
-SUPABASE_URL=... SUPABASE_KEY=... python jobs/importer_v1.py --dry-run
-SUPABASE_URL=... SUPABASE_KEY=... python jobs/importer_v1.py
+# L'APK signée est disponible dans :
+# dist/Equilibre.apk
 ```
 
 ---
 
-## Le plan d'allocation
+## 🚀 Pipeline GitHub Actions
 
-Défini dans `core/models.py`, modifiable en un endroit.
-
-| Poche | Cible | Bande | Actifs |
-|---|---|---|---|
-| Réserve de valeur (Or + Bitcoin) | 20 % | ±3 pts | IGLN.L, BTCUSDT |
-| Énergie | 30 % | ±5 pts | XDW0.L, FLXC.L |
-| Asie / Chine | 30 % | ±5 pts | RI.PA |
-| Obligations japonaises | 20 % | ±5 pts | XJSE.SW |
-
-**Hors portefeuille**, suivis mais jamais rééquilibrés :
-
-| Périmètre | Actifs |
-|---|---|
-| Épargne de précaution | CHF (livret Swissquote) |
-| Compte courant | EUR, USD, CNY (Revolut) |
-
-La bande est plus serrée sur la réserve de valeur parce que c'est la poche qui
-porte la thèse anti-monnaie-fiduciaire : une dérive y coûte plus en doctrine qu'en
-performance.
-
----
-
-## Architecture
-
-```
-app.py                  Tableau de bord
-pages/                  Les 7 autres pages (navigation native Streamlit)
-core/
-  models.py             Poches, périmètres, classes d'actifs, régimes fiscaux
-  fiscal_bars.py        Barèmes de l'impôt, indexés par année
-  fx.py                 Taux de change — jamais devinés
-  prices.py             Cours — jamais devinés
-  metrics.py            TWR, rendement réel, rendement en or, IRR, volatilité
-  portfolio.py          Positions calculées depuis les transactions
-  rebalance.py          Rééquilibrage par poche et bande
-  tax.py                Moteur fiscal français
-  config.py             Réglages typés, sans clé en double
-  db.py                 Accès Supabase
-  session.py            Chargement et calcul partagés
-  ui.py                 Helpers d'affichage
-jobs/                   Robots GitHub Actions
-migrations/             Schéma SQL
-tests/                  52 tests, sans réseau ni base
-```
-
-### Le principe transversal
-
-**Aucune valeur de repli.** Un cours ou un taux de change manquant lève une
-exception, et l'application affiche un bandeau listant ce qui manque. C'est la
-correction structurelle de la v1, où une panne Yahoo produisait des performances
-flatteuses construites sur des chiffres inventés.
-
----
-
-## Automatisation
-
-`.github/workflows/daily.yml` fait tourner quatre robots chaque soir :
-
-| Heure UTC | Robot | Rôle |
-|---|---|---|
-| 21h05 | `update_market_data.py` | Cours et taux de change |
-| 21h35 | `daily_snapshot.py` | Valorisation du jour, en euros **et en onces d'or** |
-| 22h05 | `update_inflation.py` | Inflation annuelle |
-| 22h35 | `fiscal_alerts.py` | Alertes fiscales |
-
-Les secrets `SUPABASE_URL` et `SUPABASE_KEY` doivent être définis dans
-Settings → Secrets and variables → Actions.
-
-`.github/workflows/tests.yml` lance les tests à chaque push.
-
----
-
-## Ce qu'il reste à vérifier
-
-Le moteur fiscal est une **estimation, pas une déclaration**. À recouper avec le
-BOFiP avant toute déclaration :
-
-- les barèmes et décotes de 2025 et 2026 ;
-- le plafonnement du quotient familial ;
-- la qualification fiscale exacte d'un ETC or (IGLN.L) ;
-- le barème d'abattement de l'or physique (article 150 VI) ;
-- le traitement de l'abattement sur la taxe forfaitaire sur les métaux précieux.
-
-Ces points sont marqués « À VÉRIFIER » dans `core/fiscal_bars.py` et `core/tax.py`.
-
----
-
-## Tests
-
-```bash
-python -m pytest tests/ -v
-```
-
-52 tests, sans réseau ni base de données. Ils verrouillent notamment :
-
-- le TWR par sous-périodes et la neutralisation des apports ;
-- la relation de Fisher pour le rendement réel ;
-- le rendement en or, qui **refuse** un cours invalide ;
-- l'exclusion de l'épargne de précaution de l'assiette d'allocation ;
-- les bandes par poche et le seuil de rentabilité des ordres ;
-- le barème fiscal, tranche par tranche ;
-- l'abattement de 305 € sur la plus-value crypto ;
-- les deux régimes de l'or physique et le plus favorable des deux ;
-- la CSG déductible dans la comparaison PFU / barème.
+À chaque push ou déclenchement manuel via l'onglet **Actions** de GitHub (`workflow_dispatch`), le workflow `.github/workflows/apk.yml` :
+1. Configure l'environnement Java 17 et les `build-tools 34.0.0`.
+2. Exécute `bash build.sh`.
+3. Crée automatiquement la release GitHub `v1.2.0`.
+4. Attache `Equilibre.apk` et `Equilibre-1.2.0.apk`.
+5. Fournit les liens de téléchargement direct prêts à l'emploi.
