@@ -5,7 +5,7 @@ Tout se fait dans le navigateur, avec des copier-coller.
 
 À la fin, tu auras :
 - une application en ligne (ton suivi accessible depuis n'importe quel appareil) ;
-- **une vraie icône sur ton téléphone** qui ouvre l'application en plein écran (fichier `SuiviRecomposition-1.0.apk`) ;
+- **une vraie icône sur ton téléphone** qui ouvre l'application en plein écran (fichier `Equilibre.apk`) ;
 - tes données stockées dans Supabase, donc conservées même quand l'application se met en veille.
 
 ## Résumé ultra-court (si tu es pressé)
@@ -32,7 +32,7 @@ Tout se fait dans le navigateur, avec des copier-coller.
 
 Depuis cette conversation, télécharge :
 
-1. **`SuiviRecomposition-1.0.apk`** → l'application pour ton téléphone (45 Ko).
+1. **`Equilibre.apk`** → l'application pour ton téléphone (45 Ko).
 2. **`suivi-recomposition-github.zip`** → le paquet à envoyer sur GitHub (contient l'application,
    le guide, et le projet Android).
 
@@ -266,7 +266,7 @@ le navigateur. L'étape suivante te donne juste une vraie icône et le plein éc
 ### 4.1 Transférer le fichier
 
 Le plus simple : **ouvre cette conversation sur ton téléphone** et télécharge
-`SuiviRecomposition-1.0.apk` (il arrive dans ton dossier **Téléchargements**).
+`Equilibre.apk` (il arrive dans ton dossier **Téléchargements**).
 
 Autres options si tu préfères depuis l'ordinateur : envoie-toi le fichier par email (à toi-même),
 via Google Drive, ou par WhatsApp (« Message à moi-même »).
@@ -274,7 +274,7 @@ via Google Drive, ou par WhatsApp (« Message à moi-même »).
 ### 4.2 Autoriser l'installation
 
 1. Ouvre l'application **Fichiers** (ou **Mes fichiers** / **Téléchargements**) sur ton téléphone.
-2. Appuie sur `SuiviRecomposition-1.0.apk`.
+2. Appuie sur `Equilibre.apk`.
 3. Android affiche un message du type *« Pour votre sécurité, votre téléphone n'est pas autorisé
    à installer d'applications inconnues provenant de cette source »*.
 4. Appuie sur **Paramètres** (dans ce message) puis active **Autoriser à partir de cette source**
@@ -378,13 +378,12 @@ Si tu veux modifier l'application (son nom, son icône, l'adresse par défaut), 
 installer sur ton PC** : GitHub peut compiler l'APK à ta place.
 
 1. Va sur la page de ton dépôt GitHub → onglet **Actions**.
-2. À gauche, clique **Build APK** → bouton **Run workflow** → **Run workflow**.
+2. À gauche, clique **Construire l'APK (publication explicite)** → bouton **Run workflow** → choisis ta branche → laisse `publier` **décoché** → **Run workflow**. (Sans `publier`, rien n'est publié : l'APK est seulement jointe au run.)
 3. Attends 2 à 4 minutes, recharge la page : un nouvel élément apparaît sous le nom du workflow.
-4. Clique dessus → en bas, section **Artifacts** → télécharge **SuiviRecomposition-apk** (un `.zip`).
-5. Décompresse-le : tu obtiens `app-debug.apk`, à installer comme à l'étape 4.
+4. Clique dessus → en bas, section **Artifacts** → télécharge **Equilibre-1.0.13.apk** (un `.zip`).
+5. Décompresse-le : tu obtiens `Equilibre.apk`, à installer comme à l'étape 4.
 
-⚠️ Cet APK est signé avec une clé différente : **désinstalle l'application déjà installée** avant
-d'installer celle-ci.
+⚠️ Sans le secret de signature, cet APK est signé avec une **clé temporaire** : c'est une version de test. Elle ne peut pas mettre à jour une version installée. **Désinstalle l'application déjà installée** avant de l'installer. Ne la publie pas sur la release.
 
 ---
 
@@ -392,8 +391,8 @@ d'installer celle-ci.
 
 | Fichier / valeur | Où | Pourquoi |
 |---|---|---|
-| `SuiviRecomposition-1.0.apk` | ton téléphone + une copie sur ton PC | réinstallation rapide |
-| `android/keystore/suivi-release.jks` (mot de passe `suivi2026`) | hors du dépôt GitHub | **clé de signature** : indispensable pour publier une mise à jour de l'APK par-dessus l'ancienne |
+| `Equilibre.apk` | ton téléphone + une copie sur ton PC | réinstallation rapide |
+| `suivi-release.jks` (fichier de clé, **hors dépôt**) + son mot de passe (dans ton gestionnaire de mots de passe, **jamais dans un fichier du dépôt**) | ton PC et une copie de sauvegarde sûre | **clé de signature** : indispensable pour publier une mise à jour de l'APK par-dessus l'ancienne. Sans elle, la mise à jour est refusée. |
 | Email + mot de passe de l'application | Supabase → Authentication → Users | connexion à l'appli |
 | `Project URL` + `anon key` | Supabase → Project Settings → API | déploiement / redéploiement |
 
