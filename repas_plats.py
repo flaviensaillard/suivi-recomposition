@@ -25,6 +25,14 @@ import pdf_menus as PM
 JOURS_FR = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
 
 
+def _macro_texte(calc: dict, champ: str, partie: str = "par_part", suffixe: str = "") -> str:
+    """N'affiche pas un total partiel comme s'il était complet."""
+    if not calc.get("complet", {}).get(champ, False):
+        return "—"
+    prefixe = "≈ " if calc.get("approximatif", False) else ""
+    return f"{prefixe}{calc[partie][champ]:.0f}{suffixe}"
+
+
 def _titre_jour(d: dt.date) -> str:
     auj = dt.date.today()
     delta = (d - auj).days
@@ -44,12 +52,16 @@ def _fiche_recette(ms, calc: dict, nom_recette: str, ing_par_id: dict, recipe_id
         return
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Par part", f"{calc['par_part']['kcal']:.0f} kcal")
-    c2.metric("Protéines", f"{calc['par_part']['proteines']:.0f} g")
-    c3.metric("Glucides", f"{calc['par_part']['glucides']:.0f} g")
-    c4.metric("Lipides", f"{calc['par_part']['lipides']:.0f} g")
-    st.caption(f"{calc['parts']:g} parts · plat entier : {calc['total']['kcal']:.0f} kcal · "
+    c1.metric("Par part", _macro_texte(calc, "kcal", suffixe=" kcal"))
+    c2.metric("Protéines", _macro_texte(calc, "proteines", suffixe=" g"))
+    c3.metric("Glucides", _macro_texte(calc, "glucides", suffixe=" g"))
+    c4.metric("Lipides", _macro_texte(calc, "lipides", suffixe=" g"))
+    kcal_total = _macro_texte(calc, "kcal", partie="total", suffixe=" kcal")
+    st.caption(f"{calc['parts']:g} parts · plat entier : {kcal_total} · "
                f"{calc['poids_g']:.0f} g")
+    if calc.get("inconnues"):
+        st.warning("Calcul nutritionnel incomplet : " + ", ".join(calc["inconnues"][:6])
+                   + ". Les champs inconnus ne sont pas comptés comme 0.")
 
     st.markdown("**Ingrédients**")
     for l in calc["lignes"]:
@@ -173,11 +185,15 @@ def page_plats_a_preparer(ms, jours_visibles: int = 10):
                                                rec.get("base_servings"), nom_recette=rec.get("name"))
                 details = [moment, f"{nb_personnes:g} personnes" if nb_personnes else None]
                 if calc:
-                    details.append(f"**{calc['par_part']['kcal']:.0f} kcal** et "
-                                   f"**{calc['par_part']['proteines']:.0f} g de protéines** par part")
+                    kcal_txt = _macro_texte(calc, "kcal", suffixe=" kcal")
+                    prot_txt = _macro_texte(calc, "proteines", suffixe=" g de protéines")
+                    details.append(f"**{kcal_txt}** et **{prot_txt}** par part")
+                    if calc.get("inconnues"):
+                        details.append("⚠️ valeurs nutritionnelles incomplètes")
                 gauche.caption(" · ".join(x for x in details if x))
                 if calc:
-                    droite.caption(f"{calc['total']['kcal']:.0f} kcal au total  \n"
+                    kcal_total = _macro_texte(calc, "kcal", partie="total", suffixe=" kcal")
+                    droite.caption(f"{kcal_total} au total  \n"
                                    f"{calc['parts']:g} parts")
                 with st.expander("📖 Voir la recette"):
                     _fiche_recette(ms, calc, nom, ings, rid,

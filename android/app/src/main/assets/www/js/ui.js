@@ -192,19 +192,30 @@
 
     // -------------------------------------------------- Barres protéines 7 jours
     function svgBarresProteines(donnees7j, cibleG) {
-        cibleG = cibleG || 130;
         var w = 320, h = 90;
         var padLeft = 14, padRight = 14, padBottom = 22, padTop = 10;
         var barW = 28;
-        var gap = (w - padLeft - padRight - (donnees7j.length * barW)) / (donnees7j.length - 1);
-        var maxProt = Math.max(cibleG * 1.25, Math.max.apply(null, donnees7j.map(function (x) { return x.proteinesG || 0; })));
-
         var chartH = h - padTop - padBottom;
-        var cibleY = padTop + chartH - (cibleG / maxProt) * chartH;
+        var jours = Array.isArray(donnees7j) ? donnees7j.filter(function (x) {
+            return x && typeof x.proteinesG === 'number' && isFinite(x.proteinesG) && x.proteinesG >= 0;
+        }) : [];
 
-        var barres = donnees7j.map(function (d, i) {
-            var x = padLeft + i * (barW + gap);
-            var val = d.proteinesG || 0;
+        if (!jours.length) {
+            return '<div class="vide">Aucune saisie de protéines à afficher.</div>';
+        }
+
+        cibleG = U.num(cibleG, null);
+        if (cibleG === null || cibleG <= 0) {
+            return '<div class="vide">Le repère protéines doit être vérifié dans Réglages.</div>';
+        }
+        var maxSaisi = Math.max.apply(null, jours.map(function (x) { return x.proteinesG; }));
+        var maxProt = Math.max(cibleG * 1.25, maxSaisi, 1);
+        var cibleY = padTop + chartH - (cibleG / maxProt) * chartH;
+        var pas = jours.length > 1 ? (w - padLeft - padRight - barW) / (jours.length - 1) : 0;
+
+        var barres = jours.map(function (d, i) {
+            var x = jours.length > 1 ? padLeft + i * pas : (w - barW) / 2;
+            var val = d.proteinesG;
             var bH = Math.max(3, (val / maxProt) * chartH);
             var y = padTop + chartH - bH;
             var ok = val >= cibleG;
@@ -217,7 +228,7 @@
         }).join('');
 
         var ligneCible = '<line x1="' + padLeft + '" y1="' + cibleY + '" x2="' + (w - padRight) + '" y2="' + cibleY + '" stroke="#F5C451" stroke-dasharray="3,3" stroke-width="1" />' +
-                         '<text x="' + (w - padRight) + '" y="' + (cibleY - 3) + '" fill="#F5C451" font-size="8.5" text-anchor="end">Cible ' + cibleG + ' g</text>';
+                         '<text x="' + (w - padRight) + '" y="' + (cibleY - 3) + '" fill="#F5C451" font-size="8.5" text-anchor="end">Repère ' + cibleG + ' g</text>';
 
         return '<svg viewBox="0 0 ' + w + ' ' + h + '" class="svg-barres" preserveAspectRatio="none">' +
             ligneCible +

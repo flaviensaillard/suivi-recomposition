@@ -26,9 +26,17 @@ except ImportError:                      # fichier pas recopié sur GitHub
 # ---------------------------------------------------------------------------
 #  OUTILS D'AFFICHAGE
 # ---------------------------------------------------------------------------
-def ligne_macros(m: dict, taille: str = "normal") -> str:
-    txt = (f"**{m['kcal']:.0f}** kcal · **{m['proteines']:.0f} g** de protéines · "
-           f"{m['glucides']:.0f} g G · {m['lipides']:.0f} g L")
+def ligne_macros(m: dict, taille: str = "normal", complet: dict | None = None,
+                 approximatif: bool = False) -> str:
+    """Affiche un tiret pour toute macro incomplète, jamais un faux zéro."""
+    def valeur(champ):
+        if complet is not None and not complet.get(champ, False):
+            return "—"
+        prefixe = "≈ " if approximatif else ""
+        return f"{prefixe}{m[champ]:.0f}"
+
+    txt = (f"**{valeur('kcal')}** kcal · **{valeur('proteines')} g** de protéines · "
+           f"{valeur('glucides')} g G · {valeur('lipides')} g L")
     return txt if taille == "normal" else f"<span class='hint'>{txt}</span>"
 
 
@@ -47,13 +55,16 @@ def alerte_quantites(calc: dict) -> list[str]:
     elif par_part and par_part < 60:
         pb.append(f"seulement {par_part:.0f} kcal par part pour {calc['parts']:g} parts")
     if calc["inconnues"]:
-        pb.append("sans valeurs nutritionnelles : " + ", ".join(calc["inconnues"][:3]))
+        pb.append("valeurs ou quantités nutritionnelles manquantes : "
+                  + ", ".join(calc["inconnues"][:3]))
     return pb
 
 
 def _bouton_journal(store, quand, nom: str, proteines: float, cle: str,
-                    glucides: float = 0, lipides: float = 0):
-    if st.button(f"➕ Ajouter {proteines:.0f} g de protéines au journal", key=cle, width="stretch"):
+                    glucides: float = 0, lipides: float = 0, disabled: bool = False):
+    label = ("Valeurs nutritionnelles incomplètes — ajout désactivé" if disabled else
+             f"➕ Ajouter {proteines:.0f} g de protéines au journal")
+    if st.button(label, key=cle, width="stretch", disabled=disabled):
         store.add_protein(quand, f"{nom} (menu)", round(proteines),
                           carbs=round(glucides), fat=round(lipides))
         st.toast(f"+{proteines:.0f} g de protéines pour « {nom} »")
@@ -63,7 +74,7 @@ def _bouton_journal(store, quand, nom: str, proteines: float, cle: str,
 # ---------------------------------------------------------------------------
 #  PAGE — REPAS & MENUS
 # ---------------------------------------------------------------------------
-def page_repas(store, menus_store, target_p: float, jours_visibles: int = 10,
+def page_repas(store, menus_store, target_p: float | None, jours_visibles: int = 10,
                partage: bool = False):
     """Repas & menus de la famille.
 
@@ -122,7 +133,7 @@ def page_repas(store, menus_store, target_p: float, jours_visibles: int = 10,
         _onglet_recettes(ms, nb_ing, nb_rec, nb_lig, nb_rep, partage)
 
 
-def _onglet_jour(store, ms, target_p: float):
+def _onglet_jour(store, ms, target_p: float | None):
     """⚠️ Ancien onglet « Aujourd'hui » — il n'est plus affiché.
 
     Tu m'as dit : « enlève de Repas & menus ce qui se trouve dans aujourd'hui,
@@ -137,9 +148,21 @@ def _onglet_jour(store, ms, target_p: float):
         st.info(f"Rien de prévu le {quand.strftime('%d/%m/%Y')}.")
         return
 
-    total_1_part = sum(r["calcul"]["par_part"]["proteines"] for r in repas if r.get("calcul"))
-    jauge_proteines(total_1_part, target_p)
-    st.caption("Estimé pour **une part** de chaque plat.")
+    total_1_part = sum(r["calcul"]["par_part"]["proteines"]
+                       for r in repas if r.get("calcul"))
+    proteines_completes = all(
+        r.get("calcul") is not None and r["calcul"].get("complet", {}).get("proteines", False)
+        for r in repas)
+    if proteines_completes:
+        if target_p is not None:
+            jauge_proteines(total_1_part, target_p)
+        else:
+            st.metric("Protéines prévues · une part de chaque plat", f"{total_1_part:.0f} g")
+            st.caption("Aucun objectif personnel n'est configuré ; ce total décrit le menu prévu, pas la consommation réelle.")
+        st.caption("Estimé pour **une part** de chaque plat.")
+    else:
+        st.warning("Certaines valeurs de protéines sont manquantes ou non convertibles : "
+                   "le total n'est pas comparé à l'objectif.")
 
     pf = MN.portion_foyer()
     for i, r in enumerate(sorted(repas, key=lambda x: x["heure"] or "")):
@@ -169,17 +192,22 @@ def _onglet_jour(store, ms, target_p: float):
                 md = "poids"
 
             mp = MN.ma_part(calc, md, val, pf)
-            st.markdown(f"### {ligne_macros(mp['macros'])}")
+            st.markdown(f"### {ligne_macros(mp['macros'], complet=mp['complet'], approximatif=mp['approximatif'])}")
+            kcal_total = (f"{calc['total']['kcal']:.0f} kcal" if calc.get("complet", {}).get("kcal")
+                          else "kcal inconnues")
             st.caption(f"{mp['libelle']} ({mp['fraction']*100:.0f} % du plat · {mp['grammes']:.0f} g) "
-                       f"— plat entier : {calc['total']['kcal']:.0f} kcal pour {calc['parts']:g} parts")
+                       f"— plat entier : {kcal_total} pour {calc['parts']:g} parts")
             for pb in alerte_quantites(calc):
                 st.warning(f"Quantités à vérifier : {pb}", icon="⚠️")
+            valeurs_completes = all(mp["complet"].get(c, False)
+                                    for c in ("proteines", "glucides", "lipides"))
             _bouton_journal(store, quand, f"{r['recette']} ({mp['libelle']})",
                             mp["macros"]["proteines"], f"jr_{i}_{r['id']}",
-                            glucides=mp["macros"]["glucides"], lipides=mp["macros"]["lipides"])
+                            glucides=mp["macros"]["glucides"], lipides=mp["macros"]["lipides"],
+                            disabled=not valeurs_completes)
 
 
-def _onglet_semaine(ms, target_p: float, partage: bool = False):
+def _onglet_semaine(ms, target_p: float | None, partage: bool = False):
     debut = st.date_input("À partir du", value=dt.date.today(), format="DD/MM/YYYY", key="rep_debut")
     planning = ms.planning()
     recettes = ms.recette_par_id()
@@ -200,15 +228,17 @@ def _onglet_semaine(ms, target_p: float, partage: bool = False):
         st.info("Aucun repas après cette date.")
         return
 
-    if partage:
-        st.caption("Estimé pour **une part** de chaque plat.")
-    else:
-        st.caption("Estimé pour **une part** de chaque plat.")
+    st.caption("Estimé pour **une part** de chaque plat ; cela décrit le menu prévu, pas ce qui a réellement été consommé.")
+    if not partage and target_p is None:
+        st.info("Aucun objectif personnel configuré : les menus partagés restent visibles sans comparaison individuelle.")
     for d in dates:
         repas = sorted(jours[d], key=lambda x: x.get("meal_type") or "")
         jour_dt = dt.date.fromisoformat(d)
         titre = f"{['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'][jour_dt.weekday()]} {jour_dt.strftime('%d/%m')}"
         tot = {"kcal": 0.0, "proteines": 0.0, "glucides": 0.0, "lipides": 0.0}
+        proteines_completes = bool(repas)
+        kcal_completes = bool(repas)
+        approximatif = False
         lines = []
         for m in repas:
             rid = m.get("recipe_id")
@@ -219,18 +249,38 @@ def _onglet_semaine(ms, target_p: float, partage: bool = False):
                                         nom_recette=rec.get("name"))
                 for k in tot:
                     tot[k] += c["par_part"][k]
-                pp = f"{c['par_part']['kcal']:.0f} kcal · {c['par_part']['proteines']:.0f} g P"
+                qualite = c.get("complet", {})
+                proteines_completes = proteines_completes and qualite.get("proteines", False)
+                kcal_completes = kcal_completes and qualite.get("kcal", False)
+                approximatif = approximatif or c.get("approximatif", False)
+                kcal_txt = f"{c['par_part']['kcal']:.0f}" if qualite.get("kcal") else "—"
+                prot_txt = f"{c['par_part']['proteines']:.0f}" if qualite.get("proteines") else "—"
+                approx = "≈ " if c.get("approximatif") else ""
+                pp = f"{approx}{kcal_txt} kcal · {approx}{prot_txt} g P"
             else:
-                pp = "—"
+                proteines_completes = False
+                kcal_completes = False
+                pp = "— (valeurs indisponibles)"
             lines.append((m.get("meal_type") or "", nom, pp))
-        manque = max(0.0, target_p - tot["proteines"])
+        manque = (max(0.0, target_p - tot["proteines"])
+                  if target_p is not None else None)
         with st.container(border=True):
             c1, c2 = st.columns([2, 5])
             c1.markdown(f"**{titre}**")
-            c1.caption(f"{tot['kcal']:.0f} kcal · **{tot['proteines']:.0f} g P**"
-                       + ("" if partage else
-                          (f"  ·  il manque {manque:.0f} g" if manque > 5
-                           else "  ·  cible atteinte ✅")))
+            total_kcal_txt = f"{tot['kcal']:.0f}" if kcal_completes else "—"
+            if not partage and target_p is not None and proteines_completes:
+                cible_txt = (f"  ·  il manque {manque:.0f} g" if manque > 5
+                             else "  ·  cible atteinte ✅")
+            elif not proteines_completes:
+                cible_txt = "  ·  protéines incomplètes — comparaison non évaluée"
+            elif not partage and target_p is None:
+                cible_txt = "  ·  aucun objectif personnel configuré"
+            else:
+                cible_txt = ""
+            prefixe = "≈ " if approximatif else ""
+            proteines_txt = f"{tot['proteines']:.0f}" if proteines_completes else "—"
+            c1.caption(f"{prefixe}{total_kcal_txt} kcal · **{prefixe}{proteines_txt} g P**" +
+                       ("" if partage else cible_txt))
             c2.dataframe(pd.DataFrame(lines, columns=["Repas", "Plat", "1 part"]),
                          hide_index=True, width="stretch")
 
@@ -243,19 +293,23 @@ def _verif_calcul(ms, recettes, c=None):
         except Exception as e:
             st.error(f"Impossible de lire tes ingrédients : {type(e).__name__} — {e}")
             return
-        avec = [i for i in ings if i.get("proteines_100g")]
+        avec = [i for i in ings if all(
+            MN.nutriment_present(i.get(f"{c}_100g")) for c in MN.CHAMPS_NUTR)]
         st.markdown(f"- Aliments chargés depuis ta base : **{len(ings)}**")
-        st.markdown(f"- Aliments **avec valeurs nutritionnelles** : **{len(avec)}** "
-                    f"({len(ings) - len(avec)} sans — ils comptent pour 0)")
+        st.markdown(f"- Aliments avec les quatre valeurs nutritionnelles : **{len(avec)}** "
+                    f"({len(ings) - len(avec)} incomplets — ils ne sont plus assimilés à zéro)")
         if len(avec) < len(ings) * 0.5:
             st.error("❌ Moins de la moitié de tes aliments ont des valeurs nutritionnelles : "
                      "c'est ce qui fausse les totaux. Dis-le moi et je remets ces valeurs "
                      "à jour dans ta base.")
         sans = [dict(Aliment=(i.get("nom_affiche") or i.get("name")),
-                     Rayon=i.get("category"), Utilisé="oui" if i.get("code_ciqual") else "perso")
-                for i in ings if not i.get("proteines_100g")]
+                     Rayon=i.get("category"), Utilisé="oui" if i.get("code_ciqual") else "perso",
+                     Champs_manquants=", ".join(c for c in MN.CHAMPS_NUTR
+                         if not MN.nutriment_present(i.get(f"{c}_100g"))))
+                for i in ings if not all(
+                    MN.nutriment_present(i.get(f"{c}_100g")) for c in MN.CHAMPS_NUTR)]
         if sans:
-            st.markdown(f"**{len(sans)} aliments sans valeurs** (les 20 premiers) :")
+            st.markdown(f"**{len(sans)} aliments avec une ou plusieurs valeurs manquantes** (les 20 premiers) :")
             st.dataframe(pd.DataFrame(sans[:20]), hide_index=True, width="stretch")
 
 def _onglet_recettes(ms, nb_ing, nb_rec, nb_lig, nb_rep, partage: bool = False):

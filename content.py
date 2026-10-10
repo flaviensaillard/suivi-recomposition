@@ -2,14 +2,16 @@
 """Données de contenu : programme 30 min, liste de courses, presets protéines, calculs."""
 
 # ---------------------------------------------------------------- PROFIL / OBJECTIFS
+# Repères historiques conservés pour compatibilité ; ce ne sont pas des
+# recommandations par défaut. L'interface doit utiliser un profil confirmé.
 HEIGHT_CM = 185
-START_WEIGHT = 85.0          # mi-août 2026
-TARGET_WEIGHT = 77.0         # 31 décembre 2026
-TARGET_PROTEIN = 130         # g / jour (plancher à ne jamais descendre)
-TARGET_CARBS = 140           # g / jour
-TARGET_FAT = 50              # g / jour
-TARGET_KCAL = 1700           # kcal / jour — un seul objectif, tous les jours
-TDEE = 2400                  # dépense estimée (pour l'information)
+START_WEIGHT = 85.0
+TARGET_WEIGHT = 77.0
+TARGET_PROTEIN = 130
+TARGET_CARBS = 140
+TARGET_FAT = 50
+TARGET_KCAL = 1700
+TDEE = 2400
 
 # Les blocs ne changent plus les calories : l'objectif est le même tous les jours.
 PHASES = [
@@ -249,8 +251,9 @@ def lean_mass_kg(weight_kg, bf_pct):
 #  notée, avec les protéines, les glucides, les lipides et les calories déjà
 #  calculés. Les mêmes chiffres que la carte « ⭐ Mes repas types » du téléphone.
 #
-#  D'où viennent ces valeurs : elles sont la somme de la composition, calculée
-#  depuis TA base (valeurs Ciqual de tes aliments) — rien n'est inventé :
+#  Ces valeurs et les portions sont des repères historiques préenregistrés.
+#  Leur provenance et leur concordance avec la base Ciqual actuelle ne sont pas
+#  revalidées dans cet audit ; vérifier avant saisie, sans les traiter comme conseil.
 #
 #   ① Gamelle de midi · 3 œufs durs (55 g l'unité = 165 g) + 135 g d'edamames
 #      + 100 g de lentilles vertes CUITES (125 kcal/100 g, Ciqual) + 100 g de

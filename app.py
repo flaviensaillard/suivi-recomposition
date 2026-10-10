@@ -3,8 +3,9 @@
 ÉQUILIBRE — suivi de recomposition corporelle et de menus.
 
 Stack : Streamlit (interface) + Supabase (base de données cloud) + GitHub (code)
-Fonctionne aussi 100 % hors ligne en mode local (SQLite) tant que Supabase
-n'est pas configuré.
+Le mode SQLite mono-utilisateur est réservé au développement local explicite
+(EQUILIBRE_SINGLE_USER_LOCAL=1) ; une absence de configuration ne donne pas
+accès automatiquement aux données familiales.
 
     streamlit run app.py
 """
@@ -326,16 +327,16 @@ def acces_libere(cfg) -> bool:
     • Si une clé personnelle est rangée dans les Secrets : il faut la retrouver
       dans l'adresse (c'est ton lien personnel, celui que tu mets en favori).
       Quelqu'un qui ouvre l'adresse normale tombe sur l'écran de connexion.
-    • Si aucune clé n'est rangée : l'application entre toute seule (comme la
-      1.0.3) — tu es chez toi, l'application n'est de toute façon pas accessible
-      sans être passé par le compte Streamlit qui la détient.
+    • Sans clé personnelle configurée : pas de connexion automatique. Le compte
+      personnel doit se connecter explicitement ; l'espace partagé est un parcours
+      distinct et ne donne jamais accès aux journaux personnels.
     """
     import hmac
     if st.session_state.get("cle_ok"):
         return True
     rangees = [(nom, cle) for nom, cle, _c, _m in espaces_rangees(cfg) if cle]
     if not rangees:
-        return True                     # aucune clé rangée : comme la 1.0.3
+        return False                    # aucune clé personnelle : connexion explicite requise
     apportee = cle_personnelle()
     if apportee:
         for nom, cle in rangees:
@@ -654,6 +655,14 @@ def init_store():
                 login_page(store, cfg)
         st.session_state["store"] = store
         return store
+    if _os.environ.get("EQUILIBRE_SINGLE_USER_LOCAL") != "1":
+        st.error("### 🔒 Mode local désactivé par défaut\n\n"
+                 "Aucun accès aux journaux personnels n'est ouvert sans authentification. "
+                 "Configure Supabase pour le foyer, ou active explicitement le mode de "
+                 "développement **mono-utilisateur** avec `EQUILIBRE_SINGLE_USER_LOCAL=1`. "
+                 "Ce mode local n'isole pas plusieurs membres et ne doit pas être exposé "
+                 "sur Internet.")
+        st.stop()
     store = LocalStore()
     st.session_state["store"] = store
     return store
@@ -668,18 +677,30 @@ def prof(key, default):
     return default if v in (None, "") else v
 
 
-#  ⓘ PROFIL VIERGE (l'espace de ta femme au premier jour) : on n'affiche
-#  AUCUNE de tes valeurs. Tant qu'elle n'a pas enregistré son profil dans
-#  ⚙️ Réglages, l'application travaille avec des repères neutres — jamais les
-#  tiens (sinon ses écrans afficheraient ton poids et tes 130 g de protéines).
-PROFIL_VIERGE = not PROFILE
+_PROFIL_CHAMPS_REQUIS = (
+    "height_cm", "start_weight_kg", "target_weight_kg", "target_protein_g",
+    "target_carbs_g", "target_fat_g", "target_kcal", "tdee_kcal")
+
+
+def _profil_valeur_renseignee(valeur):
+    try:
+        return valeur not in (None, "") and bool(pd.notna(valeur)) and float(valeur) > 0
+    except (TypeError, ValueError):
+        return False
+
+
+# Un profil partiel n'est pas utilisé comme s'il contenait toutes les données
+# personnelles nécessaires. Les repères internes restent provisoires et ne
+# déclenchent pas d'analyses personnelles tant que les champs requis manquent.
+PROFIL_VIERGE = not PROFILE or any(
+    not _profil_valeur_renseignee(PROFILE.get(cle)) for cle in _PROFIL_CHAMPS_REQUIS)
 _NEUTRE = dict(height_cm=170.0, start_weight_kg=70.0, target_weight_kg=70.0,
                target_protein_g=100, target_carbs_g=140, target_fat_g=55,
                target_kcal=1900, tdee_kcal=2200)
 
 
 def _rep(cle, valeur_perso):
-    """Le repère à utiliser : tes valeurs, ou des repères neutres si profil vide."""
+    """Repère provisoire interne, utilisé seulement avant configuration du profil."""
     return _NEUTRE[cle] if PROFIL_VIERGE else valeur_perso
 
 
@@ -690,24 +711,24 @@ TARGET_L = int(prof("target_fat_g", _rep("target_fat_g", getattr(C, "TARGET_FAT"
 TARGET_KCAL = int(prof("target_kcal", _rep("target_kcal", getattr(C, "TARGET_KCAL", 1700))))
 START_W = float(prof("start_weight_kg", _rep("start_weight_kg", C.START_WEIGHT)))
 HEIGHT = float(prof("height_cm", _rep("height_cm", C.HEIGHT_CM)))
+TARGET_P_PERSONNEL = None if PROFIL_VIERGE else TARGET_P
 
 
 def _enregistrer_profil(data: dict):
-    """Enregistre le profil. Si la base n'a pas encore les colonnes glucides/lipides/calories,
-    on enregistre quand même le reste et on le dit clairement à l'utilisateur."""
+    """Enregistre le profil sans repli partiel qui masquerait une erreur ou écrirait à moitié."""
     try:
         store.save_profile(data)
         return True, ""
-    except Exception:
-        leger = {k: v for k, v in data.items()
-                 if k not in ("target_carbs_g", "target_fat_g", "target_kcal")}
-        try:
-            store.save_profile(leger)
-        except Exception as e:
-            return False, f"Impossible d'enregistrer le profil : {e}"
-        return False, ("Le reste du profil est bien enregistré, mais tes cibles glucides / lipides / "
-                       "calories n'existent pas encore dans ta base. Lance le fichier "
-                       "19_objectifs.sql dans Supabase (SQL Editor), puis réenregistre.")
+    except Exception as e:
+        texte = str(e).lower()
+        champs = ("target_carbs_g", "target_fat_g", "target_kcal")
+        if any(champ in texte for champ in champs) or (
+                "column" in texte and any(m in texte for m in ("does not exist", "schema cache"))):
+            return False, ("Aucun changement de profil confirmé : le schéma Supabase semble ne pas "
+                           "contenir toutes les colonnes d'objectifs. Une mise à niveau du schéma "
+                           "est nécessaire avant d'enregistrer ; aucune migration n'est lancée par "
+                           "l'application. Contacte l'administrateur pour vérifier la structure.")
+        return False, f"Profil non enregistré : {type(e).__name__} — {e}"
 
 
 # ============================================================================
@@ -813,14 +834,18 @@ def days_since_start():
 
 
 def sessions_this_week():
+    """Compte séparément les deux renforts et le rugby du calendrier confirmé."""
     monday = D.today() - dt.timedelta(days=D.today().weekday())
     df = store.workouts_df()
     if df.empty:
-        return 0, []
+        return 0, [], 0
     df = df.copy()
-    df["session_date"] = pd.to_datetime(df["session_date"]).dt.date
+    df["session_date"] = pd.to_datetime(df["session_date"], errors="coerce").dt.date
     df = df[df["session_date"] >= monday]
-    return len(df), sorted(df["session"].tolist())
+    codes = df["session"].astype(str).str.upper()
+    renfo = sorted(set(df[codes.isin(["A", "B"])]["session"].astype(str).str.upper()))
+    rugby = int((codes == "C").sum())
+    return len(renfo), renfo, rugby
 
 
 def last_sets(exercise, session, before: D):
@@ -923,17 +948,21 @@ def page_safe(fonction):
 # ============================================================================
 def page_dashboard():
     st.title("🏠 Tableau de bord")
+    if PROFIL_VIERGE:
+        st.warning("Profil personnel non configuré ou incomplet. Aucun objectif ni conseil personnalisé n'est affiché.")
+        st.info("Configure tes propres données dans **Réglages**. Les données déjà enregistrées ne sont ni modifiées ni supprimées.")
+        return
     daily = load_daily()
     meas = load_meas()
     prot = protein_by_day()
-    phase, kcal_t = C.phase_for(D.today())
+    phase = str(PROFILE.get("phase") or "Non renseignée")
 
     w_avg = mean_since(daily, "weight_kg", 7)
     w_prev = mean_since(daily, "weight_kg", 7, D.today() - dt.timedelta(days=7))
     bf_avg = mean_since(daily, "body_fat_pct", 7)
     p_avg = mean_since(prot.rename(columns={"entry_date": "log_date", "total": "protein_g"}),
                        "protein_g", 7) if not prot.empty else None
-    n_sess, sess_list = sessions_this_week()
+    n_sess, sess_list, n_rugby = sessions_this_week()
 
     st.markdown(f"**Phase actuelle :** {phase} · objectif **{TARGET_KCAL} kcal** / jour · "
                 f"**{TARGET_P} g de protéines** · **{TARGET_G} g de glucides** · **{TARGET_L} g de lipides**")
@@ -990,9 +1019,9 @@ def page_dashboard():
              f"{lined(p_today >= TARGET_P)} **Protéines {p_today}/{TARGET_P} g**"]
     if not ELLE:
         _etat.append(
-            f"{lined(n_sess >= (2 if today.weekday() >= 4 else 1))} "
-            f"**Séances cette semaine : {n_sess}/2**"
+            f"{lined(n_sess >= 2)} **Renforcement : {n_sess}/2 (lundi/vendredi)**"
             f"{' (' + ', '.join(sess_list) + ')' if sess_list else ''}")
+        _etat.append(f"{lined(n_rugby >= 1)} **Rugby : {n_rugby} séance(s) cette semaine**")
     _etat.append(f"{lined(not meas.empty)} **Mensurations**")
     st.markdown("  ·  ".join(_etat))
     if row.empty:
@@ -1001,26 +1030,25 @@ def page_dashboard():
     # alertes coach
     alertes = []
     if w_prev and w_avg and (w_prev - w_avg) / 7 > 0.115:
-        alertes.append("Perte > 0,8 kg/semaine → **ajoute 200 kcal** (glucides).")
+        alertes.append("La tendance enregistrée dépasse 0,8 kg/semaine : vérifie les pesées et le contexte avant toute décision. Aucun objectif alimentaire n'est modifié automatiquement.")
     if p_avg is not None and p_avg < TARGET_P - 15:
-        alertes.append(f"Protéines à {p_avg:.0f} g/j : c'est le levier n°1. Ajoute un shaker à 10 h 30 et 200 g de fromage blanc à 16 h.")
-    if not ELLE and n_sess < 2 and today.weekday() >= 4:
-        alertes.append("Il te reste une séance à faire cette semaine (lundi/vendredi).")
+        alertes.append(f"La moyenne de protéines journalisée ({p_avg:.0f} g/j) est sous la cible saisie. Vérifie d'abord que le journal est complet ; aucune supplémentation n'est prescrite automatiquement.")
+    if not ELLE and today.weekday() >= 4:
+        seances_manquantes = []
+        for code, jour_prevu in (("A", "lundi"), ("B", "vendredi")):
+            if code not in sess_list:
+                seances_manquantes.append(f"séance {code} prévue {jour_prevu}")
+        if seances_manquantes:
+            alertes.append("À vérifier dans le journal : " + ", ".join(seances_manquantes) +
+                           " — le calendrier lundi/vendredi + rugby jeudi est conservé.")
     if alertes:
         with st.container(border=True):
             st.markdown("**🧭 Ce que dit ton coach cette semaine**")
             for a in alertes:
                 st.markdown(f"- {a}")
 
-    with st.expander("⚡ Signaux d'alerte : le déficit est trop fort"):
-        st.markdown("Si **deux** de ces signes apparaissent : +200 kcal immédiatement (glucides).\n\n"
-                    "- Perte > 0,8 kg/semaine après la 2ᵉ semaine de déficit\n"
-                    "- Baisse de force > 10 % sur 2 semaines\n"
-                    "- Sommeil agité, réveils nocturnes\n"
-                    "- Frilosité, mains froides\n"
-                    "- Libido en chute, envies de sucre incontrôlables\n"
-                    + ("" if ELLE else
-                       "\n- Récupération du rugby > 3 jours, blessures à répétition"))
+    with st.expander("⚠️ Signes à ne pas banaliser"):
+        st.markdown("Une perte rapide, une baisse persistante de force, un sommeil dégradé, une frilosité inhabituelle, une baisse de libido, une récupération anormalement longue ou des blessures répétées peuvent avoir plusieurs causes. L'application ne pose pas de diagnostic et ne doit pas ajuster seule les calories : en cas de symptômes persistants ou inquiétants, demande un avis médical ou diététique qualifié.")
 
 
 # ============================================================================
@@ -1029,62 +1057,91 @@ def page_dashboard():
 def page_pesee():
     st.title("⚖️ Pesée & tendance")
     st.caption("À jeun, même balance, même heure — c'est la **moyenne 7 jours** qui compte.")
+    if PROFIL_VIERGE:
+        st.info("Profil incomplet : aucune cible de poids ni IMC personnel n'est affiché. Les mesures restent saisissables sans objectif.")
     daily = load_daily()
     today = D.today()
     existing = daily[daily["log_date"] == today]
     cur = existing.iloc[0] if not existing.empty else None
 
-    ACTIVITES = ["Repos", "Séance A", "Séance B", "Rugby", "Marche", "Musique", "Autre"]
+    ACTIVITES = ["Non renseignée", "Repos", "Séance A", "Séance B", "Rugby", "Marche", "Musique", "Autre"]
     deja = _val(cur, "activity")
+    poids_deja = _val(cur, "weight_kg")
+    gras_pct_deja = _val(cur, "body_fat_pct")
+    poids_initial = None if poids_deja is None else float(MN.borne(poids_deja, 50.0, 140.0, 80.0))
+    gras_kg_initial = (C.fat_mass_kg(poids_initial, gras_pct_deja)
+                       if poids_initial is not None and gras_pct_deja is not None else None)
+    pas_deja = _val(cur, "steps")
+    sommeil_deja = _val(cur, "sleep_h")
+    energie_deja = _val(cur, "energy")
+    activite_initiale = ACTIVITES.index(deja) if deja in ACTIVITES else 0
+    options_energie = ["Non renseignée"] + list(range(1, 11))
+    energie_initiale = options_energie.index(energie_deja) if energie_deja in options_energie else 0
+
     with st.form("pesee"):
         c1, c2 = st.columns(2)
         with c1:
             d = st.date_input("Date", value=today, max_value=today, format="DD/MM/YYYY")
             poids = st.number_input("Poids (kg)", min_value=50.0, max_value=140.0, step=0.1,
-                                    format="%.1f",
-                                    value=float(MN.borne(
-                                        _dernier(daily, cur, "weight_kg", 80.0),
-                                        50.0, 140.0, 80.0)))
-            #  ⓘ LA MASSE GRASSE SE SAISIT EN KILOS (01/10) : c'est ce que la
-            #  balance affiche, et plus besoin de calculer un pourcentage.
-            #  L'application convertit en % pour le rangement : c'est le % que
-            #  suit la moyenne 7 jours.
-            _pct_prec = float(MN.borne(_dernier(daily, cur, "body_fat_pct", 18.8),
-                                       3.0, 60.0, 18.8))
+                                    format="%.1f", value=poids_initial,
+                                    placeholder="Saisir une mesure réelle")
+            # La masse grasse est facultative et n'est préremplie que si une
+            # valeur a déjà été enregistrée pour cette même journée.
             bf_kg = st.number_input(
-                "Masse grasse (kg)", min_value=2.0, max_value=90.0, step=0.1,
-                format="%.1f",
-                value=float(MN.borne(C.fat_mass_kg(poids, _pct_prec) or 14.0, 2.0, 90.0, 14.0)),
-                help="Balance à impédance (Tefal) : la valeur en kilos, telle qu'elle "
-                     "s'affiche. L'application en déduit le pourcentage et garde les deux.")
-            bf = float(C.masse_grasse_pct(poids, bf_kg) or _pct_prec)
-            st.caption(f"↳ soit **{bf:.1f} %** de ton poids ({poids:.1f} kg)")
-            pas = st.number_input("Pas", min_value=0, max_value=40000, step=250,
-                                  value=int(MN.borne(_dernier(daily, cur, "steps", 10000),
-                                                     0, 40000, 10000)))
+                "Masse grasse (kg) — facultatif", min_value=2.0, max_value=90.0, step=0.1,
+                format="%.1f", value=gras_kg_initial,
+                placeholder="Laisser vide si non mesurée",
+                help="Saisis la valeur de la balance. Le pourcentage est calculé uniquement "
+                     "si le poids du même jour est renseigné.")
+            bf = (C.masse_grasse_pct(poids, bf_kg)
+                  if poids is not None and bf_kg is not None else None)
+            if bf is not None:
+                st.caption(f"↳ soit **{bf:.1f} %** de {poids:.1f} kg")
+            pas = st.number_input("Pas — facultatif", min_value=0, max_value=40000, step=250,
+                                  value=None if pas_deja is None else int(MN.borne(pas_deja, 0, 40000, 0)),
+                                  placeholder="Laisser vide si non suivi")
         with c2:
-            sommeil = st.number_input("Sommeil (h)", min_value=3.0, max_value=12.0, step=0.5,
-                                      format="%.1f",
-                                      value=float(MN.borne(
-                                          _dernier(daily, cur, "sleep_h", 7.5),
-                                          3.0, 12.0, 7.5)))
-            activite = st.selectbox("Activité du jour", ACTIVITES,
-                                    index=ACTIVITES.index(deja) if deja in ACTIVITES else 0)
-            energie = st.slider("Énergie (1-10)", 1, 10,
-                                int(MN.borne(_dernier(daily, cur, "energy", 7), 1, 10, 7)))
-            notes = st.text_area("Notes (faim, humeur, écart…)",
+            sommeil = st.number_input("Sommeil (h) — facultatif", min_value=3.0, max_value=12.0,
+                                      step=0.5, format="%.1f",
+                                      value=None if sommeil_deja is None else float(MN.borne(sommeil_deja, 3, 12, 7.5)),
+                                      placeholder="Laisser vide si non suivi")
+            activite = st.selectbox("Activité du jour", ACTIVITES, index=activite_initiale)
+            energie = st.selectbox("Énergie (1–10)", options_energie, index=energie_initiale)
+            notes = st.text_area("Notes (facultatif)",
                                  value=str(_val(cur, "notes") or ""), height=80)
         ok = st.form_submit_button("💾 Enregistrer la journée", type="primary", width="stretch")
     if ok:
-        store.save_daily(dict(log_date=d, weight_kg=poids, body_fat_pct=bf, steps=int(pas),
-                              sleep_h=sommeil, activity=activite, energy=int(energie), notes=notes))
-        st.success("Journée enregistrée.")
-        st.rerun()
+        if bf_kg is not None and (poids is None or poids <= 0):
+            st.warning("Renseigne le poids du même jour pour enregistrer la masse grasse.")
+        else:
+            row = {"log_date": d}
+            if poids is not None:
+                row["weight_kg"] = float(poids)
+            if bf is not None:
+                row["body_fat_pct"] = float(bf)
+            if pas is not None:
+                row["steps"] = int(pas)
+            if sommeil is not None:
+                row["sleep_h"] = float(sommeil)
+            if activite != "Non renseignée":
+                row["activity"] = activite
+            if energie != "Non renseignée":
+                row["energy"] = int(energie)
+            if notes.strip():
+                row["notes"] = notes.strip()
+            if len(row) == 1:
+                st.warning("Aucune mesure ou donnée du jour renseignée ; rien n'a été enregistré.")
+            else:
+                store.save_daily(row)
+                st.success("Journée enregistrée.")
+                st.rerun()
 
-    if bf and poids:
-        st.caption(f"Lecture : **{C.fat_mass_kg(poids, bf)} kg de masse grasse** ({bf:.1f} % de "
-                   f"{poids:.1f} kg) et **{C.lean_mass_kg(poids, bf)} kg de masse maigre** · "
-                   f"IMC {C.bmi(poids, HEIGHT)}.")
+    if bf is not None and poids is not None:
+        details = (f"**{C.fat_mass_kg(poids, bf)} kg de masse grasse** ({bf:.1f} % de "
+                   f"{poids:.1f} kg) et **{C.lean_mass_kg(poids, bf)} kg de masse maigre**")
+        if not PROFIL_VIERGE:
+            details += f" · IMC {C.bmi(poids, HEIGHT)} (indicateur descriptif, pas un diagnostic)"
+        st.caption("Lecture calculée à partir des valeurs saisies : " + details)
 
     st.subheader("Tendance")
     r = rolling(daily, "weight_kg")
@@ -1097,8 +1154,10 @@ def page_pesee():
                 domain=["Poids", "Moyenne 7 jours"], range=["#7dd3fc", "#14b8a6"])),
             strokeWidth=alt.condition(alt.datum["Série"] == "Moyenne 7 jours", alt.value(3), alt.value(1.2)),
         ).properties(height=240, width="container")
-        st.altair_chart(ch + alt.Chart(pd.DataFrame({"y": [TARGET_W]})).mark_rule(
-            color="#fbbf24", strokeDash=[5, 4]).encode(y="y:Q"))
+        if not PROFIL_VIERGE:
+            ch = ch + alt.Chart(pd.DataFrame({"y": [TARGET_W]})).mark_rule(
+                color="#fbbf24", strokeDash=[5, 4]).encode(y="y:Q")
+        st.altair_chart(ch)
 
     if not daily.empty:
         st.markdown("**Mes 14 derniers jours** — *clique dans une case pour corriger*")
@@ -1142,63 +1201,89 @@ def page_pesee():
 def page_mensurations():
     st.title("📏 Mensurations")
     st.caption("Tour de taille au nombril, lundi matin à jeun.")
+    if PROFIL_VIERGE:
+        st.info("Profil incomplet : les mensurations réelles peuvent être saisies, mais aucune estimation dépendant de la taille du profil n'est affichée.")
     meas = load_meas()
     today = D.today()
     last_meas = None if meas.empty else meas.iloc[-1]
+    existing_today = meas[meas["meas_date"] == today]
+    cur = existing_today.iloc[0] if not existing_today.empty else None
+
+    def mesure_du_jour(champ, minimum, maximum):
+        valeur = _val(cur, champ)
+        if valeur is None:
+            return None
+        try:
+            valeur = float(valeur)
+            return valeur if minimum <= valeur <= maximum else None
+        except (TypeError, ValueError):
+            return None
 
     with st.form("mens"):
         c1, c2 = st.columns(2)
         with c1:
             d = st.date_input("Date", value=today, max_value=today, format="DD/MM/YYYY")
             taille = st.number_input("Tour de taille — nombril (cm)", 50.0, 160.0, step=0.1,
-                                     format="%.1f",
-                                     value=float(MN.borne(
-                                         _dernier(meas, last_meas, "waist_cm", 90.0),
-                                         50.0, 160.0, 90.0)))
+                                     format="%.1f", value=mesure_du_jour("waist_cm", 50, 160),
+                                     placeholder="Laisser vide si non mesuré")
             hanches = st.number_input("Hanches (cm)", 50.0, 160.0, step=0.1, format="%.1f",
-                                      value=float(MN.borne(
-                                          _dernier(meas, last_meas, "hips_cm", 98.0),
-                                          50.0, 160.0, 98.0)))
+                                      value=mesure_du_jour("hips_cm", 50, 160),
+                                      placeholder="Laisser vide si non mesuré")
             poitrine = st.number_input("Poitrine (cm)", 50.0, 160.0, step=0.1, format="%.1f",
-                                       value=float(MN.borne(
-                                           _dernier(meas, last_meas, "chest_cm", 102.0),
-                                           50.0, 160.0, 102.0)))
+                                       value=mesure_du_jour("chest_cm", 50, 160),
+                                       placeholder="Laisser vide si non mesuré")
         with c2:
             cou = st.number_input("Tour de cou (cm)", 25.0, 60.0, step=0.1, format="%.1f",
-                                  value=float(MN.borne(
-                                      _dernier(meas, last_meas, "neck_cm", 39.0),
-                                      25.0, 60.0, 39.0)),
-                                  help="Sert au calcul Marine — deuxième estimation du % "
-                                       "de graisse.")
+                                  value=mesure_du_jour("neck_cm", 25, 60),
+                                  placeholder="Laisser vide si non mesuré",
+                                  help="Facultatif. La formule Marine affichée plus bas est une estimation masculine, pas un diagnostic.")
             bras = st.number_input("Bras contracté (cm)", 20.0, 60.0, step=0.1, format="%.1f",
-                                   value=float(MN.borne(
-                                       _dernier(meas, last_meas, "arm_cm", 36.0),
-                                       20.0, 60.0, 36.0)))
+                                   value=mesure_du_jour("arm_cm", 20, 60),
+                                   placeholder="Laisser vide si non mesuré")
             cuisse = st.number_input("Cuisse (cm)", 30.0, 90.0, step=0.1, format="%.1f",
-                                     value=float(MN.borne(
-                                         _dernier(meas, last_meas, "thigh_cm", 57.0),
-                                         30.0, 90.0, 57.0)))
-            photos = st.checkbox("Photos face / profil / dos faites", value=False)
-        notes = st.text_input("Observations", value="")
+                                     value=mesure_du_jour("thigh_cm", 30, 90),
+                                     placeholder="Laisser vide si non mesuré")
+            photos = st.checkbox("Photos face / profil / dos faites",
+                                 value=bool(_val(cur, "photos", False)))
+        notes = st.text_input("Observations", value=str(_val(cur, "notes", "") or ""))
         ok = st.form_submit_button("💾 Enregistrer", type="primary", width="stretch")
     if ok:
-        store.save_measurement(dict(meas_date=d, waist_cm=taille, hips_cm=hanches, chest_cm=poitrine,
-                                    neck_cm=cou, arm_cm=bras, thigh_cm=cuisse, photos=photos, notes=notes))
-        st.success("Mensurations enregistrées.")
-        st.rerun()
+        ligne = {"meas_date": d}
+        mesures = {"waist_cm": taille, "hips_cm": hanches, "chest_cm": poitrine,
+                   "neck_cm": cou, "arm_cm": bras, "thigh_cm": cuisse}
+        for champ, valeur in mesures.items():
+            if valeur is not None:
+                ligne[champ] = float(valeur)
+        if cur is not None or photos:
+            ligne["photos"] = bool(photos)
+        if cur is not None or notes.strip():
+            ligne["notes"] = notes.strip()
+        if len(ligne) == 1 or (len(ligne) == 2 and "photos" in ligne and not photos):
+            st.warning("Renseigne au moins une mesure, une note ou confirme des photos ; rien n'a été enregistré.")
+        else:
+            store.save_measurement(ligne)
+            st.success("Mensurations enregistrées.")
+            st.rerun()
 
-    bf_navy = C.navy_body_fat(taille, cou, HEIGHT)
+    donnees_mesure = last_meas
+    taille_enregistree = _val(donnees_mesure, "waist_cm")
+    hanches_enregistrees = _val(donnees_mesure, "hips_cm")
+    cou_enregistre = _val(donnees_mesure, "neck_cm")
+    bf_navy = (None if PROFIL_VIERGE or ELLE or taille_enregistree is None or cou_enregistre is None
+               else C.navy_body_fat(taille_enregistree, cou_enregistre, HEIGHT))
     daily = load_daily()
     w_avg = mean_since(daily, "weight_kg", 7)
     c1, c2, c3 = st.columns(3)
-    c1.metric("Ratio taille/hanches", fmt(taille / hanches, "", 2))
+    ratio_taille_hanches = (float(taille_enregistree) / float(hanches_enregistrees)
+                            if taille_enregistree is not None and hanches_enregistrees not in (None, 0)
+                            else None)
+    c1.metric("Ratio taille/hanches", fmt(ratio_taille_hanches, "", 2))
     _pct_7j = mean_since(daily, "body_fat_pct", 7)
     c2.metric("Masse grasse estimée (Marine)",
               fmt(None if (bf_navy is None or w_avg is None)
                   else C.fat_mass_kg(w_avg, bf_navy), " kg"),
               None if bf_navy is None else f"≈ {bf_navy:.1f} %",
-              help="Formule US Navy (tour de taille, cou, taille), convertie en kilos "
-                   "avec ton poids moyen des 7 derniers jours.")
+              help="Formule Marine masculine (tour de taille, cou, taille), disponible seulement avec un profil configuré. Estimation indicative, pas un diagnostic.")
     c3.metric("Masse grasse balance 7 j",
               fmt(None if (w_avg is None or _pct_7j is None)
                   else C.fat_mass_kg(w_avg, _pct_7j), " kg"),
@@ -1256,8 +1341,9 @@ def rest_timer():
 
 
 def page_seance():
-    """Renforcement 30 min (lundi/vendredi) + rugby (jeudi) : noms Freeletics,
-    explications, validation du ressenti et adaptation automatique."""
+    """Renforcement lundi/vendredi + rugby jeudi : calendrier intentionnel."""
+    if PROFIL_VIERGE:
+        st.warning("Profil incomplet : le plan de base ci-dessous est générique, pas personnalisé. Toute proposition issue de l'historique reste à confirmer explicitement.")
     SE.page_seance(store, TARGET_P)
 
 
@@ -1295,7 +1381,8 @@ def _ajout_repas_prevu():
         moment = f"{str(r['heure']).capitalize()} · " if r["heure"] else ""
         calc = r.get("calcul")
         base = (f"{calc['par_part']['proteines']:.0f} g de protéines par part"
-                if calc else "protéines non renseignées")
+                if calc and calc.get("complet", {}).get("proteines", False)
+                else "protéines non renseignées ou incomplètes")
         return f"{moment}{r['recette']}  —  {base}"
 
     # Les libellés servent d'options : la case de recherche trouve donc le repas par son nom.
@@ -1311,49 +1398,75 @@ def _ajout_repas_prevu():
     calc = r.get("calcul")
 
     if not calc:
-        st.caption(f"**{r['recette']}** — aucune recette n'est reliée à ce repas : "
-                   "estime les protéines à la main.")
-        apport = st.number_input("Protéines (g)", 0, 300, 30, 5, key="pr_man")
+        st.caption(f"**{r['recette']}** — aucune recette n'est reliée à ce repas. "
+                   "Pour l'ajouter au suivi des macros, saisis les valeurs vérifiées de ta portion.")
+        c_p, c_g, c_l = st.columns(3)
+        with c_p:
+            prot_man = st.number_input("Protéines (g)", 0, 300, value=None, step=1,
+                                       placeholder="Valeur vérifiée", key="pr_man_p")
+        with c_g:
+            gluc_man = st.number_input("Glucides (g)", 0, 500, value=None, step=1,
+                                       placeholder="Valeur vérifiée", key="pr_man_g")
+        with c_l:
+            lip_man = st.number_input("Lipides (g)", 0, 300, value=None, step=1,
+                                      placeholder="Valeur vérifiée", key="pr_man_l")
+        macros_man_completes = all(v is not None for v in (prot_man, gluc_man, lip_man))
         if st.button("➕ Ajouter au compteur du jour", type="primary", key="pr_add",
-                     width="stretch"):
-            store.add_protein(jour, f"{r['recette']} (menu)", int(apport))
-            st.success(f"+{int(apport)} g de protéines ajoutés.")
+                     width="stretch", disabled=not macros_man_completes):
+            store.add_protein(jour, f"{r['recette']} (menu)", int(prot_man),
+                              carbs=int(gluc_man), fat=int(lip_man))
+            st.success(f"+{int(prot_man)} g de protéines ajoutés.")
             st.rerun()
         return
 
-    st.markdown(f"### {R.ligne_macros(calc['par_part'])}")
+    texte_macros = R.ligne_macros(
+        calc['par_part'], complet=calc.get('complet'),
+        approximatif=calc.get('approximatif', False))
+    st.markdown(f"### {texte_macros}")
+    kcal_total = (f"{calc['total']['kcal']:.0f} kcal" if calc.get("complet", {}).get("kcal")
+                  else "kcal inconnues")
     st.caption(f"1 part {r['recette']} (sur {calc['parts']:g}) · "
-               f"plat entier : {calc['total']['kcal']:.0f} kcal · {calc['poids_g']:.0f} g")
+               f"plat entier : {kcal_total} · {calc['poids_g']:.0f} g")
+    if calc.get("inconnues"):
+        st.warning("Valeurs manquantes ou quantité non convertible : "
+                   + ", ".join(calc["inconnues"][:6])
+                   + ". Aucun inconnu n'est compté comme zéro.")
 
-    # « Ma part » : 3 façons de la définir, avec la proposition par défaut.
-    defaut = MN.part_defaut(calc["parts"], r["recette"], r["heure"])
+    # La portion est une quantité réellement servie, pas une part moyenne inventée.
     mode = st.radio("Ma part", ["Parts", "% du plat", "Poids (g)"],
                     horizontal=True, key="pr_mode",
-                    help="« Parts » = nombre de parts de la recette. Le défaut proposé "
-                         "est une estimation, change-le quand tu veux.")
+                    help="Saisis uniquement la quantité réellement servie. Sans mesure ou estimation personnelle, laisse vide.")
     if mode == "Parts":
-        val = st.number_input("Parts", 0.25, 6.0,
-                              float(MN.borne(defaut, 0.25, 6.0, 1.0)), 0.25,
-                              format="%.2f", key="pr_v_parts")
+        val = st.number_input("Parts réellement servies", min_value=0.25, max_value=6.0,
+                              value=None, step=0.25, format="%.2f",
+                              placeholder="À renseigner", key="pr_v_parts")
         md = "parts"
     elif mode == "% du plat":
-        val = st.number_input("% du plat", 5, 100,
-                              int(MN.borne(100 / (calc["parts"] or 1), 5, 100, 25)),
-                              5, key="pr_v_pct")
+        val = st.number_input("Pourcentage réellement servi", min_value=5, max_value=100,
+                              value=None, step=5, placeholder="À renseigner", key="pr_v_pct")
         md = "pourcent"
     else:
-        val = st.number_input("Poids servi (g)", 10, 2000,
-                              int(MN.borne(calc["poids_g"] / (calc["parts"] or 1),
-                                           10, 2000, 250)), 10, key="pr_v_g")
+        val = st.number_input("Poids servi (g)", min_value=10, max_value=2000,
+                              value=None, step=10, placeholder="À renseigner", key="pr_v_g")
         md = "poids"
 
+    if val is None:
+        st.info("Renseigne la quantité réellement servie pour calculer et journaliser ta portion.")
+        return
     mp = MN.ma_part(calc, md, val, MN.portion_foyer())
-    st.markdown(f"### {R.ligne_macros(mp['macros'])}")
+    texte_ma_part = R.ligne_macros(
+        mp['macros'], complet=mp['complet'], approximatif=mp['approximatif'])
+    st.markdown(f"### {texte_ma_part}")
     st.caption(f"{mp['libelle']} ({mp['fraction'] * 100:.0f} % du plat · "
                f"{mp['grammes']:.0f} g servis)")
 
-    if st.button(f"➕ Ajouter {mp['macros']['proteines']:.0f} g de protéines au journal",
-                 type="primary", key="pr_add", width="stretch"):
+    macros_completes = all(mp["complet"].get(c, False)
+                           for c in ("proteines", "glucides", "lipides"))
+    libelle_ajout = (f"➕ Ajouter {mp['macros']['proteines']:.0f} g de protéines au journal"
+                     if macros_completes else
+                     "Valeurs nutritionnelles incomplètes — ajout désactivé")
+    if st.button(libelle_ajout, type="primary", key="pr_add", width="stretch",
+                 disabled=not macros_completes):
         store.add_protein(jour, f"{r['recette']} ({mp['libelle']})",
                           int(round(mp["macros"]["proteines"])),
                           qty=float(val),
@@ -1443,74 +1556,88 @@ def _ajout_ingredient():
     piece = IT.est_unite_piece(unite)
     poids_piece = None
     if piece:
-        sugg = ing["poids_piece"] or IT.poids_piece_suggere(ing["nom"])
+        sugg = ing.get("poids_piece")
         with c2:
-            poids_piece = st.number_input("Poids d'une unité (g)", 1.0, 2000.0,
-                                          float(MN.borne(sugg, 1.0, 2000.0, 50.0)), 5.0,
-                                          key=f"ing_pp_{idx}")
+            poids_piece = st.number_input(
+                "Poids d'une unité (g)", min_value=1.0, max_value=2000.0,
+                value=float(sugg) if sugg is not None else None, step=5.0,
+                placeholder="Saisir le poids réel", key=f"ing_pp_{idx}",
+                help="Une valeur déjà présente dans ta base est une référence : vérifie qu'elle correspond à l'unité réellement servie.")
         with c3:
-            qte = st.number_input("Quantité", 0.25, 200.0, 1.0, 0.25, key=f"ing_qp_{idx}")
+            qte = st.number_input("Quantité", min_value=0.25, max_value=200.0,
+                                  value=None, step=0.25, placeholder="À renseigner",
+                                  key=f"ing_qp_{idx}")
     else:
         with c2:
-            qte = st.number_input("Quantité", 0.0, 5000.0, 100.0, 10.0, key=f"ing_q_{idx}_{unite}")
+            qte = st.number_input("Quantité", min_value=0.01, max_value=5000.0,
+                                  value=None, step=10.0, placeholder="À renseigner",
+                                  key=f"ing_q_{idx}_{unite}")
+
+    if qte is None or (piece and poids_piece is None):
+        st.info("Renseigne la quantité réellement servie" +
+                (" et le poids de l'unité" if piece and poids_piece is None else "") +
+                " avant de calculer les macros.")
+        return
     grammes, explication = IT.convertir_grammes(qte, unite, poids_piece)
     base = st.radio("Dans ta base, les protéines sont indiquées…",
                     ["pour 100 g", "par portion ou par unité"],
                     horizontal=True, key=f"ing_base_{idx}")
 
-    if ing["prot100"] is None:
-        st.warning("Pas de valeur de protéines pour cet ingrédient dans ta base. "
-                   "Tu peux saisir la valeur à la main ci-dessous : elle comptera pour ce repas.")
-        apport = st.number_input("Protéines (g) — saisie manuelle", 0, 300, 20, 1, key="ing_man")
-    elif base == "pour 100 g":
-        apport = ing["prot100"] * grammes / 100.0
+    if base == "pour 100 g":
+        facteur = grammes / 100.0
     else:
-        apport = ing["prot100"] * qte
+        facteur = qte
 
-    # glucides et lipides, si la base les connaît
-    def _macro(cle):
-        v = ing.get(cle)
-        if v is None:
-            return None
-        return v * grammes / 100.0 if base == "pour 100 g" else v * qte
+    valeurs = {}
+    for cle, nom in (("prot100", "Protéines"), ("gluc100", "Glucides"), ("lip100", "Lipides")):
+        valeur_base = ing.get(cle)
+        if valeur_base is not None:
+            valeurs[cle] = valeur_base * facteur
+        else:
+            st.warning(f"La valeur de {nom.lower()} manque dans ta base : saisis-la pour la portion réellement servie.")
+            valeurs[cle] = st.number_input(
+                f"{nom} (g) — saisie manuelle pour cette portion", min_value=0.0,
+                max_value=500.0, value=None, step=1.0, placeholder="Valeur vérifiée",
+                key=f"ing_man_{cle}_{idx}")
 
-    apport_g, apport_l = _macro("gluc100"), _macro("lip100")
+    apport, apport_g, apport_l = (valeurs["prot100"], valeurs["gluc100"], valeurs["lip100"])
+    macros_completes = all(v is not None for v in (apport, apport_g, apport_l))
+    kcal_portion = (4 * apport + 4 * apport_g + 9 * apport_l) if macros_completes else None
+    fmt_nutri = lambda v, unite: f"{v:.0f}{unite}" if v is not None else "Inconnu"
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Protéines", f"{apport:.0f} g")
-    c2.metric("Glucides", fmt(apport_g, " g", 0), border=True)
-    c3.metric("Lipides", fmt(apport_l, " g", 0), border=True)
-    c4.metric("kcal", fmt((apport * 4 + (apport_g or 0) * 4 + (apport_l or 0) * 9), "", 0))
+    c1.metric("Protéines", fmt_nutri(apport, " g"))
+    c2.metric("Glucides", fmt_nutri(apport_g, " g"), border=True)
+    c3.metric("Lipides", fmt_nutri(apport_l, " g"), border=True)
+    c4.metric("kcal", fmt_nutri(kcal_portion, " kcal"))
     with st.expander("D'où vient ce chiffre ?"):
-        st.write(f"Calcul : {explication}"
-                 + (f" × {ing['prot100']:g} g de protéines/100 g = **{apport:.0f} g**"
-                    if base == "pour 100 g" and ing["prot100"] is not None else ""))
+        st.write(f"Calcul de quantité : {explication}. Les nutriments présents en base sont calculés depuis la valeur source ; les champs manquants doivent être saisis à partir d'une information vérifiée.")
 
-    if st.button("➕ Ajouter au compteur du jour", type="primary", key="ing_add", width="stretch"):
+    if not macros_completes:
+        st.info("L'ajout est désactivé tant que protéines, glucides et lipides ne sont pas tous renseignés. Une valeur inconnue ne sera pas enregistrée comme zéro.")
+    if st.button("➕ Ajouter au compteur du jour", type="primary", key="ing_add",
+                 width="stretch", disabled=not macros_completes):
         libelle = f"{ing['nom']} {qte:g} {unite}"
         store.add_protein(D.today(), libelle, int(round(apport)), qty=qte,
-                          carbs=round(apport_g or 0), fat=round(apport_l or 0))
+                          carbs=round(apport_g), fat=round(apport_l))
         st.success(f"+{int(round(apport))} g de protéines ajoutés au journal du jour.")
         st.rerun()
 
 
 def _bloc_repas_types(jour) -> None:
-    """⭐ TES REPAS TYPES — un appui, la journée est notée.
+    """⭐ Repas types préenregistrés — saisie rapide, valeurs à vérifier.
 
-    Les trois repas que Flavien mange quasiment tous les jours (gamelle de midi,
-    goûter, petit déjeuner), avec les protéines, les glucides, les lipides et les
-    calories déjà calculés. C'est le même contenu que la carte « ⭐ Mes repas
-    types » du téléphone — mais ici, c'est l'application ordinateur qui écrit
-    directement dans ta base : tu retrouveras la ligne sur ton téléphone.
+    Les quantités et macros sont des repères historiques, pas des mesures
+    universelles ni des recommandations. L'utilisateur doit les confronter à
+    ses portions réelles avant de les ajouter au journal.
 
-    AFFICHÉ POUR FLAVIEN UNIQUEMENT : ni dans l'espace partagé du foyer
-    (`?partage=1`), ni dans l'espace de son épouse. Ses chiffres ne peuvent donc
-    jamais apparaître ailleurs.
+    AFFICHÉ UNIQUEMENT dans l'espace personnel configuré : ni dans l'espace
+    partagé du foyer (`?partage=1`), ni dans l'espace d'un autre compte.
     """
-    if st.session_state.get("mode_partage") or espace_actuel() != "flavien":
+    if st.session_state.get("mode_partage") or espace_actuel() != "flavien" or PROFIL_VIERGE:
         return
     with st.container(border=True):
-        st.markdown("**⭐ Mes repas types**")
-        st.caption("Un appui, la journée est notée — et la ligne arrive sur ton téléphone.")
+        st.markdown("**⭐ Repas types personnels**")
+        st.caption("Valeurs préenregistrées à vérifier par rapport à tes recettes et portions réelles avant utilisation. Un appui ajoute une ligne au journal.")
         cols = st.columns(3)
         for i, r in enumerate(C.REPAS_TYPES):
             kcal = C.kcal_repas_type(r)
@@ -1525,10 +1652,13 @@ def _bloc_repas_types(jour) -> None:
                     st.rerun()
         tot = C.total_repas_types()
         tot_kcal = tot["prot"] * 4 + tot["gluc"] * 4 + tot["lip"] * 9
-        st.caption(f"Les trois ensemble : **{tot_kcal:.0f} kcal** · {tot['prot']:.0f} g P · "
-                   f"{tot['gluc']:.0f} G · {tot['lip']:.0f} L — il te resterait "
-                   f"**{max(0.0, TARGET_P - tot['prot']):.0f} g de protéines** et "
-                   f"**{max(0.0, TARGET_KCAL - tot_kcal):.0f} kcal** pour le dîner.")
+        resume = (f"Les trois ensemble : **{tot_kcal:.0f} kcal** · {tot['prot']:.0f} g P · "
+                  f"{tot['gluc']:.0f} g G · {tot['lip']:.0f} g L (valeurs préenregistrées).")
+        if not PROFIL_VIERGE:
+            resume += (f" Sur la base de ton profil actuel, cela représenterait "
+                       f"{max(0.0, TARGET_P - tot['prot']):.0f} g de protéines et "
+                       f"{max(0.0, TARGET_KCAL - tot_kcal):.0f} kcal à répartir sur le reste de la journée.")
+        st.caption(resume)
         st.caption("Un deuxième appui ajoute une deuxième ligne : jette un œil au journal ci-dessous.")
 
 
@@ -1540,6 +1670,7 @@ def _ajout_raccourcis():
                          help="Laisse la date du jour, ou choisis hier si tu as oublié de noter.")
     #  ⭐ d'abord tes repas types (toi seulement), puis les raccourcis aliments.
     _bloc_repas_types(jour)
+    st.caption("Raccourcis de saisie uniquement — ils ne recommandent pas la consommation d'un aliment ou supplément. Ils renseignent seulement les protéines ; glucides, lipides et calories restent inconnus, jamais comptés comme zéro.")
     cols = st.columns(2)
     for i, (label, g) in enumerate(C.PROTEIN_PRESETS):
         with cols[i % 2]:
@@ -1549,9 +1680,11 @@ def _ajout_raccourcis():
     with st.form("custom"):
         c1, c2 = st.columns([2, 1])
         label = c1.text_input("Autre aliment / repas", placeholder="Ex. restaurant, repas chez des amis…")
-        g = c2.number_input("Protéines (g)", 0, 200, 30, step=5)
-        if st.form_submit_button("Ajouter", width="stretch") and label:
-            store.add_protein(jour, label, g)
+        g = c2.number_input("Protéines (g)", 0, 200, value=None, step=1,
+                            placeholder="Valeur vérifiée")
+        if st.form_submit_button("Ajouter", width="stretch",
+                                 disabled=not label.strip() or g is None) and label.strip():
+            store.add_protein(jour, label.strip(), g)
             st.rerun()
 
 
@@ -1562,12 +1695,8 @@ def _bloc_reparation(store, a_completer: list, nb_jour: int):
     """
     n_jour = len(a_completer)
     with st.container(border=True):
-        st.markdown(f"**{n_jour} repas d'aujourd'hui n'ont pas encore leurs glucides et "
-                    "lipides.**")
-        st.caption("Ils ont été enregistrés avant la mise à jour : les protéines sont justes, "
-                   "mais les deux autres compteurs étaient vides. L'application peut les "
-                   "retrouver dans tes recettes et tes aliments — **et vérifie** que les "
-                   "protéines recalculées correspondent bien à celles déjà enregistrées.")
+        st.markdown(f"**{n_jour} entrée(s) d'aujourd'hui n'ont pas leurs glucides et/ou lipides.**")
+        st.caption("Les macros inconnues ne sont pas comptées comme zéro ; les totaux et calories restent incomplets. L'application peut chercher une correspondance dans les recettes et aliments du foyer. Toute proposition est affichée avant application, et les lignes sans correspondance restent inchangées.")
         if st.button("🔍 Chercher les valeurs manquantes", key="pr_cherche", width="stretch"):
             ms = menus_store()
             if ms is None:
@@ -1629,88 +1758,114 @@ def _bloc_reparation(store, a_completer: list, nb_jour: int):
 
 def page_proteines():
     st.title("🥗 Nutrition")
-    st.caption(f"Objectif du jour : **{TARGET_KCAL} kcal** · {TARGET_P} g P · "
-               f"{TARGET_G} G · {TARGET_L} L")
+    if PROFIL_VIERGE:
+        st.warning("Profil personnel incomplet : aucun objectif ni comparaison personnalisée n'est affiché. Les journaux restent consultables.")
+    else:
+        st.caption(f"Objectifs enregistrés dans ton profil : **{TARGET_KCAL} kcal** · "
+                   f"{TARGET_P} g P · {TARGET_G} g G · {TARGET_L} g L")
+    st.caption("Les totaux ne couvrent que les lignes journalisées ; ne rien saisir ne signifie pas ne rien avoir consommé.")
     today = D.today()
     df = store.protein_df()
     if not df.empty:
-        df["entry_date"] = pd.to_datetime(df["entry_date"]).dt.date
-    p_today = 0 if df.empty else int(df[df["entry_date"] == today]["protein_g"].sum())
-
-    st.progress(min(1.0, p_today / TARGET_P) if TARGET_P else 0.0,
-                text=f"**{p_today} g / {TARGET_P} g**" + (" ✅ objectif atteint" if p_today >= TARGET_P
-                else f" — il reste {TARGET_P - p_today} g"))
-
-    # --- glucides et lipides du jour (mêmes entrées que les protéines)
+        df["entry_date"] = pd.to_datetime(df["entry_date"], errors="coerce").dt.date
+    p_today = 0 if df.empty else int(pd.to_numeric(
+        df[df["entry_date"] == today]["protein_g"], errors="coerce").fillna(0).sum())
     auj0 = df[df["entry_date"] == today] if not df.empty else df
-    g_today = l_today = 0.0
-    if not auj0.empty:
-        if "carbs_g" in auj0.columns:
-            g_today = float(auj0["carbs_g"].fillna(0).sum())
-        if "fat_g" in auj0.columns:
-            l_today = float(auj0["fat_g"].fillna(0).sum())
 
-    # --- calories du jour : calculées depuis tes saisies (protéines 4, glucides 4,
-    #     lipides 9 kcal par gramme). C'est le total « consommé » de la journée.
-    kcal_today = 4.0 * p_today + 4.0 * g_today + 9.0 * l_today
-    reste_kcal = TARGET_KCAL - kcal_today
+    def total_macro(cle):
+        if auj0.empty:
+            return 0.0, True
+        if cle not in auj0.columns:
+            return None, False
+        serie = pd.to_numeric(auj0[cle], errors="coerce")
+        connu = float(serie.dropna().sum())
+        return connu, not bool(serie.isna().any())
+
+    g_today, g_complet = total_macro("carbs_g")
+    l_today, l_complet = total_macro("fat_g")
+
+    if not PROFIL_VIERGE:
+        st.progress(min(1.0, p_today / TARGET_P) if TARGET_P else 0.0,
+                    text=f"**{p_today} g / {TARGET_P} g**" +
+                    (" ✅ objectif atteint" if p_today >= TARGET_P else
+                     f" — il reste {TARGET_P - p_today} g"))
+
+    # Les calories ne sont calculées que si glucides et lipides sont connus pour
+    # chaque entrée. Une valeur NULL ne devient jamais un faux zéro énergétique.
+    kcal_complet = g_complet and l_complet
+    kcal_today = (4.0 * p_today + 4.0 * g_today + 9.0 * l_today) if kcal_complet else None
+    reste_kcal = TARGET_KCAL - kcal_today if not PROFIL_VIERGE and kcal_today is not None else None
+
+    def texte_macro(valeur, complet, unite="g"):
+        if valeur is None:
+            return "Inconnu"
+        texte = f"{valeur:.0f} {unite}"
+        return texte if complet else f"{texte} connus · incomplet"
 
     st.markdown("**Aujourd'hui**")
     k1, k2, k3, k4 = st.columns(4)
-    k1.metric(f"Protéines · cible {TARGET_P} g", fmt(p_today, " g", 0))
-    k2.metric(f"Glucides · cible {TARGET_G} g", fmt(g_today, " g", 0))
-    k3.metric(f"Lipides · cible {TARGET_L} g", fmt(l_today, " g", 0))
-    k4.metric(f"Calories · cible {TARGET_KCAL} kcal", f"{kcal_today:.0f} kcal",
-              f"{reste_kcal:+.0f} kcal restantes" if kcal_today else "à compléter",
-              delta_color="off")
-    st.progress(min(1.0, kcal_today / TARGET_KCAL) if TARGET_KCAL else 0.0,
-                text=f"**Calories : {kcal_today:.0f} / {TARGET_KCAL} kcal**"
-                     + (" ✅ objectif atteint" if kcal_today >= TARGET_KCAL else
-                        f" — il reste {reste_kcal:.0f} kcal" if kcal_today else
-                        " — rien d'enregistré pour l'instant"))
+    label_p = f"Protéines · cible {TARGET_P} g" if not PROFIL_VIERGE else "Protéines enregistrées"
+    label_g = f"Glucides · cible {TARGET_G} g" if not PROFIL_VIERGE else "Glucides enregistrés"
+    label_l = f"Lipides · cible {TARGET_L} g" if not PROFIL_VIERGE else "Lipides enregistrés"
+    label_kcal = f"Calories estimées · cible {TARGET_KCAL} kcal" if not PROFIL_VIERGE else "Calories estimées calculables"
+    k1.metric(label_p, f"{p_today} g")
+    k2.metric(label_g, texte_macro(g_today, g_complet))
+    k3.metric(label_l, texte_macro(l_today, l_complet))
+    kcal_affiche = f"{kcal_today:.0f} kcal" if kcal_today is not None else "Inconnu"
+    delta_kcal = (f"{reste_kcal:+.0f} kcal restantes" if kcal_today else "à compléter") if reste_kcal is not None else None
+    k4.metric(label_kcal, kcal_affiche, delta_kcal, delta_color="off")
+    st.caption("Énergie estimée par 4 kcal/g de protéines, 4 kcal/g de glucides et 9 kcal/g de lipides. Ce calcul à partir des macros n'est pas la valeur énergétique de référence Ciqual et peut différer ; il est omis si une macro manque.")
 
-    # --- repas saisis AVANT l'ajout des glucides/lipides : on peut les compléter
+    if not PROFIL_VIERGE and kcal_today is not None:
+        st.progress(min(1.0, kcal_today / TARGET_KCAL) if TARGET_KCAL else 0.0,
+                    text=f"**Calories : {kcal_today:.0f} / {TARGET_KCAL} kcal**" +
+                    (" ✅ objectif atteint" if kcal_today >= TARGET_KCAL else
+                     f" — il reste {reste_kcal:.0f} kcal" if kcal_today else
+                     " — rien d'enregistré pour l'instant"))
+    elif not kcal_complet:
+        st.info("Calories non calculées : une ou plusieurs entrées ont des glucides/lipides inconnus. Les valeurs connues restent visibles, sans assimiler l'inconnu à zéro.")
+
+    # Signaler toutes les lignes incomplètes ; une vraie valeur 0 reste valide.
     a_completer = []
     if not auj0.empty:
         for r in auj0.itertuples():
-            if not (getattr(r, "carbs_g", 0) or getattr(r, "fat_g", 0)):
+            glucides = getattr(r, "carbs_g", None)
+            lipides = getattr(r, "fat_g", None)
+            if pd.isna(glucides) or pd.isna(lipides):
                 a_completer.append(dict(id=r.id, item=r.item, protein_g=r.protein_g,
                                         qty=getattr(r, "qty", 1.0),
                                         entry_date=str(r.entry_date)))
     if a_completer:
         _bloc_reparation(store, a_completer, len(auj0))
 
-    # comparaison « trop ou pas assez » — ce qui reste à prendre sur la journée
-    rien_g = bool(p_today) and not g_today
-    rien_l = bool(p_today) and not l_today
-    ecarts = [("Protéines", p_today, TARGET_P, False, "g"),
-              ("Glucides", g_today, TARGET_G, rien_g, "g"),
-              ("Lipides", l_today, TARGET_L, rien_l, "g"),
-              ("Calories", kcal_today, TARGET_KCAL, bool(p_today and not kcal_today), "kcal")]
-    lignes = []
-    for nom, val, cible, non_renseigne, unite in ecarts:
-        reste = cible - val
-        if val <= 0 and non_renseigne:
-            verdict = "non renseigné — repas saisis avant la mise à jour"
-            val_txt = "—"
-        elif val <= 0:
-            verdict = "à compléter — rien d'enregistré pour l'instant"
-            val_txt = f"0 {unite}"
-        elif 0.85 * cible <= val <= 1.15 * cible:
-            verdict = "✅ dans la cible"
-            val_txt = f"{val:.0f} {unite}"
-        elif not cible:
-            verdict = "aucune cible fixée"
-            val_txt = f"{val:.0f} {unite}"
-        elif val < cible:
-            verdict = f"🔻 il manque {reste:.0f} {unite} ({val / cible:.0%} de la cible)"
-            val_txt = f"{val:.0f} {unite}"
-        else:
-            verdict = f"🔺 {abs(reste):.0f} {unite} de trop ({val / cible:.0%} de la cible)"
-            val_txt = f"{val:.0f} {unite}"
-        lignes.append(dict(Nutriment=nom, Aujourdhui=val_txt, Cible=f"{cible} {unite}",
-                           Verdict=verdict))
-    st.dataframe(pd.DataFrame(lignes), hide_index=True, width="stretch")
+    # Comparaison à une cible personnelle uniquement après configuration complète.
+    if PROFIL_VIERGE:
+        st.caption("Aucune comparaison à un objectif : il n'est pas configuré dans ce profil.")
+    else:
+        ecarts = [("Protéines", float(p_today), TARGET_P, True, "g"),
+                  ("Glucides", g_today, TARGET_G, g_complet, "g"),
+                  ("Lipides", l_today, TARGET_L, l_complet, "g"),
+                  ("Calories", kcal_today, TARGET_KCAL, kcal_complet, "kcal")]
+        lignes = []
+        for nom, val, cible, complet, unite in ecarts:
+            if val is None or not complet:
+                val_txt = "Inconnu" if val is None else f"{val:.0f} {unite} connus · incomplet"
+                verdict = "⚠️ données incomplètes — comparaison désactivée"
+            elif val == 0:
+                val_txt = f"0 {unite} enregistrés"
+                verdict = "aucune valeur journalisée — cela ne signifie pas une consommation nulle"
+            elif 0.85 * cible <= val <= 1.15 * cible:
+                val_txt = f"{val:.0f} {unite}"
+                verdict = "✅ dans la cible"
+            elif val < cible:
+                val_txt = f"{val:.0f} {unite}"
+                verdict = f"🔻 il manque {cible - val:.0f} {unite} ({val / cible:.0%} de la cible)"
+            else:
+                val_txt = f"{val:.0f} {unite}"
+                verdict = f"🔺 {val - cible:.0f} {unite} au-dessus de la cible ({val / cible:.0%})"
+            lignes.append(dict(Nutriment=nom, Aujourdhui=val_txt, Cible=f"{cible} {unite}",
+                               Verdict=verdict))
+        st.dataframe(pd.DataFrame(lignes), hide_index=True, width="stretch")
     t1, t2, t3 = st.tabs(["🍽️ Repas prévu", "🥕 Ingrédient + quantité", "⚡ Mes raccourcis"])
     with t1:
         _ajout_repas_prevu()
@@ -1739,8 +1894,8 @@ def page_proteines():
                 Date=r.entry_date,
                 Repas=r.item,
                 Proteines=getattr(r, "protein_g", 0),
-                Glucides=getattr(r, "carbs_g", 0),
-                Lipides=getattr(r, "fat_g", 0),
+                Glucides=getattr(r, "carbs_g", None),
+                Lipides=getattr(r, "fat_g", None),
                 Quantite=getattr(r, "qty", 1.0),
             ) for r in auj.itertuples()], index=[str(r.id) for r in auj.itertuples()])
             _detail = _detail.rename(columns={"Proteines": "Protéines (g)", "Glucides": "Glucides (g)",
@@ -1761,7 +1916,7 @@ def page_proteines():
                      "Change la **date** si tu as saisi un repas le mauvais jour. Coche 🗑️ pour "
                      "supprimer la ligne.")
 
-    with st.expander("📈 Mes moyennes (7 jours · 30 jours · jours réussis)"):
+    with st.expander("📈 Mes moyennes (7 jours · 30 jours)"):
         pb_all = protein_by_day()
         c1, c2, c3 = st.columns(3)
         c1.metric("Moyenne 7 j", fmt(mean_since(
@@ -1770,28 +1925,27 @@ def page_proteines():
         c2.metric("Moyenne 30 j", fmt(mean_since(
             pb_all.rename(columns={"entry_date": "log_date", "total": "protein_g"}),
             "protein_g", 30) if not pb_all.empty else None, " g", 0))
-        c3.metric("Jours ≥ objectif (30 j)",
-                  int(sum(1 for _, t_ in protein_by_day(today - dt.timedelta(days=30)).itertuples(index=False)
-                          if t_ >= TARGET_P)), "jours")
+        pb_30 = protein_by_day(today - dt.timedelta(days=30))
+        if PROFIL_VIERGE:
+            c3.metric("Jours avec saisie (30 j)", len(pb_30), "jours")
+        else:
+            c3.metric("Jours ≥ objectif (30 j)",
+                      int(sum(1 for _, t_ in pb_30.itertuples(index=False) if t_ >= TARGET_P)), "jours")
         if not df.empty:
             pb = protein_by_day(today - dt.timedelta(days=21))
             if not pb.empty:
                 pb = pb.rename(columns={"entry_date": "date", "total": "Protéines"})
-                st.altair_chart(alt.Chart(pb).mark_bar(color="#14b8a6").encode(
+                graphique = alt.Chart(pb).mark_bar(color="#14b8a6").encode(
                     x=alt.X("date:T", title=None), y=alt.Y("Protéines:Q", title="g/jour"),
-                ).properties(height=200, width="container") + alt.Chart(
-                    pd.DataFrame({"y": [TARGET_P]})).mark_rule(color="#fbbf24",
-                                                               strokeDash=[5, 4]).encode(y="y:Q"))
+                ).properties(height=200, width="container")
+                if not PROFIL_VIERGE:
+                    graphique = graphique + alt.Chart(
+                        pd.DataFrame({"y": [TARGET_P]})).mark_rule(color="#fbbf24",
+                                                                   strokeDash=[5, 4]).encode(y="y:Q")
+                st.altair_chart(graphique)
 
-    with st.expander("🧊 Repas type & batch cooking du dimanche (45 min)"):
-        st.markdown("**7 h** — Thé vert, citron, 500 ml d'eau\n\n"
-                    "**10 h 30** — Café + shaker 30 g de whey (24 g) *ou* 40 g de lait en poudre "
-                    "+ 200 g de fromage blanc\n\n"
-                    "**12 h 30** — Gamelle : 300 g légumes + 150 g lentilles/pois chiches + 3 œufs "
-                    "+ 150 g skyr + 100 g edamames ou 1 boîte de thon (58 g)\n\n"
-                    "**16 h** — Pomme + 200 g fromage blanc + 15-20 g d'amandes (18 g)\n\n"
-                    "**20 h** — 160-180 g de protéine + 300 g légumes + 150 g skyr + 10 g chocolat 85 % "
-                    "(58 g). Féculents uniquement les jours de sport.")
+    with st.expander("🧊 Organisation des repas & batch cooking"):
+        st.info("Cette page ne prescrit pas de menu quotidien, de complément ni de répartition des féculents. Les besoins et portions dépendent de la personne, de l'activité, de la santé et des préférences ; utilise les menus partagés comme outil de planification et vérifie les valeurs des aliments.")
         st.markdown("**Batch cooking**")
         for tps, txt in C.BATCH_COOKING:
             st.markdown(f"- *{tps}* — {txt}")
@@ -1803,10 +1957,10 @@ def page_proteines():
 def page_planifier():
     ms = menus_store()
     if ms is None:
-        R.page_repas(store, menus_store, TARGET_P, partage=est_partage())
+        R.page_repas(store, menus_store, TARGET_P_PERSONNEL, partage=est_partage())
         return
     st.session_state.setdefault("_pid", None)
-    ED.page_planifier(ms, TARGET_P, partage=est_partage())
+    ED.page_planifier(ms, TARGET_P_PERSONNEL, partage=est_partage())
 
 
 def _plus_ancienne(vue, attendue) -> bool:
@@ -1863,7 +2017,7 @@ def page_recettes_edition():
     _bandeau_fichiers_a_jour()
     ms = menus_store()
     if ms is None:
-        R.page_repas(store, menus_store, TARGET_P, partage=est_partage())
+        R.page_repas(store, menus_store, TARGET_P_PERSONNEL, partage=est_partage())
         return
     ED.page_recettes_edition(ms)
 
@@ -1871,13 +2025,13 @@ def page_recettes_edition():
 def page_ingredients():
     ms = menus_store()
     if ms is None:
-        R.page_repas(store, menus_store, TARGET_P, partage=est_partage())
+        R.page_repas(store, menus_store, TARGET_P_PERSONNEL, partage=est_partage())
         return
     ED.page_ingredients(ms)
 
 
 def page_cuisine():
-    R.page_repas(store, menus_store, TARGET_P, partage=est_partage())
+    R.page_repas(store, menus_store, TARGET_P_PERSONNEL, partage=est_partage())
 
 
 # ============================================================================
@@ -1926,52 +2080,59 @@ def page_reglages():
                 st.rerun()
 
     st.subheader("Mon profil et mes objectifs")
-    st.caption(f"Objectifs actuels : **{TARGET_KCAL} kcal** · **{TARGET_P} g de protéines** · "
-               f"**{TARGET_G} g de glucides** · **{TARGET_L} g de lipides**")
-    #  Les valeurs sont RAMENÉES dans les bornes de chaque case : sans ça, une
-    #  valeur enregistrée hors bornes (0, ou 70 g de protéines) faisait planter
-    #  la page entière (vérifié par le test de solidité du 30/09).
-    def bornes(valeur, mini, maxi, defaut):
+    if PROFIL_VIERGE:
+        st.warning("Profil incomplet : aucun objectif personnel n'est confirmé. Les repères internes ne sont pas des recommandations ; renseigne tes propres valeurs ci-dessous avant les comparaisons et conseils.")
+        st.caption("Aucun objectif personnel configuré.")
+    else:
+        st.caption(f"Objectifs actuels : **{TARGET_KCAL} kcal** · **{TARGET_P} g de protéines** · "
+                   f"**{TARGET_G} g de glucides** · **{TARGET_L} g de lipides**")
+
+    def valeur_profil_formulaire(cle):
+        valeur = PROFILE.get(cle)
+        if not _profil_valeur_renseignee(valeur):
+            return None
         try:
-            return min(max(float(valeur), float(mini)), float(maxi))
+            return float(valeur)
         except (TypeError, ValueError):
-            return defaut
+            return None
 
     with st.form("profil"):
         c1, c2 = st.columns(2)
-        nom = c1.text_input("Prénom", value=str(prof("display_name", "")))
-        taille_p = c2.number_input("Taille (cm)", 140.0, 220.0,
-                                   bornes(HEIGHT, 140, 220, 185.0), step=0.5)
+        nom = c1.text_input("Prénom (facultatif)", value=str(prof("display_name", "")))
+        taille_p = c2.number_input("Taille (cm)", value=valeur_profil_formulaire("height_cm"), step=0.5,
+                                   placeholder="À renseigner")
         c3, c4 = st.columns(2)
-        dep = c3.number_input("Poids de départ (kg)", 40.0, 200.0,
-                              bornes(START_W, 40, 200, 80.0), step=0.5)
-        obj = c4.number_input("Poids objectif (kg)", 40.0, 200.0,
-                              bornes(TARGET_W, 40, 200, 75.0), step=0.5)
+        dep = c3.number_input("Poids de départ (kg)", value=valeur_profil_formulaire("start_weight_kg"),
+                              step=0.5, placeholder="À renseigner")
+        obj = c4.number_input("Poids objectif (kg)", value=valeur_profil_formulaire("target_weight_kg"),
+                              step=0.5, placeholder="À renseigner")
         c5, c6 = st.columns(2)
-        prot = c5.number_input("Protéines cibles (g/jour)", 80, 250,
-                               int(bornes(TARGET_P, 80, 250, 130)), step=5)
-        carb = c6.number_input("Glucides cibles (g/jour)", 40, 400,
-                               int(bornes(TARGET_G, 40, 400, 140)), step=5)
+        prot = c5.number_input("Protéines cibles (g/jour)", value=valeur_profil_formulaire("target_protein_g"),
+                               step=5, placeholder="À renseigner")
+        carb = c6.number_input("Glucides cibles (g/jour)", value=valeur_profil_formulaire("target_carbs_g"),
+                               step=5, placeholder="À renseigner")
         c7, c8 = st.columns(2)
-        lip = c7.number_input("Lipides cibles (g/jour)", 20, 150,
-                              int(bornes(TARGET_L, 20, 150, 50)), step=5)
-        kcal = c8.number_input("Calories cibles (kcal/jour)", 1000, 4000,
-                               int(bornes(TARGET_KCAL, 1000, 4000, 1700)), step=50)
-        tdee = st.number_input("Dépense estimée (kcal/jour)", 1500, 4000,
-                               int(bornes(prof("tdee_kcal", _rep("tdee_kcal", C.TDEE)), 1500, 4000, 2400)),
-                               step=50)
+        lip = c7.number_input("Lipides cibles (g/jour)", value=valeur_profil_formulaire("target_fat_g"),
+                              step=5, placeholder="À renseigner")
+        kcal = c8.number_input("Calories cibles (kcal/jour)", value=valeur_profil_formulaire("target_kcal"),
+                               step=50, placeholder="À renseigner")
+        tdee = st.number_input("Dépense estimée (kcal/jour)", value=valeur_profil_formulaire("tdee_kcal"),
+                               step=50, placeholder="À renseigner")
         if st.form_submit_button("💾 Enregistrer le profil", type="primary", width="stretch"):
-            ok, msg = _enregistrer_profil(dict(
-                display_name=nom, height_cm=taille_p, start_weight_kg=dep,
-                target_weight_kg=obj, target_protein_g=int(prot), target_carbs_g=int(carb),
-                target_fat_g=int(lip), target_kcal=int(kcal), tdee_kcal=int(tdee),
-                phase=C.phase_for(D.today())[0]))
-            #  le message survit au rechargement : on le range et on l'affiche
-            #  en haut de la page juste après (sinon il disparaissait aussitôt)
-            st.session_state["_flash_profil"] = (
-                "✅ Profil enregistré — les nouveaux objectifs sont déjà appliqués."
-                if ok else f"⚠️ {msg}")
-            st.rerun()
+            valeurs_profil = [taille_p, dep, obj, prot, carb, lip, kcal, tdee]
+            if any(v is None or not _profil_valeur_renseignee(v) for v in valeurs_profil):
+                st.error("Renseigne des valeurs positives dans tous les champs numériques. Rien n'a été modifié.")
+            else:
+                ok, msg = _enregistrer_profil(dict(
+                    display_name=nom, height_cm=float(taille_p), start_weight_kg=float(dep),
+                    target_weight_kg=float(obj), target_protein_g=int(round(prot)),
+                    target_carbs_g=int(round(carb)), target_fat_g=int(round(lip)),
+                    target_kcal=int(round(kcal)), tdee_kcal=int(round(tdee))))
+                # Le message survit au rechargement et n'est créé qu'après une sauvegarde valide.
+                st.session_state["_flash_profil"] = (
+                    "✅ Profil enregistré — les nouveaux objectifs sont appliqués."
+                    if ok else f"⚠️ {msg}")
+                st.rerun()
 
     # ---- export : chaque table à part (CSV direct) ou tout d'un coup (ZIP) ----
     st.subheader("Mes données")

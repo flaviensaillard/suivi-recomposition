@@ -22,6 +22,7 @@ Aucune écriture ici : que de la lecture et du calcul. Tu peux tester sans risqu
 VERSION = "1.0.11"        # affiché dans la barre de gauche (contrôle des fichiers à jour)
 
 import datetime as dt
+import math
 import re
 
 # ---------------------------------------------------------------------------
@@ -68,13 +69,31 @@ POIDS_PIECE_DEFAUT = {
 
 
 def _nombre(v) -> float:
-    """Convertit ce qui vient de la base en nombre, sans jamais planter."""
-    if v in (None, "", "null"):
+    """Convertit une valeur en nombre fini, sans jamais planter."""
+    if v is None or str(v).strip().lower() in ("", "null", "none", "nan"):
         return 0.0
     try:
-        return float(str(v).replace(",", "."))
+        nombre = float(str(v).replace(",", "."))
+        return nombre if math.isfinite(nombre) else 0.0
     except (TypeError, ValueError):
         return 0.0
+
+
+def valeur_nutriment(v):
+    """Renvoie un nutriment valide (0 est valide), ou None s'il est absent/invalide."""
+    if v is None or str(v).strip().lower() in ("", "null", "none", "nan"):
+        return None
+    try:
+        nombre = float(str(v).replace(",", "."))
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(nombre) or nombre < 0:
+        return None
+    return nombre
+
+
+def nutriment_present(v) -> bool:
+    return valeur_nutriment(v) is not None
 
 
 def unite_est_piece(unite: str) -> bool:
@@ -93,25 +112,27 @@ def quantite_en_grammes(qte, unite: str, ingredient: dict | None) -> float:
         return 0.0
     ing = ingredient or {}
     poids_piece = _nombre(ing.get("poids_piece_g"))
-    densite = _nombre(ing.get("densite")) or 1.0
+    densite = _nombre(ing.get("densite"))
     u = (unite or ing.get("unit") or "").strip().lower()
     if u in ("", "null", "none"):
-        u = (ing.get("unit") or "g").strip().lower()
+        u = str(ing.get("unit") or "").strip().lower()
+    if u in ("", "null", "none"):
+        return 0.0  # unité inconnue : ne pas la supposer en grammes
 
-    if u in ("g", "gr", "gramme", "grammes", ""):
+    if u in ("g", "gr", "gramme", "grammes"):
         return qte
     if u in ("kg", "kilogramme", "kilogrammes"):
         return qte * 1000.0
     if u in ("ml",):
-        return qte * densite
+        return qte * densite if densite > 0 else 0.0
     if u in ("cl",):
-        return qte * CL * densite
+        return qte * CL * densite if densite > 0 else 0.0
     if u in ("l", "litre", "litres"):
-        return qte * 1000.0 * densite
+        return qte * 1000.0 * densite if densite > 0 else 0.0
     if u in ("c. à s.", "c. à soupe", "cuillère à soupe", "cuillere a soupe", "cas"):
-        return qte * CUIL_A_SOUPE
+        return qte * CUIL_A_SOUPE * densite if densite > 0 else 0.0
     if u in ("c. à c.", "c. à café", "cuillère à café", "cuillere a cafe", "cac"):
-        return qte * CUIL_A_CAFE
+        return qte * CUIL_A_CAFE * densite if densite > 0 else 0.0
     # unités « comptables » : unité, tranche, gousse, boîte…
     if poids_piece > 0:
         return qte * poids_piece
@@ -145,8 +166,8 @@ def portion_standard(ing: dict | None) -> float:
     g = quantite_en_grammes(q, u, ing)
     if not g:
         g = quantite_en_grammes(q, "unité", ing)
-    if not g:
-        g = q * 100.0          # dernier recours : une portion = 100 g
+    # Ne pas transformer silencieusement un volume ou une unité inconnue en 100 g.
+    # La recette sera signalée comme incomplète tant que le poids n'est pas connu.
     return g or 0.0
 
 
@@ -1061,68 +1082,74 @@ def _vider() -> dict:
 
 
 def _ajouter(totaux: dict, valeur_100g, grammes: float, champ: str):
-    v = _nombre(valeur_100g)
-    if v and grammes:
+    v = valeur_nutriment(valeur_100g)
+    if v is not None and grammes > 0:
         totaux[champ] += v * grammes / 100.0
 
 
 def calculer_recette(lignes: list[dict], ing_par_id: dict, base_servings=None,
                      nom_recette=None) -> dict:
-    """Calcule les macros d'une recette à partir de ses lignes d'ingrédients.
+    """Calcule les macros sans assimiler une valeur inconnue à zéro.
 
-    lignes        : [{ingredient_id, quantity, unit}, …]
-    ing_par_id    : {ingredient_id: {name, poids_piece_g, densite, unit,
-                                     kcal_100g, proteines_100g, …}}
-    base_servings : nombre de parts de la recette (4 après la migration)
-    nom_recette   : nom de la recette — sert à reconnaître les entrées
-                    « [Ing] X », où la quantité est un nombre de personnes
-
-    Renvoie un dict :
-      total      : macros de la recette entière
-      par_part   : macros d'une part
-      poids_g    : poids total reconstitué
-      lignes     : détail par ingrédient (pour l'affichage)
-      inconnues  : ingrédients sans valeurs nutritionnelles
-      estimees   : lignes dont la quantité a été déduite (portion standard)
+    Les totaux numériques restent des sommes partielles pour compatibilité ;
+    ``complet`` et ``champs_manquants`` disent explicitement si chaque macro
+    peut être interprétée comme un total fiable.
     """
     pseudo = est_pseudo_ingredient(nom_recette)
     total = _vider()
     poids = 0.0
     detail = []
-    inconnues = []
     estimees = []
+    manquants = {c: set() for c in CHAMPS_NUTR}
+    if not lignes:
+        for c in CHAMPS_NUTR:
+            manquants[c].add("aucune ligne d'ingrédient")
 
     for l in lignes:
         ing = ing_par_id.get(l.get("ingredient_id")) or {}
-        if not ing and l.get("ingredient_id"):
-            inconnues.append("aliment introuvable dans la base")
+        nom = nom_court(ing) if ing else "aliment introuvable dans la base"
         g, estime = grammes_de_ligne(l, ing, pseudo)
         if estime:
-            estimees.append(nom_court(ing))
+            estimees.append(nom)
         poids += g
-        if not ing.get("kcal_100g") and not ing.get("proteines_100g"):
-            inconnues.append(nom_court(ing))
+
+        qte = _nombre(l.get("quantity"))
+        quantite_inconnue = qte > 0 and g <= 0
+        valeurs = {}
+        manquants_ligne = []
         for champ in CHAMPS_NUTR:
-            _ajouter(total, ing.get(f"{champ}_100g"), g, champ)
-        detail.append(dict(nom=ing.get("name"), nom_court=nom_court(ing), grammes=round(g, 1),
-                           unite=l.get("unit"), quantite=_nombre(l.get("quantity")),
-                           kcal=round(_nombre(ing.get("kcal_100g")) * g / 100.0, 1),
-                           proteines=round(_nombre(ing.get("proteines_100g")) * g / 100.0, 1),
-                           glucides=round(_nombre(ing.get("glucides_100g")) * g / 100.0, 1),
-                           lipides=round(_nombre(ing.get("lipides_100g")) * g / 100.0, 1),
-                           # « sans_valeurs » : l'aliment n'a aucune donnée nutritionnelle.
-                           # Ses grammes comptent dans le poids, mais pas dans les macros :
-                           # c'est LA cause d'un total de protéines trop bas.
-                           sans_valeurs=not (ing.get("kcal_100g") or ing.get("proteines_100g")),
-                           estime=estime))
+            valeur = valeur_nutriment(ing.get(f"{champ}_100g"))
+            valeurs[champ] = valeur
+            if valeur is None or quantite_inconnue:
+                raison = f"{nom} (quantité non convertible)" if quantite_inconnue else nom
+                manquants[champ].add(raison)
+                manquants_ligne.append(champ)
+            else:
+                _ajouter(total, valeur, g, champ)
+
+        detail.append(dict(
+            nom=ing.get("name"), nom_court=nom, grammes=round(g, 1),
+            unite=l.get("unit"), quantite=qte,
+            kcal=round((valeurs["kcal"] or 0.0) * g / 100.0, 1),
+            proteines=round((valeurs["proteines"] or 0.0) * g / 100.0, 1),
+            glucides=round((valeurs["glucides"] or 0.0) * g / 100.0, 1),
+            lipides=round((valeurs["lipides"] or 0.0) * g / 100.0, 1),
+            sans_valeurs=all(valeurs[c] is None for c in CHAMPS_NUTR),
+            champs_manquants=manquants_ligne, estime=estime,
+            quantite_non_convertie=quantite_inconnue))
 
     parts = _nombre(base_servings) or 1.0
     par_part = {c: total[c] / parts for c in CHAMPS_NUTR}
+    champs_manquants = {c: sorted(noms) for c, noms in manquants.items()}
+    complet = {c: not champs_manquants[c] for c in CHAMPS_NUTR}
+    inconnues = sorted({nom for noms in champs_manquants.values() for nom in noms})
     return dict(total={c: round(total[c], 1) for c in CHAMPS_NUTR},
                 par_part={c: round(par_part[c], 1) for c in CHAMPS_NUTR},
                 poids_g=round(poids, 1), parts=parts,
-                lignes=detail, inconnues=sorted(set(inconnues)),
-                estimees=sorted(set(estimees)))
+                lignes=detail, inconnues=inconnues,
+                estimees=sorted(set(estimees)), complet=complet,
+                champs_manquants=champs_manquants,
+                approximatif=bool(estimees))
 
 
 # ---------------------------------------------------------------------------
@@ -1202,6 +1229,9 @@ def _macros_recette(base: str, qty, recettes, lignes_par_recette, ings, coherent
             continue
         c = calculer_recette(lignes_par_recette.get(r["id"], []), ings,
                              r.get("base_servings"), nom_recette=r.get("name"))
+        if not all(c.get("complet", {}).get(k, False)
+                   for k in ("proteines", "glucides", "lipides")):
+            continue
         essais.append(dict(score=sc, source=f"recette « {r['name']} »",
                            glucides=round(c["par_part"]["glucides"] * parts, 1),
                            lipides=round(c["par_part"]["lipides"] * parts, 1),
@@ -1238,7 +1268,8 @@ def _macros_aliment(base: str, ings):
         if not cible or cible[0] != premiers[0]:
             continue
         sc = _proche(nom, i.get("name") or "")
-        if sc < 0.5:
+        if sc < 0.5 or any(not nutriment_present(i.get(f"{champ}_100g"))
+                           for champ in ("proteines", "glucides", "lipides")):
             continue
         g = quantite_en_grammes(q, unite or i.get("unit"), i)
         if not g:
@@ -1324,6 +1355,8 @@ def ma_part(calcul: dict, mode: str = "parts", valeur: float = 1.0,
 
     macros = {c: round(calcul["total"][c] * fraction, 1) for c in CHAMPS_NUTR}
     return dict(fraction=fraction, macros=macros, libelle=libelle,
+                complet=dict(calcul.get("complet") or {c: False for c in CHAMPS_NUTR}),
+                approximatif=bool(calcul.get("approximatif")),
                 grammes=round((calcul.get("poids_g") or 0) * fraction, 1))
 
 

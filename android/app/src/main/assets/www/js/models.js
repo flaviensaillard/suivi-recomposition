@@ -5,14 +5,14 @@
     var U = EQ.util;
 
     var DEFAUTS_PROFIL = {
-        tailleCm: 185,
-        poidsDepartKg: 85.0,
-        poidsCibleKg: 77.0,
-        objectifProteinesG: 130,
-        objectifCaloriesKcal: 1700,
-        objectifGlucidesG: 140,
-        objectifLipidesG: 50,
-        tdeeKcal: 2400
+        tailleCm: null,
+        poidsDepartKg: null,
+        poidsCibleKg: null,
+        objectifProteinesG: null,
+        objectifCaloriesKcal: null,
+        objectifGlucidesG: null,
+        objectifLipidesG: null,
+        tdeeKcal: null
     };
 
     // ------------------------------------------------------------- Séances
