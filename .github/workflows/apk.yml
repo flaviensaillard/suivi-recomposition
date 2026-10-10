@@ -23,10 +23,15 @@ jobs:
     name: Compilation Android APK
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    # Écriture nécessaire uniquement pour créer/téléverser la release (étape « Publier la release »).
+    permissions:
+      contents: write
     env:
       VERSION_NAME: '1.0.13'
       VERSION_CODE: '14'
-      APK_SYNC_READY: 'false'
+      # Publication acceptée explicitement par le responsable du dépôt malgré l'audit R-01 :
+      # la synchronisation hors ligne N'EST PAS implémentée dans cette APK. Les notes de release le précisent.
+      APK_SYNC_READY: 'true'
     steps:
       - name: Récupérer le dépôt
         uses: actions/checkout@v4
@@ -87,10 +92,10 @@ jobs:
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
             || gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
                  --title "Équilibre ${VERSION_NAME}" \
-                 --notes "Client Android d'Équilibre (suivi personnel local et accès aux menus Streamlit). Synchronisation hors ligne activée uniquement après validation du flux sécurisé et des tests de conflit."
+                 --notes "Client Android d'Équilibre (suivi personnel local et accès aux menus Streamlit). Synchronisation hors ligne NON implémentée dans cette version : l'APK fonctionne en local sur un seul appareil et n'envoie ni ne reçoit aucune donnée."
           
           # Téléverser les binaires APK
-          gh release upload "$TAG" "dist/Equilibre.apk" "dist/Equilibre-${VERSION_NAME}.apk" "dist/suivi-recomposition.apk" \
+          gh release upload "$TAG" "dist/Equilibre.apk" "dist/Equilibre-${VERSION_NAME}.apk" \
             --repo "$GITHUB_REPOSITORY" --clobber
 
       - name: Archiver l'APK en tant qu'artefact de build
