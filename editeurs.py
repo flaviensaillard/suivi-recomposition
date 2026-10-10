@@ -240,7 +240,7 @@ def _sans_accent(t: str) -> str:
 # ---------------------------------------------------------------------------
 #  1. PLANIFIER LA SEMAINE
 # ---------------------------------------------------------------------------
-def page_planifier(ms, target_p: float, partage: bool = False):
+def page_planifier(ms, target_p: float | None, partage: bool = False):
     """La semaine de repas de la famille.
 
     `partage=True` (espace partagé, pour ta femme) : le résumé qui compare les
@@ -283,36 +283,35 @@ def page_planifier(ms, target_p: float, partage: bool = False):
         out = [p for p in planning if str(p.get("date_menu") or "")[:10] == str(d)]
         return sorted(out, key=lambda x: (x.get("meal_type") or "", x.get("id") or 0))
 
-    # ---- résumé protéines de la semaine
-    lignes_par_recette = ms.lignes_par_recette()
-    ings = ing_par_id
-    jours_ok, jours_light = 0, []
-    for d in jours:
-        tot = 0.0
-        for p in repas_du_jour(d):
-            rid = p.get("recipe_id")
-            rec = recettes_par_id.get(rid) or {}
-            if rid and rid in recettes_par_id:
-                c = MN.calculer_recette(lignes_par_recette.get(rid, []), ings,
-                                        rec.get("base_servings"), nom_recette=rec.get("name"))
-                tot += c["par_part"]["proteines"]
-        if tot >= target_p - 15:
-            jours_ok += 1
-        else:
-            jours_light.append((d, tot))
-    if partage:
-        #  Espace partagé : aucun objectif personnel à l'écran.
-        st.divider()
-    else:
+    # ---- comparaison protéines facultative : uniquement avec une cible personnelle connue
+    if not partage and target_p is not None:
+        lignes_par_recette = ms.lignes_par_recette()
+        ings = ing_par_id
+        jours_ok, jours_light = 0, []
+        for d in jours:
+            tot = 0.0
+            for p in repas_du_jour(d):
+                rid = p.get("recipe_id")
+                rec = recettes_par_id.get(rid) or {}
+                if rid and rid in recettes_par_id:
+                    c = MN.calculer_recette(lignes_par_recette.get(rid, []), ings,
+                                            rec.get("base_servings"), nom_recette=rec.get("name"))
+                    tot += c["par_part"]["proteines"]
+            if tot >= target_p - 15:
+                jours_ok += 1
+            else:
+                jours_light.append((d, tot))
         c3, c4 = st.columns(2)
-        c3.metric("Jours qui atteignent la cible", f"{jours_ok} / 7")
+        c3.metric("Jours qui atteignent ta cible personnelle", f"{jours_ok} / 7")
         c4.metric("Jours à compléter", f"{len(jours_light)} / 7")
         if jours_light:
-            st.caption("Il manque des protéines le "
+            st.caption("Selon les recettes enregistrées, la cible n'est pas atteinte le "
                        + ", ".join(f"**{JOURS_COURT[d.weekday()]} {d.strftime('%d/%m')}**"
                                    for d, _ in jours_light)
-                       + ". Prévois un en-cas (shaker, œufs durs, skyr).")
-
+                       + ". Ce résultat n'est qu'une estimation du menu prévu, pas de la consommation réelle.")
+        st.divider()
+    else:
+        # Espace partagé ou profil sans cible configurée : pas d'objectif personnel.
         st.divider()
 
     # ---- LA RECHERCHE EST DANS CHAQUE LISTE (choix du 30/09) ----

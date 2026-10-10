@@ -1,7 +1,13 @@
-name: Construire et Publier l'APK
+name: Construire l'APK (publication explicite)
 
 on:
   workflow_dispatch:
+    inputs:
+      publier:
+        description: "Publier une release GitHub (à activer uniquement après validation)"
+        required: true
+        type: boolean
+        default: false
   push:
     paths:
       - '.github/workflows/apk.yml'
@@ -10,7 +16,7 @@ on:
       - 'build.sh'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   construire:
@@ -18,8 +24,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
-      VERSION_NAME: '1.2.0'
-      VERSION_CODE: '12'
+      VERSION_NAME: '1.0.13'
+      VERSION_CODE: '14'
+      APK_SYNC_READY: 'false'
     steps:
       - name: Récupérer le dépôt
         uses: actions/checkout@v4
@@ -40,16 +47,35 @@ jobs:
           yes | sdkmanager --licenses > /dev/null 2>&1 || true
           yes | sdkmanager --install "platforms;android-34" "build-tools;34.0.0"
 
-      - name: Mettre en cache le trousseau de clés
-        uses: actions/cache@v4
-        with:
-          path: keystore
-          key: apk-keystore-equilibre-v1
+      - name: Bloquer toute publication tant que la synchronisation hors ligne n'est pas validée
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publier == true && env.APK_SYNC_READY != 'true' }}
+        run: |
+          echo "Publication refusée : l'APK ne satisfait pas encore l'exigence de synchronisation hors ligne sécurisée." >&2
+          exit 1
 
-      - name: Compiler et signer l'APK
+      - name: Préparer le trousseau de publication (demande explicite uniquement)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publier == true && env.APK_SYNC_READY == 'true' }}
+        env:
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KEY_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          test -n "$ANDROID_KEYSTORE_B64" || { echo "Secret ANDROID_KEYSTORE_B64 manquant" >&2; exit 1; }
+          test -n "$KEY_PASS" || { echo "Secret ANDROID_KEYSTORE_PASSWORD manquant" >&2; exit 1; }
+          test -n "$KEY_ALIAS" || { echo "Secret ANDROID_KEY_ALIAS manquant" >&2; exit 1; }
+          mkdir -p keystore
+          printf '%s' "$ANDROID_KEYSTORE_B64" | base64 --decode > keystore/equilibre.jks
+          chmod 600 keystore/equilibre.jks
+
+      - name: Compiler l'APK
+        env:
+          KEY_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
         run: bash build.sh
 
       - name: Publier la release sur GitHub
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publier == true && env.APK_SYNC_READY == 'true' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -61,7 +87,7 @@ jobs:
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
             || gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
                  --title "Équilibre ${VERSION_NAME}" \
-                 --notes "Application mobile Android native d'Équilibre (Suivi de recomposition corporelle & Menus) inspirée du design system de MonPortefeuille2."
+                 --notes "Client Android d'Équilibre (suivi personnel local et accès aux menus Streamlit). Synchronisation hors ligne activée uniquement après validation du flux sécurisé et des tests de conflit."
           
           # Téléverser les binaires APK
           gh release upload "$TAG" "dist/Equilibre.apk" "dist/Equilibre-${VERSION_NAME}.apk" "dist/suivi-recomposition.apk" \
@@ -76,11 +102,7 @@ jobs:
 
       - name: Résumé du build
         run: |
-          echo "## 🎉 APK Android disponible au téléchargement direct" >> "$GITHUB_STEP_SUMMARY"
+          echo "## APK de vérification — non publiée" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "L'application **Équilibre v${VERSION_NAME}** a été générée et signée avec succès." >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "### 📥 Liens de téléchargement direct :" >> "$GITHUB_STEP_SUMMARY"
-          echo "- **Release directe v${VERSION_NAME}** : [Equilibre-${VERSION_NAME}.apk](https://github.com/$GITHUB_REPOSITORY/releases/download/v${VERSION_NAME}/Equilibre-${VERSION_NAME}.apk)" >> "$GITHUB_STEP_SUMMARY"
-          echo "- **Lien permanent Dernière Version** : [Equilibre.apk (Dernière version)](https://github.com/$GITHUB_REPOSITORY/releases/latest/download/Equilibre.apk)" >> "$GITHUB_STEP_SUMMARY"
-          echo "- **Nom de dépôt alternatif** : [suivi-recomposition.apk](https://github.com/$GITHUB_REPOSITORY/releases/latest/download/suivi-recomposition.apk)" >> "$GITHUB_STEP_SUMMARY"
+          echo "La version **${VERSION_NAME} (code ${VERSION_CODE})** est jointe comme artefact de cette exécution CI." >> "$GITHUB_STEP_SUMMARY"
+          echo "La publication GitHub reste bloquée tant que la synchronisation hors ligne sécurisée de l'APK n'est pas implémentée et validée." >> "$GITHUB_STEP_SUMMARY"

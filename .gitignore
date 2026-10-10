@@ -7,10 +7,16 @@ dist/
 *.apk
 *.ap_
 
-# Keystore sensible généré localement (sauf si configuré)
-# keystore/*.jks
+# Matériel de signature Android — garder hors du dépôt
+keystore/
+*.jks
+*.keystore
+*.p12
+*.pfx
+signature.properties
 
 # Python & caches
+.venv/
 __pycache__/
 *.pyc
 .pytest_cache/

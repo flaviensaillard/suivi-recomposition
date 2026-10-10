@@ -7,8 +7,8 @@ CE QUI A CHANGÉ
       → Séance B (vendredi): HAUT du corps + tronc (jambes laissées au repos)
   • Le RUGBY du jeudi est maintenant une séance à part entière : tu la valides
     comme les autres, avec durée, intensité, difficulté, ressenti, douleur…
-  • Et cette validation compte : si le rugby de jeudi a été dur, la séance du
-    vendredi s'allège automatiquement.
+  • Les adaptations calculées à partir des validations sont proposées, puis
+    appliquées uniquement après accord explicite pour la séance affichée.
 
 Les noms des mouvements sont ceux de Freeletics, pour que tu les retrouves en
 deux secondes dans ton application.
@@ -26,9 +26,6 @@ import tableaux as T
 
 MATERIEL = "2 haltères de 5 kg · 1 barre de traction · une chaise ou un banc · le sol"
 
-# Le poids de corps sert seulement à estimer les calories du rugby.
-POIDS_DEFAUT = 80.0
-
 # ---------------------------------------------------------------------------
 #  LES MOUVEMENTS — noms Freeletics + explications
 # ---------------------------------------------------------------------------
@@ -45,8 +42,7 @@ EXOS: dict[str, dict] = {
         ],
         facile="Fais-le sans sauter : écarte une jambe puis l'autre en levant les bras.",
         dur="Rythme rapide et soutenu, deux sauts par seconde.",
-        pourquoi="En 30 secondes, ton cœur s'accélère et tes épaules se lubrifient : "
-                 "tu évites les blessures sur les pompes et les tractions.",
+        pourquoi="Mouvement dynamique pour commencer progressivement ; adapte l'amplitude ou choisis la version sans saut selon tes sensations. Aucun échauffement ne garantit l'absence de blessure.",
     ),
     "Arm Circles": dict(
         cible="Épaules", objectif="Échauffer les épaules",
@@ -57,8 +53,7 @@ EXOS: dict[str, dict] = {
         ],
         facile="Cercles plus petits, bras à moitié pliés.",
         dur="Cercles grands et rapides, puis change de sens sans t'arrêter.",
-        pourquoi="Les épaules sont les articulations les plus sollicitées (tractions, développés, "
-                 "pompes, rugby). Les échauffer, c'est éviter les tendinites.",
+        pourquoi="Mouvement léger et contrôlé pour mobiliser les épaules avant l'effort. Il ne garantit pas la prévention d'une tendinite ou d'une blessure.",
     ),
     "High Knees": dict(
         cible="Jambes + cardio", objectif="Réveiller les jambes",
@@ -82,8 +77,7 @@ EXOS: dict[str, dict] = {
         ],
         facile="Descends moins bas (un quart du chemin) et utilise la chaise sans lâcher.",
         dur="Lâche la chaise dès que tu descends bien droit (c'est le mouvement « Squats »).",
-        pourquoi="C'est LE mouvement qui travaille les plus gros muscles de ton corps. "
-                 "Plus tu en fais, plus tu brûles de calories au repos.",
+        pourquoi="Variante assistée pour pratiquer le squat et solliciter cuisses et fessiers. La dépense énergétique et l'adaptation varient selon la personne et la séance.",
     ),
     "Squats": dict(
         cible="Cuisses + fessiers", objectif="Le mouvement de base des jambes",
@@ -95,8 +89,7 @@ EXOS: dict[str, dict] = {
         ],
         facile="Descends moins bas, ou reprends la version « Assisted Squats ».",
         dur="Descends en 3 secondes (tempo lent) : beaucoup plus dur, même sans poids.",
-        pourquoi="Sans matériel, c'est l'exercice qui construit le plus de muscle utile, "
-                 "et il protège tes genoux pour le rugby.",
+        pourquoi="Exercice de renforcement des cuisses et des fessiers. Il ne protège pas à lui seul les genoux ; choisis une amplitude confortable et arrête en cas de douleur.",
     ),
     "Knee Pushups": dict(
         cible="Pectoraux + bras + gainage", objectif="Apprendre les pompes",
@@ -119,8 +112,7 @@ EXOS: dict[str, dict] = {
         ],
         facile="Repasse en « Knee Pushups » ou pose les mains sur une chaise.",
         dur="Descends en 3 secondes, ou remonte vite (pompes explosives).",
-        pourquoi="Le meilleur exercice du haut du corps sans matériel : épaules, poitrine "
-                 "et ventre travaillent ensemble.",
+        pourquoi="Variante de poussée au poids du corps qui sollicite la poitrine, les triceps, les épaules et le tronc. Choisis une inclinaison adaptée à ton niveau.",
     ),
     "Crunches": dict(
         cible="Abdominaux", objectif="Renforcer le ventre",
@@ -131,8 +123,7 @@ EXOS: dict[str, dict] = {
         ],
         facile="Fais moins de répétitions, mais très lentement (2 s en montant).",
         dur="Passe aux « Situps » (tu montes plus haut) ou ajoute un haltère sur la poitrine.",
-        pourquoi="Un ventre solide protège ton dos quand tu portes quelque chose — "
-                 "et c'est essentiel pour le rugby.",
+        pourquoi="Travaille les abdominaux. Le renforcement du tronc ne garantit pas à lui seul la prévention des douleurs ou blessures du dos.",
     ),
     "Situps": dict(
         cible="Abdominaux", objectif="Renforcer le ventre (niveau supérieur)",
@@ -146,21 +137,20 @@ EXOS: dict[str, dict] = {
         pourquoi="Il travaille tout le ventre, y compris sous les côtes.",
     ),
     "Weighted Crunch": dict(
-        cible="Abdominaux", objectif="Abdos avec charge",
+        cible="Abdominaux", objectif="Crunch — charge facultative",
         comment=[
-            "Allongé sur le dos, genoux pliés, **un haltère de 5 kg tenu sur la poitrine**.",
-            "Décolle les épaules en soufflant, bras tendus au-dessus de toi si tu peux.",
-            "Redescends lentement, sans poser complètement la tête.",
+            "Allongé sur le dos, genoux pliés. Commence sans charge ; un lest léger n'est facultatif que s'il est disponible et confortable.",
+            "Décolle les épaules en soufflant, sans tirer sur la nuque.",
+            "Redescends lentement ; arrête si le mouvement gêne ou fait mal.",
         ],
-        facile="Pose l'haltère et fais des « Crunches ».",
-        dur="Tends les bras au-dessus de la tête : le bras de levier augmente, c'est plus dur.",
-        pourquoi="Avec seulement 5 kg, la charge est petite — mais le gainage devient bien "
-                 "plus exigeant.",
+        facile="Reste sans charge ou fais moins de répétitions.",
+        dur="N'augmente pas la charge sans maîtrise confortable de la version actuelle.",
+        pourquoi="Le lest n'est pas nécessaire. L'exercice cible le tronc ; la variante doit être adaptée à la personne.",
     ),
 
     # ---- bas du corps (séance A)
     "Dumbbell Goblet Squat": dict(
-        cible="Cuisses + fessiers", objectif="Squat chargé (le meilleur exercice à domicile)",
+        cible="Cuisses + fessiers", objectif="Squat avec haltère (charge à adapter)",
         comment=[
             "Tiens **un haltère à deux mains devant ta poitrine**, comme un calice "
             "(coudes serrés).",
@@ -170,8 +160,7 @@ EXOS: dict[str, dict] = {
         ],
         facile="Prends un seul haltère plus léger, ou fais des « Assisted Squats » à vide.",
         dur="Descends en 3 secondes et marque 1 seconde en bas.",
-        pourquoi="C'est l'exercice le plus rentable pour tes jambes à la maison : il muscle "
-                 "les cuisses et les fessiers sans tirer sur ton dos.",
+        pourquoi="Variante de squat qui sollicite les cuisses et les fessiers. Choisis une charge et une amplitude confortables ; aucune variante ne garantit l'absence de douleur.",
     ),
     "Double Dumbbell Lunges": dict(
         cible="Cuisses + fessiers + équilibre", objectif="Jambes, une par une",
@@ -183,8 +172,7 @@ EXOS: dict[str, dict] = {
         ],
         facile="Sans haltères, ou garde une main sur un mur ou une chaise pour l'équilibre.",
         dur="Fais 2 pas en avant, 2 en arrière, sans t'arrêter (fentes marchées).",
-        pourquoi="Chaque jambe travaille toute seule : parfait pour corriger les déséquilibres "
-                 "et muscler les fessiers.",
+        pourquoi="Travaille chaque jambe séparément et sollicite les fessiers. Une différence droite-gauche n'est pas un diagnostic ; augmente la charge progressivement.",
     ),
     "Single-Leg Deadlift": dict(
         cible="Arrière des cuisses + fessiers + équilibre", objectif="Bas du corps et stabilité",
@@ -197,8 +185,7 @@ EXOS: dict[str, dict] = {
         ],
         facile="Sans haltère, et pose la pointe du pied arrière au sol pour l'équilibre.",
         dur="Descends en 3 secondes et tiens 1 seconde en bas.",
-        pourquoi="Il muscle l'arrière des cuisses (souvent oublié) et travaille ton équilibre : "
-                 "utile pour éviter les blessures.",
+        pourquoi="Sollicite l'arrière des cuisses et l'équilibre. Une progression adaptée peut aider à développer ces capacités, sans garantir l'absence de blessure.",
     ),
     "Hanging Knee Raises": dict(
         cible="Ventre (abdos) + prise", objectif="Abdos suspendu à la barre",
@@ -209,8 +196,7 @@ EXOS: dict[str, dict] = {
         ],
         facile="Monte les genoux moins haut, ou fais des « Crunches » au sol.",
         dur="Jambes tendues (version Freeletics « Hanging Leg Raise »).",
-        pourquoi="Suspendu, le ventre travaille beaucoup plus fort qu'au sol — et tu améliores "
-                 "aussi ta prise pour les tractions.",
+        pourquoi="Sollicite le tronc et la prise en suspension. La barre et la suspension doivent être confortables et adaptées à tes capacités ; une variante au sol est possible.",
     ),
 
     # ---- haut du corps (séance B)
@@ -224,8 +210,7 @@ EXOS: dict[str, dict] = {
         ],
         facile="Sans haltère : tire ton poing vers la hanche, c'est le geste à apprendre.",
         dur="Marque 1 seconde en haut, redescends en 3 secondes.",
-        pourquoi="Il équilibre les pompes : il tire au lieu de pousser. C'est ce qui redresse "
-                 "les épaules et protège ton dos — précieux quand on dessine toute la journée.",
+        pourquoi="Mouvement de tirage qui complète les pompes en sollicitant le dos et les bras. Il ne corrige pas à lui seul la posture et ne garantit pas la prévention du mal de dos.",
     ),
     "Jumping Pullups": dict(
         cible="Dos + bras (traction)", objectif="Apprendre la traction",
@@ -236,8 +221,7 @@ EXOS: dict[str, dict] = {
         ],
         facile="Saute plus fort et descends lentement. Ou pose un tabouret pour limiter la descente.",
         dur="Descends sans sauter (traction complète « Pullups ») dès que tu en fais une propre.",
-        pourquoi="C'est LE test qui montre que tu ne perds pas de muscle. S'il progresse ou se "
-                 "maintient, ton programme fonctionne.",
+        pourquoi="Une performance de traction peut aider à suivre une capacité donnée, mais ne mesure pas à elle seule la masse musculaire ni l'efficacité globale du programme.",
     ),
     "Pullups": dict(
         cible="Dos + bras (traction)", objectif="La traction complète",
@@ -249,8 +233,7 @@ EXOS: dict[str, dict] = {
         ],
         facile="Repasse en « Jumping Pullups » ou pose un pied sur un tabouret.",
         dur="Ajoute 2 secondes de pause en haut, ou serre un objet entre tes chevilles.",
-        pourquoi="Le meilleur exercice de dos qui existe. Même 1 ou 2 répétitions produisent "
-                 "des résultats.",
+        pourquoi="Exercice de tirage au poids du corps. La difficulté et les résultats dépendent du niveau, de la technique, de la récupération et d'une progression adaptée.",
     ),
     "Dumbbell Shoulder Press": dict(
         cible="Épaules + bras", objectif="Épaules solides",
@@ -262,7 +245,7 @@ EXOS: dict[str, dict] = {
         ],
         facile="Assis, dos appuyé au mur, ou un haltère à la fois.",
         dur="Redescends en 3 secondes, ou ne t'arrête jamais en bas.",
-        pourquoi="Des épaules solides évitent les blessures au rugby et améliorent ta posture.",
+        pourquoi="Exercice de renforcement des épaules. Il ne prévient pas à lui seul les blessures ; ajuste la charge et l'amplitude à tes capacités.",
     ),
     "Dumbbell Biceps Curl": dict(
         cible="Bras (biceps)", objectif="Bras plus forts",
@@ -273,13 +256,12 @@ EXOS: dict[str, dict] = {
         ],
         facile="Un bras à la fois, ou appuie le coude contre ton corps.",
         dur="Redescends en 3 secondes et ne balance jamais le corps.",
-        pourquoi="Avec 5 kg, c'est un exercice de finition : il renforce les bras pour les "
-                 "tractions.",
+        pourquoi="Exercice ciblant les fléchisseurs du coude. Une charge réelle et adaptée ainsi qu'une technique confortable sont nécessaires ; aucun poids d'haltère n'est présumé par l'application.",
     ),
 }
 
 # ---------------------------------------------------------------------------
-#  LES ÉTIREMENTS — à faire à la fin, 4 minutes, jamais à froid
+#  MOBILITÉ / ÉTIREMENTS — optionnels, selon le confort
 # ---------------------------------------------------------------------------
 ETIREMENTS: dict[str, list[dict]] = {
     "A": [   # après la séance des jambes et du ventre
@@ -302,27 +284,24 @@ ETIREMENTS: dict[str, list[dict]] = {
              comment=["Mains au mur, une jambe tendue loin derrière toi, talon au sol.",
                       "Pousse doucement le bassin vers l'avant, sans décoller le talon.",
                       "Change de jambe."],
-             pourquoi="Prépare tes mollets aux appuis du rugby — et évite la tendinite d'Achille."),
+             pourquoi="Étirement doux des mollets, à utiliser seulement si confortable ; il ne prévient pas à lui seul la tendinopathie d'Achille."),
         dict(nom="Posture de l'enfant", duree="40 s",
-             comment=["À genoux, assis sur tes talons, bras tendus devant toi.",
-                      "Pose le front au sol et respire profondément par le nez.",
-                      "Laisse le bas du dos s'allonger : c'est l'étirement qui te fera le plus de bien "
-                      "après une journée assis à dessiner."],
-             pourquoi="Détend le bas du dos et les lombaires, mis à contribution tout au long de la séance."),
+             comment=["À genoux, assis sur tes talons si c'est confortable, bras tendus devant toi.",
+                      "Pose le front au sol si cela convient et respire normalement.",
+                      "Reste dans une amplitude confortable ; passe à une autre position si les genoux ou le dos gênent."],
+             pourquoi="Option de mobilité du tronc ; elle n'est pas indispensable et ne traite pas une douleur."),
     ],
     "B": [   # après la séance du haut du corps
         dict(nom="Étirement des pectoraux au mur", duree="30 s par côté",
              comment=["Place ton avant-bras contre un mur, à hauteur d'épaule, coude à 90°.",
                       "Tourne doucement le buste du côté opposé, jusqu'à sentir la poitrine s'ouvrir.",
                       "Change de côté."],
-             pourquoi="Il ouvre la poitrine, très sollicitée par les pompes — et corrige la posture "
-                      "penchée devant l'écran."),
+             pourquoi="Peut servir de mouvement de mobilité de la poitrine si cela reste confortable ; ne corrige pas à lui seul la posture."),
         dict(nom="Étirement des dorsaux, suspendu à la barre", duree="20 s, deux fois",
              comment=["Attrape ta barre de traction, les deux mains.",
                       "Laisse tout ton poids tirer, épaules relâchées vers le haut.",
                       "Respire calmement. Descends, repose-toi 10 s, puis recommence."],
-             pourquoi="Le meilleur étirement pour ton dos après les tirages et les tractions — "
-                      "et tu as déjà la barre."),
+             pourquoi="Option de mobilité des épaules et du dos, uniquement si la suspension est confortable et si la barre est stable. Une variante sans suspension est possible."),
         dict(nom="Étirement des épaules", duree="30 s par bras",
              comment=["Ramène un bras tendu en travers de ta poitrine.",
                       "Plaque-le contre toi avec l'autre bras, à hauteur du coude.",
@@ -443,9 +422,13 @@ def _date_txt(d):
 
 
 def _facile(h: dict) -> bool:
-    douleur = (h.get("douleur") or "").strip().lower()
+    """Une séance incomplètement renseignée ne compte pas comme réussite facile."""
+    if h.get("difficulte") in (None, "") or h.get("rpe") in (None, ""):
+        return False
+    douleur = str(h.get("douleur") or "").strip().lower()
+    # Une case vide signifie « inconnu », pas « aucune douleur ».
     return (_nombre(h.get("difficulte"), 3) <= 3 and _nombre(h.get("rpe"), 8) <= 8
-            and douleur in ("", "aucune", "aucun", "non", "ras"))
+            and douleur in ("aucune", "aucun", "non", "ras"))
 
 
 # ---------------------------------------------------------------------------
@@ -453,14 +436,14 @@ def _facile(h: dict) -> bool:
 # ---------------------------------------------------------------------------
 def analyse(historique: list[dict], sommeil_nuit: float | None = None,
             rugby_recent: dict | None = None) -> dict:
-    """Décide ce qu'on change pour la prochaine séance — et POURQUOI.
+    """Calcule une proposition explicable ; aucun ajustement n'est appliqué ici.
 
-    historique   : tes dernières séances de CETTE séance (la plus récente d'abord)
-    sommeil_nuit : heures de sommeil notées pour la nuit précédente (facultatif)
-    rugby_recent : ta dernière séance de rugby (facultatif)
+    Une douleur signalée bloque la proposition de renforcement. Les valeurs
+    manquantes ne sont jamais assimilées à une séance facile.
     """
     messages: list[str] = []
     delta, repos_delta, tours, version_dure = 0, 0, TOURS, False
+    bloquee = False
 
     reussies = 0
     for h in historique:
@@ -469,48 +452,46 @@ def analyse(historique: list[dict], sommeil_nuit: float | None = None,
         else:
             break
 
+    dernier = historique[0] if historique else {}
+    pu_plus_non = str(dernier.get("pu_plus") or "").strip().lower().startswith("non")
     if historique:
-        dernier = historique[0]
         d = _nombre(dernier.get("difficulte"), 3)
         r = _nombre(dernier.get("rpe"), 8)
         quand = _date_txt(dernier.get("date"))
 
-        if d <= 2 and r <= 6:
+        if d <= 2 and r <= 6 and _facile(dernier):
             delta, repos_delta = +2, -15
             messages.append(f"Ta dernière fois (**{quand}**) était notée « facile » ({d:.0f}/5) "
-                            f"avec un ressenti léger ({r:.0f}/10) : **+2 répétitions** et "
-                            f"**repos raccourci de 15 s**.")
+                            f"avec un ressenti léger ({r:.0f}/10) : proposition de **+2 répétitions** "
+                            f"et **15 s de repos en moins**.")
         elif d >= 4 or r >= 9:
             delta, repos_delta = -2, +15
             messages.append(f"Ta dernière fois (**{quand}**) a été dure ({d:.0f}/5, ressenti "
-                            f"{r:.0f}/10) : **-2 répétitions** et **+15 s de repos**. "
-                            f"On consolide avant d'ajouter.")
+                            f"{r:.0f}/10) : proposition de **-2 répétitions** et **15 s de repos en plus**.")
         else:
-            messages.append(f"Ta dernière fois (**{quand}**) était bien dosée ({d:.0f}/5, "
-                            f"ressenti {r:.0f}/10) : on **garde la même chose** pour l'ancrer.")
+            messages.append(f"Ta dernière fois (**{quand}**) était renseignée : le plan de base est conservé.")
 
-        if (dernier.get("douleur") or "").strip().lower() not in ("", "aucune", "aucun", "non", "ras"):
-            zone = dernier.get("zone_douleur") or "signalée"
-            delta = min(delta, -2)
-            messages.append(f"⚠️ Tu avais signalé une douleur (**{zone}**) : répétitions réduites "
-                            f"et on évite de forcer sur la zone. Si ça dure plus d'une semaine, "
-                            f"parle-en à un professionnel de santé.")
-        if (dernier.get("pu_plus") or "").strip().lower().startswith("non"):
-            if delta > 0:
-                delta = 0
-                messages.append("Tu avais précisé que tu ne pouvais pas faire plus : on ne monte "
-                                "pas encore, même si la séance semblait facile.")
+        douleur = str(dernier.get("douleur") or "").strip().lower()
+        if douleur and douleur not in ("aucune", "aucun", "non", "ras"):
+            zone = dernier.get("zone_douleur") or "zone non précisée"
+            bloquee = True
+            messages.append(f"⚠️ Une gêne/douleur (**{zone}**) est enregistrée : aucun exercice de "
+                            "renforcement ne sera proposé. Ne force pas sur une zone douloureuse ; "
+                            "si la douleur est importante ou persiste, demande un avis professionnel.")
 
-        if reussies >= 4:
+        if pu_plus_non:
+            delta = 0
+            version_dure = False
+            messages.append("Tu avais indiqué que tu ne pouvais pas en faire plus : aucune hausse "
+                            "de répétitions ni de variante n'est proposée.")
+        elif reussies >= 4:
             version_dure = True
-            messages.append(f"**{reussies} séances réussies d'affilée** : tu peux passer aux "
-                            f"versions « dures » (Pushups au lieu de Knee Pushups, Squats au lieu "
-                            f"d'Assisted Squats…). Le détail est dans chaque exercice.")
+            messages.append(f"**{reussies} séances renseignées et faciles d'affilée** : proposition "
+                            "de passer aux variantes plus difficiles. À valider avant affichage.")
     else:
-        messages.append("**Première séance** : on part sur des répétitions prudentes. "
-                        "Note bien ta difficulté à la fin : c'est ce qui règle la suite.")
+        messages.append("**Première séance** : le plan de base est affiché. Note ton ressenti à la fin.")
 
-    # ---- le rugby de la veille compte aussi
+    # ---- le rugby récent compte aussi, sans imposer l'ajustement
     if rugby_recent:
         quand = _date_txt(rugby_recent.get("date"))
         d = _nombre(rugby_recent.get("difficulte"), 3)
@@ -521,34 +502,36 @@ def analyse(historique: list[dict], sommeil_nuit: float | None = None,
             jours = None
         if d >= 4 or r >= 9:
             delta = min(delta, -2)
+            repos_delta = max(repos_delta, 15)
             messages.append(f"🏉 Ton rugby ({quand}) a été costaud ({d:.0f}/5, ressenti {r:.0f}/10) : "
-                            f"**-2 répétitions** pour digérer la fatigue.")
+                            "proposition d'allègement de la séance.")
         elif jours is not None and jours <= 2:
-            messages.append(f"🏉 Rugby il y a {jours} jour(s) ({quand}, {d:.0f}/5) : on garde la "
-                            f"séance telle quelle, tes jambes ne sont pas sollicitées aujourd'hui.")
-        if (rugby_recent.get("douleur") or "").strip().lower() not in ("", "aucune", "aucun", "non", "ras"):
-            delta = min(delta, -2)
-            messages.append(f"⚠️ Douleur signalée au rugby "
-                            f"(**{rugby_recent.get('zone_douleur') or 'zone non précisée'}**) : "
-                            f"on allège aujourd'hui.")
+            messages.append(f"🏉 Rugby il y a {jours} jour(s) ({quand}) : garde à l'esprit la fatigue "
+                            "récente avant de commencer.")
+        douleur_rugby = str(rugby_recent.get("douleur") or "").strip().lower()
+        if douleur_rugby and douleur_rugby not in ("aucune", "aucun", "non", "ras"):
+            bloquee = True
+            messages.append(f"⚠️ Une gêne/douleur au rugby ({rugby_recent.get('zone_douleur') or 'zone non précisée'}) "
+                            "est enregistrée : aucun exercice de renforcement ne sera proposé.")
 
-    # ---- le sommeil compte : le muscle se construit la nuit
     if sommeil_nuit is not None and sommeil_nuit > 0:
         if sommeil_nuit < 6:
             tours = TOURS - 1
-            messages.append(f"😴 Seulement **{sommeil_nuit:.1f} h de sommeil** notées : on passe à "
-                            f"**{tours} tours au lieu de {TOURS}**. Une séance courte vaut mieux "
-                            f"qu'une séance sautée — et ça ne casse pas ta progression.")
+            messages.append(f"😴 **{sommeil_nuit:.1f} h de sommeil** notées : proposition de réduire à "
+                            f"**{tours} tours** au lieu de {TOURS}.")
         elif sommeil_nuit >= 7.5:
-            messages.append(f"😴 **{sommeil_nuit:.1f} h de sommeil** : ton corps est prêt, "
-                            f"tu peux y aller franchement.")
+            messages.append(f"😴 **{sommeil_nuit:.1f} h de sommeil** notées ; prends en compte ton état "
+                            "du jour, sans hausse automatique de charge.")
 
     return dict(delta_reps=delta, repos=max(45, min(120, 75 + repos_delta)), tours=tours,
-                version_dure=version_dure, messages=messages)
+                version_dure=version_dure, messages=messages, bloquee=bloquee,
+                proposition_appliquee=False)
 
 
 def appliquer(seance: dict, plan: dict) -> dict:
-    """Le tableau de la séance, ajusté par les règles ci-dessus."""
+    """Le tableau d'une séance ; une douleur enregistrée ne montre aucun exercice."""
+    if plan.get("bloquee"):
+        return dict(lignes=[], tours=0, repos_apres_tour=75)
     lignes = []
     for bloc in seance["blocs"]:
         for i, ex in enumerate(bloc["exos"]):
@@ -562,6 +545,28 @@ def appliquer(seance: dict, plan: dict) -> dict:
                 par_cote=ex["par_cote"],
             ))
     return dict(lignes=lignes, tours=plan["tours"], repos_apres_tour=plan["repos"])
+
+
+def planifier_seance(seance: dict, proposition: dict, accepter: bool = False) -> tuple[dict, dict]:
+    """Applique une proposition seulement après accord explicite de l'utilisateur."""
+    plan = dict(proposition)
+    if plan.get("bloquee"):
+        plan["proposition_appliquee"] = False
+        return plan, appliquer(seance, plan)
+    if accepter:
+        plan["proposition_appliquee"] = True
+    else:
+        plan.update(delta_reps=0, repos=75, tours=TOURS, version_dure=False,
+                    proposition_appliquee=False)
+    return plan, appliquer(seance, plan)
+
+
+def a_ajustement(proposition: dict) -> bool:
+    """Vrai si la proposition modifie le plan de base."""
+    return (proposition.get("delta_reps", 0) != 0
+            or proposition.get("repos", 75) != 75
+            or proposition.get("tours", TOURS) != TOURS
+            or bool(proposition.get("version_dure")))
 
 
 def texte_reps(ligne: dict) -> str:
@@ -609,7 +614,7 @@ def lire_historique(store, session: str, limite: int = 8) -> list[dict]:
             date=r.get("session_date"),
             difficulte=val("difficulte"),
             rpe=val("rpe"),
-            douleur=val("douleur", defaut="Aucune"),
+            douleur=val("douleur", defaut=None),
             zone_douleur=val("zone_douleur", defaut=""),
             pu_plus=val("pu_plus"),
             duree=val("duration_min", "duree"),
@@ -631,10 +636,29 @@ def enregistrer(store, session: str, jour: dt.date, duree: int, difficulte: int,
                 pu_plus: str, douleur: str, zone: str, energie: int, notes: str,
                 plan: dict | None, lignes: list[dict] | None, infos: dict | None = None
                 ) -> tuple[bool, str]:
-    """Enregistre une séance (renforcement ou rugby) + ses séries. Renvoie (ok, message)."""
+    """Enregistre une séance validée ; refuse les ressentis absents ou incohérents."""
+    if any(v is None or v == "" for v in (duree, difficulte, rpe, pu_plus, douleur, energie)):
+        return False, "Données réelles incomplètes : aucune séance n'a été enregistrée."
+    try:
+        duree, difficulte, rpe, energie = map(int, (duree, difficulte, rpe, energie))
+    except (TypeError, ValueError):
+        return False, "Valeurs de séance invalides : aucune séance n'a été enregistrée."
+    if not 5 <= duree <= 180 or not 1 <= difficulte <= 5 or not 1 <= rpe <= 10 or not 1 <= energie <= 5:
+        return False, "Valeurs hors limites : aucune séance n'a été enregistrée."
+    if pu_plus not in ("Oui, assez", "Un peu", "Non, c'était le maximum"):
+        return False, "Réponse sur la réserve invalide : aucune séance n'a été enregistrée."
+    if douleur not in ("Aucune", "Gêne", "Douleur"):
+        return False, "Présence ou absence de douleur à préciser : aucune séance n'a été enregistrée."
+    if douleur in ("Gêne", "Douleur") and not str(zone or "").strip():
+        return False, "Précise la zone concernée : aucune séance n'a été enregistrée."
     extra = dict(difficulte=int(difficulte), rpe=int(rpe), pu_plus=pu_plus, douleur=douleur,
                  zone_douleur=zone, energie_avant=int(energie),
                  tours=(int(plan["tours"]) if plan else None))
+    if plan:
+        extra.update(proposition_appliquee=bool(plan.get("proposition_appliquee")),
+                     delta_reps_applique=int(plan.get("delta_reps", 0)),
+                     repos_apres_tour=int(plan.get("repos", 75)),
+                     variante_dure=bool(plan.get("version_dure", False)))
     if infos:
         extra.update(infos)
     base = dict(session_date=str(jour), session=session, duration_min=int(duree),
@@ -662,49 +686,55 @@ def enregistrer(store, session: str, jour: dt.date, duree: int, difficulte: int,
                        "Dis-le moi : je les ajoute.")
         return False, f"Enregistrement impossible : {err}{conseil}"
 
-    # les séries (uniquement pour le renforcement)
-    series = []
-    for l in (lignes or []):
-        if not l["reps"]:
-            continue
-        for s in range(1, (plan["tours"] if plan else TOURS) + 1):
-            series.append(dict(set_date=str(jour), session=session, exercise=l["nom"],
-                               set_no=s, reps=int(l["reps"]),
-                               load_kg=5.0 if "Dumbbell" in l["nom"] else 0.0,
-                               variant="standard", rpe=int(rpe)))
-    if series:
-        try:
-            store.save_sets(series)
-        except Exception:
-            pass                                           # la séance est déjà enregistrée
-    return True, "Séance enregistrée. Le programme a déjà ajusté la prochaine. 💪"
+    # Le plan décrit des répétitions proposées, pas des répétitions réellement
+    # exécutées. Sans saisie effective des séries, ne rien écrire dans workout_sets.
+    return True, "Séance enregistrée. La prochaine séance affichera une proposition à valider. 💪"
 
 
 # ---------------------------------------------------------------------------
 #  OUTILS D'AFFICHAGE
 # ---------------------------------------------------------------------------
-def poids_corps(store) -> float:
-    """Le poids le plus récent connu (pour estimer les calories du rugby)."""
-    try:
-        p = store.profile() or {}
-        for cle in ("weight_kg", "poids_kg", "start_weight_kg"):
-            if p.get(cle):
-                return float(p[cle])
-    except Exception:
-        pass
+def poids_corps(store) -> float | None:
+    """Dernier poids réellement enregistré ; aucun poids de remplacement fictif."""
     try:
         df = store.daily_df()
         if df is not None and not df.empty and "weight_kg" in df:
-            v = df.dropna(subset=["weight_kg"]).sort_values("log_date").iloc[-1]["weight_kg"]
-            if v:
-                return float(v)
+            lignes = df.dropna(subset=["weight_kg"]).copy()
+            if not lignes.empty:
+                lignes["weight_kg"] = pd.to_numeric(lignes["weight_kg"], errors="coerce")
+                lignes = lignes.dropna(subset=["weight_kg"]).sort_values("log_date")
+                if not lignes.empty:
+                    poids = float(lignes.iloc[-1]["weight_kg"])
+                    return poids if poids > 0 else None
     except Exception:
         pass
-    return POIDS_DEFAUT
+    try:
+        profil = store.profile() or {}
+        for cle in ("weight_kg", "poids_kg"):
+            valeur = profil.get(cle)
+            if valeur not in (None, "") and float(valeur) > 0:
+                return float(valeur)
+    except Exception:
+        pass
+    return None
 
 
 def calories_rugby(poids: float, duree_min: int, met: float) -> int:
     return int(round(met * poids * (duree_min / 60.0)))
+
+
+def infos_seance_reelle(store, session: str, duree_reelle: int,
+                        infos: dict | None = None) -> dict | None:
+    """Prépare les métadonnées validées ; l'estimation rugby utilise la durée réelle."""
+    resultat = dict(infos or {})
+    if session.upper() == RUGBY["code"]:
+        poids = poids_corps(store)
+        met = resultat.get("met")
+        if poids is not None and met is not None:
+            resultat["kcal_estimees"] = calories_rugby(poids, int(duree_reelle), float(met))
+        else:
+            resultat.pop("kcal_estimees", None)
+    return resultat or None
 
 
 @st.fragment(run_every=1.0)
@@ -741,7 +771,7 @@ def _chronometre(repos: int):
 #  PAGE — RENFORCEMENT
 # ---------------------------------------------------------------------------
 def _bloc_reps(store, session: str):
-    """Le bloc « ce que l'application a décidé » + le tableau de la séance."""
+    """Affiche le plan de base et demande un accord avant toute adaptation."""
     sommeil = None
     try:
         dfd = store.daily_df()
@@ -755,8 +785,32 @@ def _bloc_reps(store, session: str):
 
     S = SEANCES[session]
     histo = lire_historique(store, session)
-    plan = analyse(histo, sommeil, rugby_recent(store))
-    tab = appliquer(S, plan)
+    rugby = rugby_recent(store)
+    proposition = analyse(histo, sommeil, rugby)
+    if proposition.get("bloquee"):
+        plan, tab = planifier_seance(S, proposition, accepter=False)
+        with st.container(border=True):
+            st.markdown(f"#### {S['emoji']} {S['nom']} — {S['sous_titre']}")
+            st.error("Séance de renforcement masquée : une gêne ou douleur récente a été enregistrée.")
+            for m in plan["messages"]:
+                st.markdown(f"- {m}")
+            st.caption("Aucune séance n'est enregistrée ni modifiée automatiquement. "
+                       "Si l'entrée est erronée, corrige l'historique ; ne force pas sur une douleur.")
+        return plan, tab, histo
+
+    accepter = False
+    if a_ajustement(proposition):
+        derniere_date = str(histo[0].get("date")) if histo else "premiere"
+        date_rugby = str((rugby or {}).get("date") or "aucun")
+        cle = (f"se_accept_{session}_{derniere_date}_{date_rugby}_"
+               f"{proposition['delta_reps']}_{proposition['repos']}_"
+               f"{proposition['tours']}_{int(proposition['version_dure'])}_{sommeil}")
+        cle = cle.replace(" ", "_").replace(":", "_").replace(".", "_")
+        accepter = st.checkbox(
+            "Appliquer cette proposition à la séance affichée",
+            value=False, key=cle,
+            help="Sans validation, le plan de base reste affiché. Aucune adaptation n'est appliquée automatiquement.")
+    plan, tab = planifier_seance(S, proposition, accepter=accepter)
 
     with st.container(border=True):
         st.markdown(f"#### {S['emoji']} {S['nom']} — {S['sous_titre']}")
@@ -766,24 +820,25 @@ def _bloc_reps(store, session: str):
                     f"d'étirements** = **30 minutes**  \n"
                     f"Matériel : {MATERIEL}")
         st.caption(S["note"])
-        st.markdown("**Ce que l'application a décidé pour toi aujourd'hui :**")
+        st.markdown("**Proposition de l'application :**" if a_ajustement(proposition)
+                    else "**Plan de base :**")
         for m in plan["messages"]:
             st.markdown(f"- {m}")
-        st.caption("Ces réglages viennent de **tes** validations de séance (et de ton rugby). "
-                   "Rien n'est imposé : si tu te sens bien, tu peux ajouter un tour.")
+        if a_ajustement(proposition):
+            st.info("Proposition appliquée pour cette séance." if accepter else
+                    "Proposition non appliquée : le plan de base reste affiché.")
+        st.caption("Les changements de répétitions, repos, tours ou variante restent des suggestions : "
+                   "ils ne s'appliquent qu'après validation explicite.")
 
-    # ---- ÉCHAUFFEMENT (adapté à la séance) : AVANT LE BLOC 1
     _section_echauffement(S)
-
-    # ---- LA SÉANCE
     st.subheader("Ta séance, ligne par ligne")
     st.caption("Fais l'exercice ① puis l'exercice ② **sans t'arrêter** (c'est un « superset »), "
-               "puis souffle pendant le repos. Répète le bloc 3 fois au total.")
+               "puis souffle pendant le repos.")
     for bloc in S["blocs"]:
         lignes_bloc = [l for l in tab["lignes"] if l["bloc"] == bloc["num"]]
         with st.container(border=True):
-            st.markdown(f"**Bloc {bloc['num']}** — 3 tours · repos {tab['repos_apres_tour']} s "
-                        f"après le 2ᵉ exercice de chaque tour")
+            st.markdown(f"**Bloc {bloc['num']}** — {tab['tours']} tours · repos "
+                        f"{tab['repos_apres_tour']} s après le 2ᵉ exercice de chaque tour")
             for l in lignes_bloc:
                 st.markdown(f"- {l['tour']} **{l['nom']}** — {texte_reps(l)}")
             for l in lignes_bloc:
@@ -798,8 +853,6 @@ def _bloc_reps(store, session: str):
                     c2.markdown(f"🔴 **Plus dur** — {ex.get('dur', '')}")
 
     _chronometre(tab["repos_apres_tour"])
-
-    # ---- ÉTIREMENTS (adaptés à la séance) : À LA FIN
     _section_etirements(S, session)
     return plan, tab, histo
 
@@ -824,20 +877,17 @@ def _section_echauffement(S: dict):
                 st.markdown(f"<span class='hint'>{ex.get('pourquoi', '')}</span>",
                             unsafe_allow_html=True)
                 st.markdown("")
-            st.caption("C'est ta vraie prévention des blessures pour le rugby : 4 minutes "
-                       "maintenant t'évitent trois semaines d'arrêt plus tard.")
+            st.caption("Cet échauffement progressif peut préparer à la séance, mais ne garantit pas l'absence de blessure. Adapte-le à tes sensations et à la charge du jour.")
 
 
 def _section_etirements(S: dict, code: str):
-    """Les étirements, à la fin : ils réduisent les courbatures et gardent la mobilité."""
+    """Propose quelques mouvements de mobilité ou étirements optionnels."""
     et = ETIREMENTS.get(code, [])
     if not et:
         return
     with st.container(border=True):
         st.markdown(f"### 🧘 Étirements — 4 minutes  ·  *{S['nom']}*")
-        st.markdown("À faire **juste après la dernière série**, pendant que les muscles sont "
-                    "chauds. Reste **immobile** dans chaque position et **respire** : ça ne doit "
-                    "jamais faire mal.")
+        st.markdown("Ces positions sont facultatives : reste dans une amplitude confortable, respire normalement et relâche si tu ressens une douleur, un engourdissement ou une gêne inhabituelle. Elles ne sont pas un traitement et ne garantissent pas moins de courbatures.")
         for e in et:
             st.markdown(f"- **{e['nom']}** — {e['duree']}")
         with st.expander("❔ Comment faire chaque étirement (détail)"):
@@ -848,36 +898,37 @@ def _section_etirements(S: dict, code: str):
                 st.markdown(f"<span class='hint'>Pourquoi : {e['pourquoi']}</span>",
                             unsafe_allow_html=True)
                 st.markdown("")
-            st.caption("Ils réduisent les courbatures, gardent ta mobilité pour le rugby et "
-                       "détendent le dos — le point faible de tous ceux qui dessinent assis.")
+            st.caption("Ces options peuvent travailler l'amplitude de mouvement si elles te conviennent ; elles ne corrigent pas une posture ou une douleur et ne sont pas obligatoires.")
 
 
 def _formulaire_validation(store, session: str, nom: str, plan, tab, cle: str,
-                           duree_defaut: int = 30, infos: dict | None = None):
+                           infos: dict | None = None):
     """Le formulaire commun aux séances de renforcement ET au rugby."""
     with st.form(f"valider_{cle}"):
         f1, f2, f3 = st.columns([1, 1, 1])
         with f1:
             jour = st.date_input("Date", value=dt.date.today(), max_value=dt.date.today(),
                                  format="DD/MM/YYYY", key=f"{cle}_date")
-            duree = st.number_input("Durée réelle (min)", 5, 180,
-                                    int(MN.borne(duree_defaut, 5, 180, 30)),
-                                    step=5, key=f"{cle}_duree")
+            duree = st.number_input("Durée réelle (min)", min_value=5, max_value=180,
+                                    value=None, step=5, key=f"{cle}_duree",
+                                    placeholder="Saisir la durée mesurée")
         with f2:
-            diff = st.select_slider("Difficulté", options=[1, 2, 3, 4, 5], value=3,
+            diff = st.select_slider("Difficulté", options=[1, 2, 3, 4, 5], value=None,
                                     format_func=lambda v: {1: "1 · très facile", 2: "2 · facile",
                                                            3: "3 · juste bien", 4: "4 · dur",
                                                            5: "5 · très dur"}[v], key=f"{cle}_diff")
-            rpe = st.slider("Ressenti d'effort (1-10)", 1, 10, 7, key=f"{cle}_rpe")
+            rpe = st.selectbox("Ressenti d'effort (1–10)", options=list(range(1, 11)),
+                               index=None, placeholder="Choisir une valeur", key=f"{cle}_rpe")
         with f3:
             pu_plus = st.radio("J'aurais pu en faire plus ?",
                                ["Oui, assez", "Un peu", "Non, c'était le maximum"],
-                               index=1, key=f"{cle}_plus")
-            energie = st.select_slider("Énergie avant", options=[1, 2, 3, 4, 5], value=3,
+                               index=None, key=f"{cle}_plus")
+            energie = st.select_slider("Énergie avant", options=[1, 2, 3, 4, 5], value=None,
                                        key=f"{cle}_energie")
         f4, f5 = st.columns([1, 2])
         with f4:
-            douleur = st.radio("Douleur ?", ["Aucune", "Gêne", "Douleur"], key=f"{cle}_douleur")
+            douleur = st.radio("Douleur ?", ["Aucune", "Gêne", "Douleur"],
+                               index=None, key=f"{cle}_douleur")
         with f5:
             zone = st.text_input("Où ? (si gêne ou douleur)",
                                  placeholder="ex. épaule droite, genou…", key=f"{cle}_zone")
@@ -887,13 +938,29 @@ def _formulaire_validation(store, session: str, nom: str, plan, tab, cle: str,
                                    width="stretch")
     if not ok:
         return
-    if not getattr(store, "client", None):
-        st.warning("Mode aperçu : rien n'est enregistré. Renseigne tes clés Supabase "
-                   "(page Réglages) pour que le suivi et l'adaptation fonctionnent.")
+    manquants = []
+    if duree is None:
+        manquants.append("la durée réelle")
+    if diff is None:
+        manquants.append("la difficulté")
+    if rpe is None:
+        manquants.append("le ressenti d'effort")
+    if pu_plus is None:
+        manquants.append("la réponse sur la réserve")
+    if energie is None:
+        manquants.append("l'énergie avant séance")
+    if douleur is None:
+        manquants.append("la présence ou l'absence de douleur")
+    if manquants:
+        st.error("Renseigne les données réellement observées : " + ", ".join(manquants) + ". Rien n'a été enregistré.")
         return
+    if douleur in ("Gêne", "Douleur") and not zone.strip():
+        st.error("Précise la zone concernée par la gêne ou la douleur avant l'enregistrement.")
+        return
+    infos_reelles = infos_seance_reelle(store, session, int(duree), infos)
     bon, msg = enregistrer(store, session, jour, int(duree), int(diff), int(rpe), pu_plus,
                            douleur, zone, int(energie), notes, plan,
-                           (tab["lignes"] if tab else None), infos)
+                           (tab["lignes"] if tab else None), infos_reelles)
     if bon:
         st.success(msg)
         st.balloons()
@@ -909,26 +976,24 @@ def page_rugby(store):
     st.subheader("🏉 Ma séance de rugby")
     st.caption("Le rugby, c'est de l'entraînement : il compte autant que les séances de "
                "renforcement. Valide-le ici — durée, intensité, ressenti, douleur — et "
-               "l'application en tiendra compte pour la séance du lendemain.")
+               "une éventuelle adaptation sera proposée pour la prochaine séance, à confirmer.")
 
     poids = poids_corps(store)
 
     with st.container(border=True):
-        c1, c2 = st.columns([2, 1])
-        with c1:
-            type_rugby = st.radio("Type de séance", [t for t, _ in RUGBY["types"]],
-                                  horizontal=True, key="ru_type")
-            met = dict(RUGBY["types"])[type_rugby]
-        with c2:
-            st.write("")
-            st.caption(f"Estimation des calories brûlées calculée sur **{poids:.0f} kg** "
-                       f"(ton poids le plus récent).")
+        type_rugby = st.radio("Type de séance", [t for t, _ in RUGBY["types"]],
+                              horizontal=True, key="ru_type")
+        met = dict(RUGBY["types"])[type_rugby]
         duree = st.slider("Durée prévue (minutes)", 15, 150, 75, step=5, key="ru_duree_prevue")
-        kcal = calories_rugby(poids, int(duree), met)
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Calories estimées", f"{kcal} kcal")
-        m2.metric("Équivalent", f"≈ {kcal / 80:.1f} h de marche")
-        m3.metric("Charge de la semaine", f"{_charge_semaine(store)} min")
+        c1, c2 = st.columns(2)
+        c1.metric("Charge de la semaine", f"{_charge_semaine(store)} min")
+        kcal = calories_rugby(poids, int(duree), met) if poids is not None else None
+        if kcal is None:
+            c2.metric("Énergie dépensée", "—")
+            st.info("Pas de poids réellement enregistré : l'application omet l'estimation calorique.")
+        else:
+            c2.metric("Estimation indicative", f"≈ {kcal} kcal")
+            st.caption("Ordre de grandeur calculé à partir du type, de la durée prévue et du dernier poids enregistré ; grande incertitude, à ne pas utiliser pour ajuster automatiquement l'alimentation.")
 
     histo = lire_historique(store, RUGBY["code"], limite=6)
     if histo:
@@ -943,19 +1008,18 @@ def page_rugby(store):
     # ---- le formulaire de validation (même logique que les séances)
     with st.container(border=True):
         st.markdown("**Valider ma séance de rugby**")
-        _formulaire_validation(store, RUGBY["code"], "Rugby", None, None, cle="ru",
-                               duree_defaut=int(duree),
-                               infos=dict(type_seance=type_rugby, duree_prevue=int(duree),
-                                          kcal_estimees=int(kcal), met=met))
+        infos = dict(type_seance=type_rugby, duree_prevue=int(duree), met=met)
+        _formulaire_validation(store, RUGBY["code"], "Rugby", None, None,
+                               cle="ru", infos=infos)
 
     # ---- historique rugby
     if histo:
         st.divider()
         st.subheader("📈 Mon rugby, séance après séance")
         _tableau_seances(store, RUGBY["code"], histo, cle="histo_rugby")
-        st.caption("Ce que l'application en fait : si le rugby du jeudi est noté « dur », la "
-                   "séance du vendredi **allège de 2 répétitions** automatiquement. "
-                   "Si une douleur est signalée, elle le rappelle aussi.")
+        st.caption("Une séance de rugby difficile peut déclencher une proposition d'allègement "
+                   "pour le renforcement ; tu la valides ou l'ignores. Une gêne/douleur récente "
+                   "masque la séance de renforcement au lieu de conserver les exercices.")
 
 
 def _charge_semaine(store) -> int:
@@ -979,9 +1043,8 @@ def _charge_semaine(store) -> int:
 # ---------------------------------------------------------------------------
 def page_seance(store, target_p: float | None = None):
     st.title("💪 Mes séances")
-    st.caption("**Lundi** et **vendredi** : 30 minutes de renforcement — échauffement, 3 blocs, "
-               "étirements. **Jeudi** : ton rugby. Tout se valide au même endroit, avec ton "
-               "ressenti — et le programme s'ajuste tout seul.")
+    st.caption("**Lundi** et **vendredi** : renforcement. **Jeudi** : rugby. Les adaptations "
+               "du plan sont des propositions explicites ; elles ne s'appliquent qu'après validation.")
 
     auj = dt.date.today()
     jour_fr = JOURS_SEMAINE[auj.weekday()]
@@ -1010,12 +1073,12 @@ def page_seance(store, target_p: float | None = None):
                        "veille, elles ont déjà travaillé.")
         plan, tab, histo = _bloc_reps(store, sess)
 
-        st.divider()
-        st.subheader("✅ J'ai fini — je valide ma séance")
-        st.caption("20 secondes. C'est **ça** qui fait progresser le programme : plus tu es "
-                   "honnête, mieux il règle la suite.")
-        _formulaire_validation(store, sess, f"Séance du {S['jour']}", plan, tab,
-                               cle=f"se{sess}", duree_defaut=30)
+        if not plan.get("bloquee"):
+            st.divider()
+            st.subheader("✅ J'ai fini — je valide ma séance")
+            st.caption("20 secondes. C'est **ça** qui permet de préparer une proposition pour la suite.")
+            _formulaire_validation(store, sess, f"Séance du {S['jour']}", plan, tab,
+                                   cle=f"se{sess}")
 
         st.divider()
         st.subheader(f"📈 Mes dernières séances du {S['jour'].lower()}")

@@ -3,6 +3,7 @@ package fr.recomposition.suivi;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.graphics.Color;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -14,20 +15,16 @@ import android.view.animation.AlphaAnimation;
 import android.webkit.CookieManager;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
+import android.webkit.WebResourceRequest;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Toast;
 
-/**
- * Coque Android native de l'application Équilibre (Suivi & Menus).
- *
- * Exécute l'application mobile locale fluide et tactile (HTML5/CSS/JS)
- * stockée dans les assets, tout en offrant une passerelle directe vers
- * les services distants et les deux applications Streamlit (Suivi et Menus).
- */
-public class MainActivity extends Activity implements NativeBridge.JsRunner {
+/** WebView réservé aux assets locaux ; les pages distantes s'ouvrent hors de l'app. */
+public class MainActivity extends Activity {
 
     private static final String PAGE = "file:///android_asset/www/index.html";
+    private static final String ASSET_PREFIX = "file:///android_asset/www/";
 
     private WebView webView;
     private NativeBridge pont;
@@ -55,47 +52,42 @@ public class MainActivity extends Activity implements NativeBridge.JsRunner {
         splash = findViewById(R.id.splash);
         webView = findViewById(R.id.webview);
 
-        WebSettings s = webView.getSettings();
-        s.setJavaScriptEnabled(true);
-        s.setDomStorageEnabled(true);
-        s.setDatabaseEnabled(true);
-        s.setAllowFileAccess(true);
-        s.setAllowContentAccess(true);
-        s.setAllowFileAccessFromFileURLs(true);
-        s.setAllowUniversalAccessFromFileURLs(true);
-        s.setLoadWithOverviewMode(false);
-        s.setUseWideViewPort(true);
-        s.setSupportZoom(false);
-        s.setBuiltInZoomControls(false);
-        s.setDisplayZoomControls(false);
-        s.setTextZoom(100);
-        s.setMediaPlaybackRequiresUserGesture(false);
-        s.setCacheMode(WebSettings.LOAD_DEFAULT);
-        s.setLayoutAlgorithm(WebSettings.LayoutAlgorithm.NORMAL);
-        s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        WebSettings settings = webView.getSettings();
+        settings.setJavaScriptEnabled(true);
+        settings.setDomStorageEnabled(true);
+        settings.setDatabaseEnabled(false);
+        settings.setAllowFileAccess(true); // nécessaire aux assets embarqués
+        settings.setAllowContentAccess(false);
+        settings.setAllowFileAccessFromFileURLs(false);
+        settings.setAllowUniversalAccessFromFileURLs(false);
+        settings.setBlockNetworkLoads(true); // mode local : aucun fetch/iframe vers Internet
+        settings.setLoadWithOverviewMode(false);
+        settings.setUseWideViewPort(true);
+        settings.setSupportZoom(false);
+        settings.setBuiltInZoomControls(false);
+        settings.setDisplayZoomControls(false);
+        settings.setTextZoom(100);
+        settings.setMediaPlaybackRequiresUserGesture(false);
+        settings.setCacheMode(WebSettings.LOAD_NO_CACHE);
+        settings.setLayoutAlgorithm(WebSettings.LayoutAlgorithm.NORMAL);
+        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         if (Build.VERSION.SDK_INT >= 26) {
-            s.setSafeBrowsingEnabled(false);
+            settings.setSafeBrowsingEnabled(true);
         }
-        CookieManager.getInstance().setAcceptCookie(true);
+        CookieManager.getInstance().setAcceptCookie(false);
         if (Build.VERSION.SDK_INT >= 21) {
-            CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
+            CookieManager.getInstance().setAcceptThirdPartyCookies(webView, false);
         }
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                return gererNavigation(request == null ? null : request.getUrl().toString());
+            }
+
+            @Override
             public boolean shouldOverrideUrlLoading(WebView view, String url) {
-                if (url != null && url.startsWith("file:///android_asset/")) {
-                    return false;
-                }
-                if (url != null && (url.startsWith("http://") || url.startsWith("https://"))) {
-                    // Les liens web internes sont gérés par l'interface ou le pont
-                    return false;
-                }
-                if (url != null && pont != null) {
-                    pont.openExternal(url);
-                    return true;
-                }
-                return false;
+                return gererNavigation(url);
             }
 
             @Override
@@ -106,7 +98,7 @@ public class MainActivity extends Activity implements NativeBridge.JsRunner {
 
         webView.setWebChromeClient(new WebChromeClient());
         webView.setBackgroundColor(Color.parseColor("#0B0F17"));
-        pont = new NativeBridge(this, this);
+        pont = new NativeBridge(this);
         webView.addJavascriptInterface(pont, "Native");
         webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
 
@@ -114,7 +106,6 @@ public class MainActivity extends Activity implements NativeBridge.JsRunner {
             webView.loadUrl(PAGE);
         }
 
-        // Sécurité : masque l'écran de chargement après 5 secondes maximum
         handler.postDelayed(new Runnable() {
             @Override
             public void run() {
@@ -123,27 +114,25 @@ public class MainActivity extends Activity implements NativeBridge.JsRunner {
         }, 5000);
     }
 
+    private boolean gererNavigation(String url) {
+        if (url == null) return true;
+        if (url.startsWith(ASSET_PREFIX)) return false;
+
+        // Aucune page distante ne s'exécute dans le WebView qui porte le pont natif.
+        Uri uri = Uri.parse(url);
+        if ("https".equalsIgnoreCase(uri.getScheme()) && uri.getHost() != null) {
+            if (pont != null) pont.openExternal(uri.toString());
+        }
+        // HTTP, javascript:, intent:, file: externe et autres schémas sont bloqués.
+        return true;
+    }
+
     private void hideSplash() {
         if (splash == null || splash.getVisibility() != View.VISIBLE) return;
         AlphaAnimation fade = new AlphaAnimation(1f, 0f);
         fade.setDuration(280);
         splash.startAnimation(fade);
         splash.setVisibility(View.GONE);
-    }
-
-    @Override
-    public void eval(final String js) {
-        runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                if (webView != null) {
-                    try {
-                        webView.evaluateJavascript(js, null);
-                    } catch (Exception ignored) {
-                    }
-                }
-            }
-        });
     }
 
     @Override

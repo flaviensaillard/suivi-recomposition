@@ -1,4 +1,6 @@
-# 🔍 Audit complet d'Équilibre — deux passages, 1ᵉʳ octobre 2026
+# 🔍 Audit historique d'Équilibre — deux passages, 1ᵉʳ octobre 2026
+
+> ⚠️ **Document périmé pour le checkout actuel.** Ce rapport décrivait un autre état du code, des fichiers livrés et de la base le 1ᵉʳ octobre 2026. Il n'est pas une preuve de l'état actuel et ses déclarations (« rien de bloquant », architecture Android, tests, accès Supabase et livraisons) ne doivent pas être reprises sans nouvelle vérification. Voir [`AUDIT_COMPLET_2026-10-10.md`](AUDIT_COMPLET_2026-10-10.md).
 
 **Verdict : rien de bloquant, rien de cassé. 6 défauts trouvés — dont un qui pouvait
 faire perdre une journée de saisie, et un qui laissait ta clé de signature Android

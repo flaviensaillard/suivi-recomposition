@@ -18,8 +18,25 @@ import os
 import sqlite3
 import pandas as pd
 
-LOCAL_DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "suivi.db")
+LOCAL_DB = os.environ.get("EQUILIBRE_DB_PATH") or os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "data", "suivi.db")
 USER = "local"
+PAGE_SIZE = 1000
+
+
+def _est_erreur_colonne_absente(exc) -> bool:
+    """Ne déclenche un repli que pour une colonne réellement absente.
+
+    Un timeout, une erreur RLS ou une panne réseau ne doit jamais provoquer une
+    seconde insertion qui pourrait dupliquer une entrée déjà créée.
+    """
+    code = str(getattr(exc, "code", "") or getattr(exc, "pgcode", "")).upper()
+    if code in {"42703", "PGRST204"}:
+        return True
+    texte = str(exc).lower()
+    return "column" in texte and any(
+        marqueur in texte for marqueur in ("does not exist", "not found", "schema cache")
+    )
 
 DDL = """
 create table if not exists profiles(
@@ -79,7 +96,6 @@ class LocalStore:
             con.executescript(DDL)
         self._migrer()
         self.user_id = USER
-        self._ensure_profile()
 
     def _migrer(self):
         """Ajoute les colonnes que les scripts SQL ajoutent côté Supabase.
@@ -107,13 +123,6 @@ class LocalStore:
     def _q(self, sql, params=()):
         with self._con() as con:
             return pd.read_sql_query(sql, con, params=params)
-
-    def _ensure_profile(self):
-        if self.profile() is None:
-            self.save_profile(dict(display_name="Jérôme", height_cm=185, start_weight_kg=85.0,
-                                   target_weight_kg=77.0, target_protein_g=130,
-                                   target_carbs_g=140, target_fat_g=50, target_kcal=1700,
-                                   tdee_kcal=2400, phase="Bloc 0 — Remise à niveau"))
 
     # -------- profil
     def profile(self):
@@ -207,13 +216,16 @@ class LocalStore:
             sql += " and entry_date<=?"; p.append(str(until))
         return self._q(sql + " order by entry_date desc, id desc", tuple(p))
 
-    def add_protein(self, d, item, grams, qty=1.0, carbs=0, fat=0):
+    def add_protein(self, d, item, grams, qty=1.0, carbs=None, fat=None):
+        """Enregistre les macros connues ; une valeur absente reste inconnue (NULL)."""
+        glucides = None if carbs is None else int(round(float(carbs)))
+        lipides = None if fat is None else int(round(float(fat)))
         with self._con() as con:
             con.execute("insert into protein_entries"
                         " (user_id, entry_date, item, protein_g, qty, carbs_g, fat_g)"
                         " values (?,?,?,?,?,?,?)",
                         (self.user_id, str(d), item, int(grams), float(qty),
-                         int(carbs or 0), int(fat or 0)))
+                         glucides, lipides))
 
     def delete_protein(self, entry_id):
         with self._con() as con:
@@ -353,13 +365,27 @@ class SupaStore:
             pass
 
     # -------- outils
-    def _select(self, table, filters=None, order=None, desc=False):
+    def _select(self, table, filters=None, order=None, desc=False, gte=None, lte=None):
+        """Lit toutes les pages d'une table sans perdre les lignes après 1 000."""
         q = self.client.table(self._t(table)).select("*").eq("user_id", self.user_id)
         for k, v in (filters or {}).items():
             q = q.eq(k, v)
+        for k, v in (gte or {}).items():
+            q = q.gte(k, v)
+        for k, v in (lte or {}).items():
+            q = q.lte(k, v)
         if order:
             q = q.order(order, desc=desc)
-        return pd.DataFrame(q.execute().data or [])
+
+        rows = []
+        start = 0
+        while True:
+            page = q.range(start, start + PAGE_SIZE - 1).execute().data or []
+            rows.extend(page)
+            if len(page) < PAGE_SIZE:
+                break
+            start += PAGE_SIZE
+        return pd.DataFrame(rows)
 
     # -------- profil
     def profile(self):
@@ -372,8 +398,8 @@ class SupaStore:
 
     # -------- journal quotidien
     def daily_df(self, since=None):
-        f = {"log_date": str(since)} if since else None
-        df = self._select("daily_logs", f, "log_date")
+        df = self._select("daily_logs", order="log_date",
+                          gte={"log_date": str(since)} if since else None)
         if not df.empty:
             df["log_date"] = pd.to_datetime(df["log_date"]).dt.date
         return df
@@ -412,8 +438,8 @@ class SupaStore:
         self.client.table(self._t("workouts")).upsert(row, on_conflict="user_id,session_date,session").execute()
 
     def sets_df(self, since=None):
-        f = {"set_date": str(since)} if since else None
-        df = self._select("workout_sets", f, "set_date", desc=True)
+        df = self._select("workout_sets", order="set_date", desc=True,
+                          gte={"set_date": str(since)} if since else None)
         if not df.empty:
             df["set_date"] = pd.to_datetime(df["set_date"]).dt.date
         return df
@@ -429,25 +455,26 @@ class SupaStore:
 
     # -------- protéines
     def protein_df(self, since=None, until=None):
-        q = self.client.table(self._t("protein_entries")).select("*").eq("user_id", self.user_id)
-        if since:
-            q = q.gte("entry_date", str(since))
-        if until:
-            q = q.lte("entry_date", str(until))
-        df = pd.DataFrame(q.order("entry_date", desc=True).execute().data or [])
+        df = self._select("protein_entries", order="entry_date", desc=True,
+                          gte={"entry_date": str(since)} if since else None,
+                          lte={"entry_date": str(until)} if until else None)
         if not df.empty:
             df["entry_date"] = pd.to_datetime(df["entry_date"]).dt.date
         return df
 
-    def add_protein(self, d, item, grams, qty=1.0, carbs=0, fat=0):
+    def add_protein(self, d, item, grams, qty=1.0, carbs=None, fat=None):
         ligne = dict(user_id=self.user_id, entry_date=str(d), item=item,
                      protein_g=int(grams), qty=float(qty))
-        # les colonnes glucides/lipides peuvent ne pas encore exister dans la
+        # Une macro non renseignée reste NULL, jamais 0 par défaut.
+        # Les colonnes glucides/lipides peuvent ne pas exister dans une ancienne
         # base : on réessaie sans elles plutôt que de faire échouer la saisie.
         try:
             self.client.table(self._t("protein_entries")).insert(
-                dict(ligne, carbs_g=int(carbs or 0), fat_g=int(fat or 0))).execute()
-        except Exception:
+                dict(ligne, carbs_g=None if carbs is None else int(round(float(carbs))),
+                     fat_g=None if fat is None else int(round(float(fat))))).execute()
+        except Exception as exc:
+            if not _est_erreur_colonne_absente(exc):
+                raise
             self.client.table(self._t("protein_entries")).insert(ligne).execute()
 
     def delete_protein(self, entry_id):
@@ -470,9 +497,11 @@ class SupaStore:
 
         try:
             _essaie(champs)
-        except Exception:
-            # les colonnes glucides/lipides peuvent ne pas exister dans la base :
-            # on réessaie sans elles plutôt que de perdre la correction.
+        except Exception as exc:
+            # Repli permis uniquement pour l'erreur « colonne absente ». Les
+            # erreurs réseau/RLS ne doivent pas transformer une correction en retry.
+            if not _est_erreur_colonne_absente(exc):
+                raise
             sans = {k: v for k, v in champs.items() if k not in ("carbs_g", "fat_g")}
             if not sans or sans == champs:
                 raise      # rien d'enregistrable : l'application conseillera le script SQL

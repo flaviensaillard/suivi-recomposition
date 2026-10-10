@@ -10,19 +10,19 @@
     var CLE_SEANCES = 'eq.seances.v1';
     var CLE_COURSES = 'eq.courses.v1';
     var CLE_DERNIER_ONGLET = 'eq.onglet';
+    var CLE_REVISION_DONNEES = 'eq.revisionDonnees.v2';
+    var CLE_DONNEES_ANTERIEURES_A_VERIFIER = 'eq.donneesAnterieuresAverifier.v1';
 
     var DEFAUTS_REGLAGES = {
         urlSuivi: 'https://suivi-recomposition.streamlit.app',
         urlMenus: 'https://gestion-menus.streamlit.app',
-        supabaseUrl: '',
-        supabaseKey: '',
         appCouranteWeb: 'suivi', // 'suivi' ou 'menus'
-        profil: 'flavien', // 'flavien', 'lea', 'partage'
-        tailleCm: 185,
-        poidsDepartKg: 85.0,
-        poidsCibleKg: 77.0,
-        objectifProteinesG: 130,
-        objectifCaloriesKcal: 1700
+        tailleCm: null,
+        poidsDepartKg: null,
+        poidsCibleKg: null,
+        objectifProteinesG: null,
+        objectifCaloriesKcal: null,
+        profileConfigured: false
     };
 
     function chargerJson(cle, defaut) {
@@ -45,74 +45,23 @@
         }
     }
 
-    // -------------------------------------------------------- Génération démo
-    function genererDonneesInitiales() {
-        var logs = [];
-        var mensurations = [];
-        var seances = [];
-        var now = new Date();
-        var poids = 85.0;
-        var gras = 21.5;
-
-        // 42 jours en arrière
-        for (var i = 42; i >= 0; i--) {
-            var d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
-            var dateStr = U.dateIso(d);
-            var dow = d.getDay(); // 0 = Dimanche, 1 = Lundi, etc.
-
-            // Perte progressive réaliste
-            poids -= 0.15 + (Math.sin(i) * 0.08);
-            if (poids < 78.2) poids = 78.4;
-            gras -= 0.09;
-            if (gras < 17.6) gras = 17.8;
-
-            var prot = 120 + Math.floor(Math.sin(i * 2) * 20) + 10;
-            var kcal = 1650 + Math.floor(Math.cos(i) * 120);
-
-            logs.push({
-                date: dateStr,
-                poids: Math.round(poids * 10) / 10,
-                masseGrassePct: Math.round(gras * 10) / 10,
-                proteinesG: Math.max(105, prot),
-                caloriesKcal: Math.max(1520, kcal),
-                pas: 7500 + (i % 5) * 1200,
-                sommeilH: 7.2 + (Math.sin(i) * 0.6)
-            });
-
-            // Mensurations hebdomadaires (Lundi)
-            if (dow === 1) {
-                var tailleTaille = Math.round((93.0 - (42 - i) * 0.18) * 10) / 10;
-                mensurations.push({
-                    date: dateStr,
-                    tailleCm: Math.max(84.0, tailleTaille),
-                    hanchesCm: Math.round((102.0 - (42 - i) * 0.12) * 10) / 10,
-                    brasCm: 37.0,
-                    cuisseCm: 58.5
-                });
-            }
-
-            // Séances 2 à 3 fois par semaine (Lundi, Vendredi)
-            if (dow === 1 || dow === 5) {
-                seances.push({
-                    date: dateStr,
-                    type: dow === 1 ? 'A' : 'B',
-                    nom: dow === 1 ? 'Séance A (Jambes & Poussée)' : 'Séance B (Tirage & Épaules)',
-                    dureeMin: 32,
-                    rpe: 8
-                });
-            }
-        }
-
-        sauverJson(CLE_LOGS, logs);
-        sauverJson(CLE_MENSURATIONS, mensurations);
-        sauverJson(CLE_SEANCES, seances);
-        sauverJson(CLE_COURSES, M.COURSES_DEFAUT);
+    // Les installations existantes peuvent contenir les exemples créés par les anciennes versions.
+    // Les conserver sans les prendre silencieusement pour des données vérifiées.
+    if (chargerJson(CLE_REVISION_DONNEES, null) === null) {
+        var clesAvecDonneesLocales = [CLE_LOGS, CLE_MENSURATIONS, CLE_SEANCES, CLE_COURSES];
+        var avaitDonneesLocales = clesAvecDonneesLocales.some(function (cle) {
+            var valeur = chargerJson(cle, null);
+            return Array.isArray(valeur) && valeur.length > 0;
+        });
+        sauverJson(CLE_DONNEES_ANTERIEURES_A_VERIFIER, avaitDonneesLocales);
+        sauverJson(CLE_REVISION_DONNEES, 2);
     }
 
-    // Initialisation au premier lancement
-    if (!chargerJson(CLE_LOGS, null)) {
-        genererDonneesInitiales();
-    }
+    // ------------------------------------------------------- Données locales
+    // Un premier lancement commence vide : aucune pesée, macro ou séance fictive.
+    [CLE_LOGS, CLE_MENSURATIONS, CLE_SEANCES, CLE_COURSES].forEach(function (cle) {
+        if (chargerJson(cle, null) === null) sauverJson(cle, []);
+    });
 
     // ------------------------------------------------------------- Méthodes API
     var Store = {
@@ -121,6 +70,29 @@
             return Object.assign({}, DEFAUTS_REGLAGES, r);
         },
         saveReglages: function (r) {
+            sauverJson(CLE_REGLAGES, r);
+        },
+        anciennesDonneesAverifier: function () {
+            if (chargerJson(CLE_DONNEES_ANTERIEURES_A_VERIFIER, false) !== true) return false;
+            var cles = [CLE_LOGS, CLE_MENSURATIONS, CLE_SEANCES, CLE_COURSES];
+            var aEncoreDesDonnees = cles.some(function (cle) {
+                var valeur = chargerJson(cle, null);
+                return Array.isArray(valeur) && valeur.length > 0;
+            });
+            if (!aEncoreDesDonnees) {
+                sauverJson(CLE_DONNEES_ANTERIEURES_A_VERIFIER, false);
+                return false;
+            }
+            return true;
+        },
+        masquerAvertissementDonneesPreexistantes: function () {
+            sauverJson(CLE_DONNEES_ANTERIEURES_A_VERIFIER, false);
+        },
+        effacerAnciennesCles: function () {
+            var r = chargerJson(CLE_REGLAGES, {});
+            if (!r || typeof r !== 'object' || Array.isArray(r)) r = {};
+            delete r.supabaseUrl;
+            delete r.supabaseKey;
             sauverJson(CLE_REGLAGES, r);
         },
         getLogs: function () {
@@ -163,12 +135,8 @@
             return liste;
         },
         getCourses: function () {
-            var c = chargerJson(CLE_COURSES, null);
-            if (!c || c.length === 0) {
-                c = M.COURSES_DEFAUT;
-                sauverJson(CLE_COURSES, c);
-            }
-            return c;
+            var c = chargerJson(CLE_COURSES, []);
+            return Array.isArray(c) ? c : [];
         },
         toggleCourse: function (id) {
             var liste = Store.getCourses();
@@ -178,10 +146,6 @@
                 sauverJson(CLE_COURSES, liste);
             }
             return liste;
-        },
-        reinitialiserDemo: function () {
-            genererDonneesInitiales();
-            sauverJson(CLE_REGLAGES, DEFAUTS_REGLAGES);
         },
         getOnglet: function () {
             try {

@@ -1,9 +1,12 @@
 # -*- coding: utf-8 -*-
 """Base alimentaire Ciqual (Anses) — mise au format de l'application.
 
-Source : Anses. 2025. Table de composition nutritionnelle des aliments Ciqual.
-         https://doi.org/10.57745/RDMHWY  — Licence ouverte Etalab.
-         3 484 aliments, valeurs pour 100 g.
+Source cible : Anses, Table Ciqual 2025, https://doi.org/10.57745/RDMHWY,
+licence ouverte Etalab, valeurs de référence pour 100 g de partie comestible.
+La table officielle annonce 3 484 aliments ; le CSV suivi dans ce dépôt contient
+3 339 lignes et n'a pas été validé contre le classeur 2025 pendant cet audit.
+Ne pas présenter le CSV embarqué comme un export complet de l'édition 2025 avant
+réconciliation et attribution de version.
 
 Deux usages :
   • `convertir_vers_csv(xlsx, csv)` : transforme le fichier Excel officiel en CSV léger
@@ -21,6 +24,26 @@ CSV_DEFAUT = os.path.join(DOSSIER, "foods_ciqual.csv")
 
 # Colonnes du CSV de l'application
 CHAMPS = ["code", "nom", "groupe", "kcal", "proteines", "glucides", "lipides", "fibres", "sel"]
+
+
+def _nombre_ciqual(v):
+    """Convertit une valeur Ciqual numérique ; une borne « < x » reste inconnue.
+
+    Le schéma de l'application ne stocke pas de borne supérieure. La convertir
+    en x ferait passer une limite analytique pour une mesure exacte.
+    """
+    if v is None:
+        return None
+    texte = str(v).strip().replace(",", ".").replace(" ", "")
+    if not texte or texte.lower() in ("-", "nan", "none", "null", "traces", "trace"):
+        return None
+    if texte.startswith("<"):
+        return None
+    try:
+        nombre = float(texte)
+    except ValueError:
+        return None
+    return round(nombre, 3) if nombre >= 0 else None
 
 
 def _sans_accent(s: str) -> str:
@@ -65,18 +88,6 @@ def convertir_vers_csv(xlsx: str, csv_sortie: str = CSV_DEFAUT) -> int:
     if manquantes:
         raise ValueError(f"Colonnes introuvables dans le fichier Ciqual : {manquantes}")
 
-    def num(v):
-        if v is None:
-            return None
-        t = str(v).strip().replace(",", ".").replace("<", "").replace(" ", "")
-        if t in ("", "-", "nan", "None"):
-            return None
-        try:
-            x = float(t)
-            return round(x, 3)
-        except ValueError:
-            return None
-
     os.makedirs(os.path.dirname(csv_sortie), exist_ok=True)
     n = 0
     with open(csv_sortie, "w", encoding="utf-8", newline="") as f:
@@ -92,9 +103,10 @@ def convertir_vers_csv(xlsx: str, csv_sortie: str = CSV_DEFAUT) -> int:
             nom = str(r.get(c_nom) or "").strip()
             nom = nom if nom.lower() not in ("nan", "none") else ""
             ligne = [code, nom, grp,
-                     num(r.get(c_kcal)), num(r.get(c_prot)), num(r.get(c_gluc)),
-                     num(r.get(c_lip)), num(r.get(c_fib)),
-                     num(r.get(c_sel)) if c_sel else None]
+                     _nombre_ciqual(r.get(c_kcal)), _nombre_ciqual(r.get(c_prot)),
+                     _nombre_ciqual(r.get(c_gluc)), _nombre_ciqual(r.get(c_lip)),
+                     _nombre_ciqual(r.get(c_fib)),
+                     _nombre_ciqual(r.get(c_sel)) if c_sel else None]
             if ligne[3] is None:          # pas de calories → aliment inutilisable
                 continue
             w.writerow(["" if v is None else v for v in ligne])

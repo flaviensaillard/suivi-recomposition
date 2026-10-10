@@ -60,11 +60,30 @@ APP="$ROOT/app/src/main"
 BUILD="$ROOT/build"
 OUT="$ROOT/dist"
 
-VERSION_NAME="${VERSION_NAME:-1.2.0}"
-VERSION_CODE="${VERSION_CODE:-12}"
-KEYSTORE="$ROOT/keystore/equilibre.jks"
-KEY_PASS="${KEY_PASS:-equilibre}"
+VERSION_NAME="${VERSION_NAME:-1.0.13}"
+VERSION_CODE="${VERSION_CODE:-14}"
+KEYSTORE="${KEYSTORE:-${KEYSTORE_PATH:-}}"
+KEY_PASS="${KEY_PASS:-}"
 KEY_ALIAS="${KEY_ALIAS:-equilibre}"
+TEMP_KEY_DIR=""
+
+# Une compilation locale/CI sans clé de release utilise une clé éphémère,
+# aléatoire et hors du dépôt. Une clé persistante doit être fournie explicitement
+# avec KEYSTORE + KEY_PASS (ou rangée dans keystore/equilibre.jks avec le secret).
+if [ -z "$KEYSTORE" ] && [ -f "$ROOT/keystore/equilibre.jks" ] && [ -n "$KEY_PASS" ]; then
+    KEYSTORE="$ROOT/keystore/equilibre.jks"
+fi
+if [ -z "$KEYSTORE" ]; then
+    TEMP_KEY_DIR="$(mktemp -d "${TMPDIR:-/tmp}/equilibre-build.XXXXXX")"
+    KEYSTORE="$TEMP_KEY_DIR/equilibre.jks"
+    KEY_PASS="$(od -An -N24 -tx1 /dev/urandom | tr -d '[:space:]')"
+    KEY_ALIAS="equilibre"
+    trap 'rm -rf "$TEMP_KEY_DIR"' EXIT
+fi
+if [ -z "$KEY_PASS" ]; then
+    echo "Mot de passe de signature manquant : fournir KEY_PASS pour le keystore configuré." >&2
+    exit 1
+fi
 
 # Recherche du JDK si JAVA_HOME n'est pas défini
 if [ -z "${JAVA_HOME:-}" ]; then
@@ -120,8 +139,11 @@ echo "› 7. Alignement 4-octets (zipalign)"
 "$ZIPALIGN" -p -f 4 "$BUILD/app.withdex.apk" "$BUILD/app.aligned.apk"
 
 if [ ! -f "$KEYSTORE" ]; then
-    echo "› 8. Génération du trousseau de clés (keystore)"
-    mkdir -p "$(dirname "$KEYSTORE")"
+    if [ -z "$TEMP_KEY_DIR" ]; then
+        echo "Keystore configuré introuvable : $KEYSTORE" >&2
+        exit 1
+    fi
+    echo "› 8. Génération d'une clé éphémère pour cette compilation seulement"
     keytool -genkeypair -v -keystore "$KEYSTORE" -alias "$KEY_ALIAS" \
         -keyalg RSA -keysize 2048 -validity 10950 \
         -storepass "$KEY_PASS" -keypass "$KEY_PASS" \

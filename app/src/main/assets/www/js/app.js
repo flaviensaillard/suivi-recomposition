@@ -94,6 +94,14 @@
         var main = UI.$('#view');
         if (!main) return;
 
+        var btnMasquerAvertissementDonnees = UI.$('#btnMasquerAvertissementDonnees', main);
+        if (btnMasquerAvertissementDonnees) {
+            btnMasquerAvertissementDonnees.onclick = function () {
+                Store.masquerAvertissementDonneesPreexistantes();
+                rafraichirVue();
+            };
+        }
+
         // ----------------------------------------------------------- Écran Bord
         var btnAjoutPesee = UI.$('#btnAjoutPeseeRapide', main);
         if (btnAjoutPesee) {
@@ -225,12 +233,10 @@
             btnValider.onclick = function () {
                 Store.saveSeance({
                     date: U.dateIso(new Date()),
-                    type: 'A',
-                    nom: 'Séance d’entraînement validée',
-                    dureeMin: 30,
-                    rpe: 8
+                    type: btnValider.getAttribute('data-type') || null,
+                    nom: btnValider.getAttribute('data-nom') || 'Séance générique terminée'
                 });
-                UI.toast('🎉 Félicitations ! Séance enregistrée.');
+                UI.toast('🎉 Séance terminée enregistrée.');
                 Views.setSousOngletSeances('historique');
                 rafraichirVue();
             };
@@ -255,17 +261,6 @@
                 rafraichirVue();
             };
         });
-
-        var btnResetCourses = UI.$('#btnResetCourses', main);
-        if (btnResetCourses) {
-            btnResetCourses.onclick = function () {
-                var liste = Store.getCourses();
-                liste.forEach(function (x) { x.pris = false; });
-                Store.saveReglages(Store.getReglages());
-                UI.toast('Liste réinitialisée pour la nouvelle semaine');
-                rafraichirVue();
-            };
-        }
 
         // Voir recette
         var btnsVoirRecette = UI.$$('.btn-voir-recette', main);
@@ -301,38 +296,31 @@
             };
         }
 
-        var btnReload = UI.$('#btnReloadWeb', main);
-        if (btnReload) {
-            btnReload.onclick = function () {
-                var frame = UI.$('#frameStreamlit', main);
-                var chargement = UI.$('#chargementFrame', main);
-                if (frame) {
-                    if (chargement) chargement.style.display = 'flex';
-                    frame.src = frame.src;
-                }
-            };
-        }
-
         var btnOuvrirNav = UI.$('#btnOuvrirNav', main);
         if (btnOuvrirNav) {
             btnOuvrirNav.onclick = function () {
                 var r = Store.getReglages();
                 var url = r.appCouranteWeb === 'menus' ? r.urlMenus : r.urlSuivi;
+                var parsed;
+                try {
+                    parsed = new URL(url, window.location.href);
+                } catch (e) {
+                    UI.toast('Adresse invalide. Utilise une URL HTTPS.');
+                    return;
+                }
+                if (parsed.protocol !== 'https:' || !parsed.hostname) {
+                    UI.toast('Seules les adresses HTTPS peuvent être ouvertes.');
+                    return;
+                }
                 if (typeof root.Native !== 'undefined' && root.Native.openExternal) {
-                    root.Native.openExternal(url);
+                    root.Native.openExternal(parsed.href);
                 } else {
-                    window.open(url, '_blank');
+                    var nouvelOnglet = window.open(parsed.href, '_blank', 'noopener,noreferrer');
+                    if (nouvelOnglet) nouvelOnglet.opener = null;
                 }
             };
         }
 
-        var frame = UI.$('#frameStreamlit', main);
-        if (frame) {
-            frame.onload = function () {
-                var chargement = UI.$('#chargementFrame', main);
-                if (chargement) chargement.style.display = 'none';
-            };
-        }
     }
 
     // ------------------------------------------------------------- Démarrage
@@ -352,10 +340,9 @@
         if (btnRefresh) {
             btnRefresh.addEventListener('click', function () {
                 btnRefresh.classList.add('spin');
-                UI.toast('Actualisation…');
-                Net.synchroniserSupabase(function () {
+                Net.synchroniserSupabase(function (resultat) {
                     btnRefresh.classList.remove('spin');
-                    rafraichirVue();
+                    UI.toast(resultat.message);
                 });
             });
         }

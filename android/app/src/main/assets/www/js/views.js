@@ -2,7 +2,7 @@
 (function (root) {
     'use strict';
     var EQ = root.EQ = root.EQ || {};
-    var U = EQ.util, M = EQ.modele, UI = EQ.ui, Store = EQ.store;
+    var U = EQ.util, M = EQ.modele, UI = EQ.ui, Store = EQ.store, h = EQ.ui.h;
 
     var sousOngletMenus = 'planning'; // 'planning', 'recettes', 'courses'
     var sousOngletSeances = 'A';       // 'A', 'B', 'historique'
@@ -10,117 +10,89 @@
     var minuteurRestant = 0;
     var minuteurTotal = 0;
 
+    function avertissementDonneesPreexistantes() {
+        if (!Store.anciennesDonneesAverifier()) return '';
+        return '<div class="card" role="alert" style="border:1px solid var(--warn,#F5C451);">' +
+            '<strong>Données locales antérieures à vérifier</strong>' +
+            '<p>Une ancienne version pouvait générer automatiquement des exemples. Ces données ont été conservées, mais leur origine ne peut pas être déterminée automatiquement. Vérifie-les avant de les utiliser comme mesures réelles ; cette version ne les supprime ni ne permet encore de les trier par origine.</p>' +
+            '<button class="btn btn-flat" id="btnMasquerAvertissementDonnees" style="min-height:38px; font-size:12.5px;">J’ai compris — masquer (origine non vérifiée)</button>' +
+        '</div>';
+    }
+
     // =========================================================================
     // 1. TABLEAU DE BORD (Bord)
     // =========================================================================
     function vueBord(ctx) {
-        var logs = ctx.logs;
+        var logs = ctx.logs || [];
         var reglages = ctx.reglages;
         var statPoids = M.calculerMoyennesPoids(logs);
         var dernierLog = logs[logs.length - 1] || {};
-
-        var poidsActuel = statPoids.actuel || reglages.poidsDepartKg;
-        var ecartCible = Math.round((poidsActuel - reglages.poidsCibleKg) * 10) / 10;
-        var protAuj = dernierLog.proteinesG || 138;
-        var kcalAuj = dernierLog.caloriesKcal || 1680;
-        var protCible = reglages.objectifProteinesG || 130;
-        var kcalCible = reglages.objectifCaloriesKcal || 1700;
-        var pctProt = Math.min(100, Math.round((protAuj / protCible) * 100));
-        var pctKcal = Math.min(100, Math.round((kcalAuj / kcalCible) * 100));
-
+        var aPoids = statPoids.actuel !== null && statPoids.actuel !== undefined;
+        var poidsActuel = aPoids ? statPoids.actuel : null;
+        var profilConfirme = reglages.profileConfigured === true;
+        var protCible = profilConfirme ? reglages.objectifProteinesG : null;
+        var kcalCible = profilConfirme ? reglages.objectifCaloriesKcal : null;
+        var protAuj = dernierLog.proteinesG;
+        var kcalAuj = dernierLog.caloriesKcal;
+        var pctProt = protCible && protAuj != null ? Math.min(100, Math.round((protAuj / protCible) * 100)) : 0;
+        var pctKcal = kcalCible && kcalAuj != null ? Math.min(100, Math.round((kcalAuj / kcalCible) * 100)) : 0;
         var courses = Store.getCourses();
         var coursesRestantes = courses.filter(function (c) { return !c.pris; }).length;
+        var seances = Store.getSeances();
 
-        var html = '';
-
-        // --- CARTE HÉRO : POIDS & OBJECTIF
-        html += '<div class="card hero teal">' +
-            '<div class="lbl">Recomposition corporelle · Poids actuel</div>' +
-            '<div class="hero-montant">' + U.formatKg(poidsActuel, 1) + '</div>' +
-            '<div class="hero-sub">Cible ' + U.formatKg(reglages.poidsCibleKg, 1) + ' · Écart ' + (ecartCible > 0 ? '+' : '') + ecartCible.toFixed(1) + ' kg</div>' +
+        var html = avertissementDonneesPreexistantes() + '<div class="card hero teal">' +
+            '<div class="lbl">Suivi personnel · stockage local sur cet appareil</div>' +
+            '<div class="hero-montant">' + (aPoids ? U.formatKg(poidsActuel, 1) : '—') + '</div>' +
+            '<div class="hero-sub">' + (aPoids ? 'Dernier poids enregistré' : 'Aucune pesée enregistrée') + '</div>' +
             '<div style="margin-top:10px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">' +
-                (statPoids.tendance7j < 0 ? '<span class="badge ok">↘ ' + statPoids.tendance7j.toFixed(1) + ' kg sur 7 j</span>' :
-                 statPoids.tendance7j > 0 ? '<span class="badge warn">↗ +' + statPoids.tendance7j.toFixed(1) + ' kg sur 7 j</span>' :
-                 '<span class="badge info">→ Poids stable sur 7 j</span>') +
-                '<span class="badge info">Déficit contrôlé</span>' +
-                '<span class="dim" style="font-size:12px; margin-left:auto;">' + U.dateFr(dernierLog.date || new Date(), { court: true }) + '</span>' +
+                (logs.length >= 2 && statPoids.tendance7j < 0 ? '<span class="badge ok">↘ ' + statPoids.tendance7j.toFixed(1) + ' kg sur 7 j</span>' :
+                 logs.length >= 2 && statPoids.tendance7j > 0 ? '<span class="badge warn">↗ +' + statPoids.tendance7j.toFixed(1) + ' kg sur 7 j</span>' :
+                 '<span class="badge info">' + (logs.length >= 2 ? 'Tendance stable sur 7 j' : 'Tendance indisponible') + '</span>') +
+                (dernierLog.date ? '<span class="dim" style="font-size:12px; margin-left:auto;">' + U.dateFr(dernierLog.date, { court: true }) + '</span>' : '') +
             '</div>' +
-            '<button class="btn btn-hero" id="btnAjoutPeseeRapide" style="margin-top:14px;">＋ Noter la pesée du jour</button>' +
+            '<button class="btn btn-hero" id="btnAjoutPeseeRapide" style="margin-top:14px;">＋ Noter mes données</button>' +
         '</div>';
 
-        // --- GRILLE DE TUILES INTERACTIVES (g2)
-        html += '<div class="titre">Indicateurs clés du jour</div>' +
+        html += '<div class="titre">Mes suivis locaux</div>' +
         '<div class="grille g2">' +
-            // Tuile Protéines
             '<div class="mini tuile-cliquable" id="tuileProt">' +
-                '<div class="l">Protéines</div>' +
-                '<div class="v ' + (protAuj >= protCible ? 'up' : 'flat') + '">' + protAuj + ' g</div>' +
-                '<div class="e">Cible ' + protCible + ' g (' + pctProt + ' %)</div>' +
-                UI.barre(pctProt, 100, protAuj >= protCible ? '#10B981' : '#0D9488') +
+                '<div class="l">Protéines du dernier relevé</div>' +
+                '<div class="v">' + (protAuj == null ? '—' : protAuj + ' g') + '</div>' +
+                '<div class="e">' + (profilConfirme ? 'Objectif : ' + protCible + ' g/j' : 'Repère à confirmer dans Réglages') + '</div>' +
+                UI.barre(pctProt, 100, '#0D9488') +
             '</div>' +
-            // Tuile Calories
             '<div class="mini tuile-cliquable" id="tuileKcal">' +
-                '<div class="l">Calories</div>' +
-                '<div class="v">' + kcalAuj + ' <span style="font-size:13px;font-weight:600;">kcal</span></div>' +
-                '<div class="e">Objectif ' + kcalCible + ' kcal</div>' +
+                '<div class="l">Calories du dernier relevé</div>' +
+                '<div class="v">' + (kcalAuj == null ? '—' : kcalAuj + ' kcal') + '</div>' +
+                '<div class="e">' + (profilConfirme ? 'Repère : ' + kcalCible + ' kcal/j' : 'Repère à confirmer dans Réglages') + '</div>' +
                 UI.barre(pctKcal, 100, '#F5C451') +
             '</div>' +
-            // Tuile Séance
             '<div class="mini tuile-cliquable" id="tuileSeance">' +
-                '<div class="l">Séance prévue</div>' +
-                '<div class="v" style="font-size:16px;">Séance A</div>' +
-                '<div class="e">Jambes &amp; Poussée · 30 min</div>' +
-                '<div style="margin-top:6px;"><span class="badge ok">Prête</span></div>' +
+                '<div class="l">Séances saisies sur cet appareil</div>' +
+                '<div class="v">' + seances.length + '</div>' +
+                '<div class="e">Programme générique, non synchronisé</div>' +
             '</div>' +
-            // Tuile Menus / Repas
             '<div class="mini tuile-cliquable" id="tuileMidi">' +
-                '<div class="l">Midi au planning</div>' +
-                '<div class="v" style="font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Gamelle type</div>' +
-                '<div class="e">58 g prot · 588 kcal</div>' +
-                '<div style="margin-top:6px;"><span class="badge info">3 œufs · edamames</span></div>' +
+                '<div class="l">Menus du foyer</div>' +
+                '<div class="v" style="font-size:15px;">Streamlit</div>' +
+                '<div class="e">Pas de planning hors ligne dans cette version</div>' +
             '</div>' +
         '</div>';
 
-        // --- TUILE : LES 3 REPAS TYPES DE FLAVIEN (1-clic)
-        html += '<div class="titre">⭐ Repas types de Flavien <span class="n">1 clic pour noter</span></div>' +
-        '<div class="card tight">' +
-            '<div style="display:flex; flex-direction:column; gap:8px;">';
-
-        M.REPAS_TYPES.forEach(function (r) {
-            html += '<div class="ligne-repas-type" data-repas="' + r.cle + '">' +
-                '<div style="font-size:22px; width:32px;">' + r.emoji + '</div>' +
-                '<div class="gr">' +
-                    '<div class="tt">' + h(r.nom) + '</div>' +
-                    '<div class="st">' + h(r.detail) + '</div>' +
-                '</div>' +
-                '<div class="dr">' +
-                    '<div class="a up">' + r.prot + ' g P</div>' +
-                    '<div class="b">' + r.kcal + ' kcal</div>' +
-                '</div>' +
-                '<button class="iconbtn btn-noter-repas" data-repas="' + r.cle + '" style="margin-left:6px;width:34px;height:34px;" title="Ajouter à ma journée">＋</button>' +
+        html += '<div class="titre">Protéines saisies récemment</div>' +
+            '<div class="card tight">' +
+            (profilConfirme
+                ? UI.svgBarresProteines(logs.slice(-7), protCible)
+                : '<div class="vide">Confirme les repères dans Réglages pour afficher la comparaison à un objectif.</div>') +
             '</div>';
-        });
 
-        html += '</div></div>';
-
-        // --- TUILE GRAPHIQUE DES PROTÉINES SUR 7 JOURS
-        var logs7j = logs.slice(-7);
-        html += '<div class="titre">Protéines des 7 derniers jours</div>' +
-        '<div class="card tight">' +
-            UI.svgBarresProteines(logs7j, protCible) +
-        '</div>';
-
-        // --- TUILE LISTE DE COURSES
-        html += '<div class="titre">Courses de la semaine</div>' +
-        '<div class="card tight tuile-cliquable" id="tuileCoursesBord">' +
-            '<div style="display:flex; align-items:center; justify-content:space-between;">' +
-                '<div>' +
-                    '<div style="font-size:16px; font-weight:700;">' + coursesRestantes + ' article' + (coursesRestantes > 1 ? 's' : '') + ' à acheter</div>' +
-                    '<div class="st">Semaine du foyer · Recettes &amp; base</div>' +
+        html += '<div class="titre">Courses familiales</div>' +
+            '<div class="card tight tuile-cliquable" id="tuileCoursesBord">' +
+                '<div style="font-size:15px; font-weight:700;">' +
+                    (courses.length ? coursesRestantes + ' article(s) local(aux)' : 'Aucune liste familiale hors ligne') +
                 '</div>' +
-                '<button class="btn" style="width:auto; min-height:38px; padding:0 14px; font-size:13px;" id="btnVoirCoursesBord">Voir la liste</button>' +
-            '</div>' +
-        '</div>';
+                '<div class="st">La liste partagée reste dans Streamlit jusqu’à la synchronisation de l’APK.</div>' +
+            '</div>';
 
         return html;
     }
@@ -133,16 +105,16 @@
         var reglages = ctx.reglages;
         var stats = M.calculerMoyennesPoids(logs);
         var mensurations = Store.getMensurations();
-        var derniereMens = mensurations[mensurations.length - 1] || { tailleCm: 84.5, hanchesCm: 98.0, brasCm: 37.0, cuisseCm: 58.5 };
+        var derniereMens = mensurations[mensurations.length - 1] || {};
 
-        var html = '';
+        var html = avertissementDonneesPreexistantes();
 
         // --- Résumé en 3 mini-tuiles
         html += '<div class="grille g3" style="margin-bottom:12px;">' +
             '<div class="mini">' +
                 '<div class="l">Moyenne 7 j</div>' +
                 '<div class="v">' + (stats.m7 ? U.formatKg(stats.m7, 1) : '—') + '</div>' +
-                '<div class="e">' + (stats.tendance7j < 0 ? '↘ ' + stats.tendance7j.toFixed(1) : (stats.tendance7j > 0 ? '↗ +' + stats.tendance7j.toFixed(1) : '→ stable')) + '</div>' +
+                '<div class="e">' + (logs.length < 2 ? 'pas assez de mesures' : (stats.tendance7j < 0 ? '↘ ' + stats.tendance7j.toFixed(1) : (stats.tendance7j > 0 ? '↗ +' + stats.tendance7j.toFixed(1) : '→ stable'))) + '</div>' +
             '</div>' +
             '<div class="mini">' +
                 '<div class="l">Moyenne 30 j</div>' +
@@ -151,8 +123,8 @@
             '</div>' +
             '<div class="mini">' +
                 '<div class="l">Perte totale</div>' +
-                '<div class="v up">' + (stats.perteTotale < 0 ? stats.perteTotale.toFixed(1) + ' kg' : '0,0 kg') + '</div>' +
-                '<div class="e">depuis ' + reglages.poidsDepartKg + ' kg</div>' +
+                '<div class="v up">' + (logs.length >= 2 ? stats.perteTotale.toFixed(1) + ' kg' : '—') + '</div>' +
+                '<div class="e">depuis le début du suivi</div>' +
             '</div>' +
         '</div>';
 
@@ -162,27 +134,27 @@
         // --- Graphique interactif
         html += '<div class="titre">Évolution et tendance du poids</div>' +
         '<div class="card">' +
-            UI.svgGraphiquePoids(logs, reglages.poidsCibleKg) +
+            UI.svgGraphiquePoids(logs, reglages.profileConfigured ? reglages.poidsCibleKg : null) +
         '</div>';
 
         // --- Mensurations
-        html += '<div class="titre">Mensurations <span class="n">dernière mesure : ' + (derniereMens.date ? U.dateFr(derniereMens.date, { court: true }) : 'récent') + '</span></div>' +
+        html += '<div class="titre">Mensurations <span class="n">dernière mesure : ' + (derniereMens.date ? U.dateFr(derniereMens.date, { court: true }) : 'aucune') + '</span></div>' +
         '<div class="card tight">' +
             '<div class="ligne">' +
                 '<div class="gr"><div class="tt">Tour de taille</div><div class="st">au niveau du nombril</div></div>' +
-                '<div class="dr"><div class="a">' + derniereMens.tailleCm + ' cm</div></div>' +
+                '<div class="dr"><div class="a">' + (derniereMens.tailleCm == null ? '—' : derniereMens.tailleCm) + (derniereMens.tailleCm == null ? '' : ' cm') + '</div></div>' +
             '</div>' +
             '<div class="ligne">' +
                 '<div class="gr"><div class="tt">Tour de hanches</div><div class="st">au plus large des fessiers</div></div>' +
-                '<div class="dr"><div class="a">' + derniereMens.hanchesCm + ' cm</div></div>' +
+                '<div class="dr"><div class="a">' + (derniereMens.hanchesCm == null ? '—' : derniereMens.hanchesCm) + (derniereMens.hanchesCm == null ? '' : ' cm') + '</div></div>' +
             '</div>' +
             '<div class="ligne">' +
                 '<div class="gr"><div class="tt">Tour de bras</div><div class="st">biceps contracté</div></div>' +
-                '<div class="dr"><div class="a">' + derniereMens.brasCm + ' cm</div></div>' +
+                '<div class="dr"><div class="a">' + (derniereMens.brasCm == null ? '—' : derniereMens.brasCm) + (derniereMens.brasCm == null ? '' : ' cm') + '</div></div>' +
             '</div>' +
             '<div class="ligne">' +
                 '<div class="gr"><div class="tt">Tour de cuisse</div><div class="st">mi-cuisse</div></div>' +
-                '<div class="dr"><div class="a">' + derniereMens.cuisseCm + ' cm</div></div>' +
+                '<div class="dr"><div class="a">' + (derniereMens.cuisseCm == null ? '—' : derniereMens.cuisseCm) + (derniereMens.cuisseCm == null ? '' : ' cm') + '</div></div>' +
             '</div>' +
             '<button class="btn btn-flat" id="btnNouvMensurations" style="margin-top:10px; min-height:42px; font-size:13.5px;">＋ Noter mes mensurations</button>' +
         '</div>';
@@ -195,7 +167,7 @@
             html += '<div class="ligne">' +
                 '<div class="gr">' +
                     '<div class="tt">' + U.dateFr(log.date, { jour: true }) + '</div>' +
-                    '<div class="st">' + (log.masseGrassePct ? log.masseGrassePct + ' % gras · ' : '') + log.proteinesG + ' g prot · ' + log.caloriesKcal + ' kcal</div>' +
+                    '<div class="st">' + (log.masseGrassePct ? log.masseGrassePct + ' % gras · ' : '') + (log.proteinesG == null ? 'protéines non renseignées' : log.proteinesG + ' g prot') + ' · ' + (log.caloriesKcal == null ? 'calories non renseignées' : log.caloriesKcal + ' kcal') + '</div>' +
                 '</div>' +
                 '<div class="dr">' +
                     '<div class="a">' + U.formatKg(log.poids, 1) + '</div>' +
@@ -211,7 +183,7 @@
     // 3. SÉANCES & MUSCULATION (Séances)
     // =========================================================================
     function vueSeances(ctx) {
-        var html = '';
+        var html = avertissementDonneesPreexistantes();
 
         // --- Chips de bascule Séance A / B / Historique
         html += '<div class="chips" style="margin-bottom:12px;">' +
@@ -230,10 +202,10 @@
                     html += '<div class="ligne">' +
                         '<div class="gr">' +
                             '<div class="tt">' + h(s.nom) + '</div>' +
-                            '<div class="st">' + U.dateFr(s.date, { jour: true, annee: true }) + ' · RPE ' + s.rpe + '/10</div>' +
+                            '<div class="st">' + U.dateFr(s.date, { jour: true, annee: true }) + (s.type ? ' · séance ' + h(s.type) : '') + '</div>' +
                         '</div>' +
                         '<div class="dr">' +
-                            '<div class="a">' + s.dureeMin + ' min</div>' +
+                            '<div class="a">Terminée</div>' +
                         '</div>' +
                     '</div>';
                 });
@@ -246,9 +218,10 @@
 
         // --- Entête de la séance
         html += '<div class="card teal">' +
-            '<div class="lbl">Programme 30 minutes</div>' +
+            '<div class="lbl">Programme générique · durée indicative ' + h(prog.duree) + '</div>' +
             '<div style="font-size:20px; font-weight:750; margin:4px 0;">' + h(prog.titre) + '</div>' +
             '<div class="st">' + h(prog.description) + '</div>' +
+            '<div class="st" style="margin-top:8px;">Ce modèle n’est pas personnalisé selon ton profil. Adapte les mouvements et arrête ceux qui te font mal. Les saisies de séries restent temporaires ; seule la validation de la séance est conservée.</div>' +
         '</div>';
 
         // --- Chronomètre de repos intégré
@@ -304,8 +277,8 @@
                         [1, 2, 3].map(function (setNo) {
                             return '<div class="ligne-serie">' +
                                 '<span style="font-size:12.5px; font-weight:700; width:65px; color:var(--txt-3);">Série ' + setNo + '</span>' +
-                                '<input type="number" class="in-mini in-reps" placeholder="Reps" value="10" />' +
-                                '<input type="text" class="in-mini in-charge" placeholder="Lest" value="PDC" />' +
+                                '<input type="number" class="in-mini in-reps" placeholder="Reps effectuées" value="" />' +
+                                '<input type="text" class="in-mini in-charge" placeholder="Charge utilisée" value="" />' +
                                 '<label class="check-serie">' +
                                     '<input type="checkbox" class="cb-serie" data-exo="' + exo.id + '" data-set="' + setNo + '" />' +
                                     '<span class="cb-visuel">✓ Fait</span>' +
@@ -317,8 +290,8 @@
             });
         });
 
-        html += '<button class="btn btn-hero" id="btnValiderSeance" style="margin-top:12px; margin-bottom:20px;">' +
-            '✔ Enregistrer la séance terminée' +
+        html += '<button class="btn btn-hero" id="btnValiderSeance" data-type="' + h(prog.cle) + '" data-nom="' + h(prog.titre) + '" style="margin-top:12px; margin-bottom:20px;">' +
+            '✔ Confirmer une séance terminée' +
         '</button>';
 
         return html;
@@ -328,7 +301,7 @@
     // 4. MENUS & COURSES (Menus)
     // =========================================================================
     function vueMenus(ctx) {
-        var html = '';
+        var html = avertissementDonneesPreexistantes();
 
         // --- Sous-onglets
         html += '<div class="chips" style="margin-bottom:12px;">' +
@@ -337,70 +310,18 @@
             '<button class="chip ' + (sousOngletMenus === 'courses' ? 'actif' : '') + '" data-menu-tab="courses">Liste de courses</button>' +
         '</div>';
 
-        // --- VUE 1 : PLANNING SEMAINE
+        // Le planning et les recettes du foyer sont partagés dans Streamlit.
+        // Ne pas présenter les anciennes fixtures de démonstration comme des données réelles.
         if (sousOngletMenus === 'planning') {
-            html += '<div class="card tight teal" style="margin-bottom:12px;">' +
-                '<div class="lbl">Planning hebdomadaire du foyer</div>' +
-                '<div style="font-size:13.5px; color:var(--txt-2); margin-top:2px;">' +
-                    'Déjeuners équilibrés et dîners légers, synchronisés avec les courses de la semaine.' +
-                '</div>' +
-            '</div>';
-
-            M.PLANNING_EXEMPLE.forEach(function (jour) {
-                html += '<div class="card" style="margin-bottom:10px;">' +
-                    '<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">' +
-                        '<div style="font-size:15px; font-weight:750; color:var(--gold);">' + h(jour.jour) + '</div>' +
-                        '<span class="badge mut">' + (jour.protMidi + jour.protSoir) + ' g prot au total</span>' +
-                    '</div>' +
-                    // Midi
-                    '<div class="ligne" style="padding:6px 0;">' +
-                        '<div class="pastille" style="background:rgba(13,148,136,0.18);">☀️</div>' +
-                        '<div class="gr">' +
-                            '<div class="tt" style="font-size:14px;">Midi : ' + h(jour.midi) + '</div>' +
-                            '<div class="st">' + jour.protMidi + ' g prot · ' + jour.kcalMidi + ' kcal</div>' +
-                        '</div>' +
-                    '</div>' +
-                    // Soir
-                    '<div class="ligne" style="padding:6px 0;">' +
-                        '<div class="pastille" style="background:rgba(56,189,248,0.18);">🌙</div>' +
-                        '<div class="gr">' +
-                            '<div class="tt" style="font-size:14px;">Soir : ' + h(jour.soir) + '</div>' +
-                            '<div class="st">' + jour.protSoir + ' g prot · ' + jour.kcalSoir + ' kcal</div>' +
-                        '</div>' +
-                    '</div>' +
-                '</div>';
-            });
-            return html;
+            return html + '<div class="card"><div class="lbl">Menus partagés du foyer</div>' +
+                '<p>Le planning familial n’est pas disponible hors ligne dans cette version de l’APK.</p>' +
+                '<p>Ouvre l’application Streamlit depuis l’onglet <strong>Applications Web</strong>. La synchronisation mobile sera ajoutée avec des comptes individuels et une file locale.</p></div>';
         }
 
-        // --- VUE 2 : RECETTES & PLATS
         if (sousOngletMenus === 'recettes') {
-            html += '<div class="champ" style="margin-bottom:12px;">' +
-                '<input type="search" id="rechercheRecette" placeholder="🔍 Rechercher une recette ou un ingrédient…" />' +
-            '</div>';
-
-            html += '<div id="listeRecettes">';
-            M.RECETTES_EXEMPLES.forEach(function (r) {
-                html += '<div class="card card-recette" data-id="' + r.id + '" style="margin-bottom:12px;">' +
-                    '<div style="display:flex; justify-content:space-between; align-items:baseline;">' +
-                        '<div style="font-size:16px; font-weight:750;">' + h(r.nom) + '</div>' +
-                        '<span class="badge ok">' + r.protPortion + ' g prot / portion</span>' +
-                    '</div>' +
-                    '<div style="display:flex; gap:8px; margin:6px 0 10px; font-size:12px; color:var(--txt-3);">' +
-                        '<span>⏱ ' + h(r.temps) + '</span>' +
-                        '<span>👥 ' + r.convives + ' convives</span>' +
-                        '<span>🔥 ' + r.kcalPortion + ' kcal</span>' +
-                    '</div>' +
-                    '<div class="st" style="margin-bottom:10px;"><b>Ingrédients principaux :</b> ' +
-                        r.ingredients.map(function (ing) { return ing.nom + ' (' + ing.qte + ')'; }).join(', ') +
-                    '</div>' +
-                    '<button class="btn btn-flat btn-voir-recette" data-id="' + r.id + '" style="min-height:40px; font-size:13.5px;">' +
-                        '📖 Voir la préparation &amp; convives' +
-                    '</button>' +
-                '</div>';
-            });
-            html += '</div>';
-            return html;
+            return html + '<div class="card"><div class="lbl">Recettes du foyer</div>' +
+                '<p>La base partagée de recettes n’est pas chargée dans l’APK. Les exemples intégrés ont été retirés de l’écran pour ne pas les confondre avec vos recettes.</p>' +
+                '<p>Ouvre l’application Streamlit depuis l’onglet <strong>Applications Web</strong>.</p></div>';
         }
 
         // --- VUE 3 : LISTE DE COURSES
@@ -415,10 +336,12 @@
                         restantes + ' article' + (restantes > 1 ? 's' : '') + ' restant' + (restantes > 1 ? 's' : '') +
                     '</div>' +
                 '</div>' +
-                '<button class="btn btn-flat" id="btnResetCourses" style="width:auto; min-height:36px; padding:0 12px; font-size:12px;">' +
-                    '↻ Réinitialiser' +
-                '</button>' +
             '</div>';
+
+            if (!courses.length) {
+                html += '<div class="card"><div class="vide">Aucune liste de courses locale. La liste familiale partagée est dans l’application Streamlit ; elle n’est pas encore disponible hors ligne dans l’APK.</div></div>';
+                return html;
+            }
 
             // Grouper par rayon
             var parRayon = {};
@@ -460,37 +383,28 @@
         var labelActive = courante === 'menus' ? 'Menus & Recettes' : 'Suivi Recomposition';
         var labelAutre = courante === 'menus' ? 'Suivi Recomposition' : 'Menus & Recettes';
 
-        var html = '';
-
-        // Barre d'outils supérieure de la coque web
-        html += '<div class="card tight" style="margin-bottom:8px; border-color:var(--teal); background:var(--card-2);">' +
-            '<div style="display:flex; align-items:center; justify-content:space-between; gap:6px; flex-wrap:wrap;">' +
+        return '<div class="card tight" style="margin-bottom:10px; border-color:var(--teal); background:var(--card-2);">' +
+            '<div style="display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">' +
                 '<div style="flex:1; min-width:180px;">' +
-                    '<div class="lbl" style="color:var(--teal);">Application active</div>' +
+                    '<div class="lbl" style="color:var(--teal);">Application sélectionnée</div>' +
                     '<div style="font-size:15px; font-weight:750; color:var(--txt);">' + h(labelActive) + '</div>' +
-                    '<div class="st" style="font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + h(urlActive) + '</div>' +
+                    '<div class="st" style="font-size:11px; overflow-wrap:anywhere;">' + h(urlActive) + '</div>' +
                 '</div>' +
                 '<div style="display:flex; gap:6px;">' +
                     '<button class="btn btn-flat" id="btnBasculeApp" style="width:auto; min-height:38px; padding:0 12px; font-size:12.5px;" title="Passer à ' + h(labelAutre) + '">' +
                         '⇄ ' + (courante === 'menus' ? 'Suivi' : 'Menus') +
                     '</button>' +
-                    '<button class="iconbtn" id="btnReloadWeb" style="width:38px; height:38px;" title="Recharger la page">⟳</button>' +
-                    '<button class="iconbtn" id="btnOuvrirNav" style="width:38px; height:38px;" title="Ouvrir dans le navigateur">↗</button>' +
+                    '<button class="btn btn-hero" id="btnOuvrirNav" style="width:auto; min-height:38px; padding:0 12px; font-size:12.5px;">↗ Ouvrir</button>' +
                 '</div>' +
             '</div>' +
+        '</div>' +
+        '<div class="card">' +
+            '<h3 style="margin-top:0;">Accès aux applications Web</h3>' +
+            '<p>Les applications Streamlit s’ouvrent dans le navigateur du système ; aucune page distante ne s’exécute dans le WebView privilégié.</p>' +
+            '<p><strong>Mode actuel : stockage local uniquement.</strong> Les suivis saisis dans l’APK restent sur cet appareil. La synchronisation Supabase est désactivée : cette version ne lit ni n’envoie ces données.</p>' +
+            '<p>La synchronisation hors ligne entre membres/appareils n’est pas encore implémentée. Elle nécessitera une authentification individuelle, une file d’attente locale et une résolution explicite des conflits.</p>' +
+            '<p style="margin-bottom:0; color:var(--txt-3);">L’espace partagé des menus et les suivis privés restent gérés séparément par l’application Streamlit.</p>' +
         '</div>';
-
-        // Cadre d'intégration WebView / Iframe plein écran
-        html += '<div class="coque-web-wrapper" id="coqueWebWrapper">' +
-            '<div class="chargement-frame" id="chargementFrame">' +
-                '<div class="spin" style="font-size:24px; margin-bottom:8px;">⏳</div>' +
-                '<div>Connexion à ' + h(labelActive) + '…</div>' +
-                '<div style="font-size:11.5px; color:var(--txt-3); margin-top:4px;">Premier chargement : 10 à 25 s si Streamlit est en veille</div>' +
-            '</div>' +
-            '<iframe id="frameStreamlit" class="coque-frame" src="' + h(urlActive) + '" allow="clipboard-read; clipboard-write;" sandbox="allow-same-origin allow-scripts allow-forms allow-popups"></iframe>' +
-        '</div>';
-
-        return html;
     }
 
     // =========================================================================
@@ -499,58 +413,59 @@
 
     // --- Modal : Noter la pesée du jour
     function feuillePesee(ctx, apresEnregistrement) {
-        var reglages = ctx.reglages;
         var aujourdHui = U.dateIso(new Date());
-        var dernier = ctx.logs[ctx.logs.length - 1] || {};
 
         var formHtml = '<div class="champ">' +
             '<label>Date de la pesée</label>' +
             '<input type="date" id="inDatePesee" value="' + aujourdHui + '" />' +
         '</div>' +
         '<div class="champ">' +
-            '<label>Poids sur la balance (kg)</label>' +
-            '<input type="number" step="0.1" id="inPoids" placeholder="ex: 78.4" value="' + (dernier.poids || 78.4) + '" />' +
+            '<label>Poids sur la balance (kg) — obligatoire</label>' +
+            '<input type="number" step="0.1" id="inPoids" placeholder="Saisir le poids mesuré" value="" />' +
         '</div>' +
         '<div class="champ">' +
-            '<label>Masse grasse (% — facultatif)</label>' +
-            '<input type="number" step="0.1" id="inGras" placeholder="ex: 17.8" value="' + (dernier.masseGrassePct || '') + '" />' +
+            '<label>Masse grasse (%) — facultatif</label>' +
+            '<input type="number" step="0.1" id="inGras" placeholder="Laisser vide si non mesuré" value="" />' +
         '</div>' +
         '<div class="champ">' +
-            '<label>Protéines du jour (g)</label>' +
-            '<input type="number" id="inProt" placeholder="ex: 130" value="' + (dernier.proteinesG || 130) + '" />' +
+            '<label>Protéines du jour (g) — facultatif</label>' +
+            '<input type="number" id="inProt" placeholder="Laisser vide si non suivi" value="" />' +
         '</div>' +
         '<div class="champ">' +
-            '<label>Calories du jour (kcal)</label>' +
-            '<input type="number" id="inKcal" placeholder="ex: 1700" value="' + (dernier.caloriesKcal || 1700) + '" />' +
+            '<label>Calories du jour (kcal) — facultatif</label>' +
+            '<input type="number" id="inKcal" placeholder="Laisser vide si non suivi" value="" />' +
         '</div>' +
         '<button class="btn btn-hero" id="btnValiderNouvellePesee" style="margin-top:8px;">' +
-            'Enregistrer la journée' +
+            'Enregistrer la pesée' +
         '</button>';
 
         UI.feuille({
             titre: 'Noter ma journée',
-            aide: 'Poids à jeun le matin, protéines et calories consommées.',
+            aide: 'Poids mesuré obligatoire ; masse grasse, protéines et calories sont facultatives.',
             html: formHtml,
             apresRendu: function (racine, fermer) {
                 var btn = UI.$('#btnValiderNouvellePesee', racine);
                 btn.onclick = function () {
                     var d = UI.$('#inDatePesee', racine).value;
                     var p = U.num(UI.$('#inPoids', racine).value, null);
-                    if (!p || p <= 0) {
-                        UI.toast('Veuillez indiquer un poids valide');
+                    if (!d || p === null || p <= 0) {
+                        UI.toast('Veuillez indiquer une date et un poids valide');
                         return;
                     }
                     var gras = U.num(UI.$('#inGras', racine).value, null);
-                    var prot = Math.round(U.num(UI.$('#inProt', racine).value, reglages.objectifProteinesG));
-                    var kcal = Math.round(U.num(UI.$('#inKcal', racine).value, reglages.objectifCaloriesKcal));
+                    var prot = U.num(UI.$('#inProt', racine).value, null);
+                    var kcal = U.num(UI.$('#inKcal', racine).value, null);
+                    if ((gras !== null && (gras <= 0 || gras > 100)) ||
+                        (prot !== null && prot < 0) || (kcal !== null && kcal < 0)) {
+                        UI.toast('Protéines et calories doivent être non négatives ; masse grasse > 0 et ≤ 100 %');
+                        return;
+                    }
 
-                    Store.saveLog({
-                        date: d,
-                        poids: p,
-                        masseGrassePct: gras,
-                        proteinesG: prot,
-                        caloriesKcal: kcal
-                    });
+                    var entree = { date: d, poids: p };
+                    if (gras !== null) entree.masseGrassePct = gras;
+                    if (prot !== null) entree.proteinesG = Math.round(prot);
+                    if (kcal !== null) entree.caloriesKcal = Math.round(kcal);
+                    Store.saveLog(entree);
 
                     fermer();
                     UI.toast('✅ Pesée enregistrée : ' + U.formatKg(p, 1));
@@ -569,19 +484,19 @@
         '</div>' +
         '<div class="champ">' +
             '<label>Tour de taille (cm au nombril)</label>' +
-            '<input type="number" step="0.5" id="inTailleCm" placeholder="ex: 84.5" value="84.5" />' +
+            '<input type="number" step="0.5" id="inTailleCm" placeholder="Laisser vide si non mesuré" value="" />' +
         '</div>' +
         '<div class="champ">' +
             '<label>Tour de hanches (cm)</label>' +
-            '<input type="number" step="0.5" id="inHanchesCm" placeholder="ex: 98.0" value="98.0" />' +
+            '<input type="number" step="0.5" id="inHanchesCm" placeholder="Laisser vide si non mesuré" value="" />' +
         '</div>' +
         '<div class="champ">' +
             '<label>Tour de bras (cm biceps contracté)</label>' +
-            '<input type="number" step="0.5" id="inBrasCm" placeholder="ex: 37.0" value="37.0" />' +
+            '<input type="number" step="0.5" id="inBrasCm" placeholder="Laisser vide si non mesuré" value="" />' +
         '</div>' +
         '<div class="champ">' +
             '<label>Tour de cuisse (cm)</label>' +
-            '<input type="number" step="0.5" id="inCuisseCm" placeholder="ex: 58.5" value="58.5" />' +
+            '<input type="number" step="0.5" id="inCuisseCm" placeholder="Laisser vide si non mesuré" value="" />' +
         '</div>' +
         '<button class="btn btn-hero" id="btnValiderMens" style="margin-top:8px;">' +
             'Enregistrer les mensurations' +
@@ -595,18 +510,26 @@
                 var btn = UI.$('#btnValiderMens', racine);
                 btn.onclick = function () {
                     var d = UI.$('#inDateMens', racine).value;
-                    var t = U.num(UI.$('#inTailleCm', racine).value);
-                    var h = U.num(UI.$('#inHanchesCm', racine).value);
-                    var b = U.num(UI.$('#inBrasCm', racine).value);
-                    var c = U.num(UI.$('#inCuisseCm', racine).value);
+                    var t = U.num(UI.$('#inTailleCm', racine).value, null);
+                    var h = U.num(UI.$('#inHanchesCm', racine).value, null);
+                    var b = U.num(UI.$('#inBrasCm', racine).value, null);
+                    var c = U.num(UI.$('#inCuisseCm', racine).value, null);
+                    var mesures = [t, h, b, c];
+                    if (!d || !mesures.some(function (v) { return v !== null; })) {
+                        UI.toast('Indique une date et au moins une mensuration');
+                        return;
+                    }
+                    if (mesures.some(function (v) { return v !== null && v <= 0; })) {
+                        UI.toast('Les mensurations doivent être supérieures à zéro');
+                        return;
+                    }
 
-                    Store.saveMensuration({
-                        date: d,
-                        tailleCm: t,
-                        hanchesCm: h,
-                        brasCm: b,
-                        cuisseCm: c
-                    });
+                    var entree = { date: d };
+                    if (t !== null) entree.tailleCm = t;
+                    if (h !== null) entree.hanchesCm = h;
+                    if (b !== null) entree.brasCm = b;
+                    if (c !== null) entree.cuisseCm = c;
+                    Store.saveMensuration(entree);
 
                     fermer();
                     UI.toast('✅ Mensurations enregistrées');
@@ -683,6 +606,10 @@
     // --- Modal : Réglages (⚙)
     function feuilleReglages(ctx, apresSauvegarde) {
         var r = ctx.reglages;
+        var afficherRepere = r.profileConfigured === true;
+        function valeurRepere(cle) {
+            return afficherRepere && r[cle] != null ? h(r[cle]) : '';
+        }
         var html = '<div class="champ">' +
             '<label>Adresse application Suivi (Streamlit)</label>' +
             '<input type="url" id="regUrlSuivi" value="' + h(r.urlSuivi) + '" placeholder="https://suivi-recomposition.streamlit.app" />' +
@@ -693,56 +620,64 @@
         '</div>' +
         '<div class="champ">' +
             '<label>Poids cible (kg)</label>' +
-            '<input type="number" step="0.5" id="regPoidsCible" value="' + r.poidsCibleKg + '" />' +
+            '<input type="number" step="0.5" id="regPoidsCible" value="' + valeurRepere('poidsCibleKg') + '" placeholder="À renseigner" />' +
         '</div>' +
         '<div class="champ">' +
             '<label>Objectif protéines par jour (g)</label>' +
-            '<input type="number" id="regProtCible" value="' + r.objectifProteinesG + '" />' +
+            '<input type="number" id="regProtCible" value="' + valeurRepere('objectifProteinesG') + '" placeholder="À renseigner" />' +
         '</div>' +
         '<div class="champ">' +
             '<label>Objectif calories par jour (kcal)</label>' +
-            '<input type="number" id="regKcalCible" value="' + r.objectifCaloriesKcal + '" />' +
+            '<input type="number" id="regKcalCible" value="' + valeurRepere('objectifCaloriesKcal') + '" placeholder="À renseigner" />' +
         '</div>' +
-        '<div class="champ">' +
-            '<label>URL Supabase (optionnel pour synchronisation directe)</label>' +
-            '<input type="url" id="regSupaUrl" value="' + h(r.supabaseUrl || '') + '" placeholder="https://xxxx.supabase.co" />' +
+        '<div class="card" style="margin:12px 0;">' +
+            '<strong>Repères à vérifier — non personnalisés</strong>' +
+            '<p>Les valeurs affichées ci-dessus ne sont pas des recommandations personnelles. Vérifie-les avant d’activer toute comparaison.</p>' +
+            '<label style="display:flex; align-items:flex-start; gap:9px; line-height:1.45;">' +
+                '<input type="checkbox" id="regConfirmerRepere" ' + (r.profileConfigured ? 'checked' : '') + ' style="margin-top:3px;" />' +
+                'J’ai vérifié ces repères pour mon profil et souhaite les utiliser dans les graphiques.' +
+            '</label>' +
         '</div>' +
-        '<div class="champ">' +
-            '<label>Clé Supabase (anon ou service)</label>' +
-            '<input type="password" id="regSupaKey" value="' + h(r.supabaseKey || '') + '" placeholder="eyJhbGciOi..." />' +
-        '</div>' +
-        '<div class="champ">' +
-            '<label>Espace utilisateur</label>' +
-            '<select id="regProfil">' +
-                '<option value="flavien"' + (r.profil === 'flavien' ? ' selected' : '') + '>Flavien (Suivi personnel + Repas types)</option>' +
-                '<option value="lea"' + (r.profil === 'lea' ? ' selected' : '') + '>Léa (Suivi &amp; nutrition)</option>' +
-                '<option value="partage"' + (r.profil === 'partage' ? ' selected' : '') + '>Espace partagé du foyer (Menus &amp; Courses)</option>' +
-            '</select>' +
+        '<div class="card" style="margin:12px 0;">' +
+            '<strong>Synchronisation désactivée</strong>' +
+            '<p>Cette version stocke les données sur cet appareil dans un profil local unique. Les suivis ne sont pas séparés par membre : ne partage pas cet appareil pour saisir des données personnelles.</p>' +
+            '<p style="margin-bottom:8px;">Ne saisis aucune clé Supabase ici : il n’y a ni authentification individuelle, ni synchronisation sécurisée.</p>' +
+            '<button class="btn btn-flat" id="btnEffacerAnciennesCles" style="min-height:38px; font-size:12.5px;">Effacer une ancienne clé Supabase de cet appareil</button>' +
         '</div>' +
         '<button class="btn btn-hero" id="btnSauverReglages" style="margin-top:10px;">Enregistrer les réglages</button>' +
         '<div style="margin-top:18px; padding-top:14px; border-top:1px solid var(--line); text-align:center;">' +
-            '<button class="btn btn-flat" id="btnResetDemo" style="min-height:38px; font-size:12.5px; color:var(--txt-3);">' +
-                'Réinitialiser les données de démonstration' +
-            '</button>' +
-            '<div style="font-size:11.5px; color:var(--txt-3); margin-top:10px;">Équilibre v1.2.0 · Coque Android native &amp; Web</div>' +
+            '<div style="font-size:11.5px; color:var(--txt-3);">Équilibre · stockage local sur cet appareil</div>' +
         '</div>';
 
         UI.feuille({
             titre: 'Réglages &amp; Connexions',
-            aide: 'Configurez les adresses Streamlit et vos objectifs personnels.',
+            aide: 'Configurez les adresses Web et vos repères locaux ; aucune synchronisation n’est active.',
             html: html,
             apresRendu: function (racine, fermer) {
                 var btnSave = UI.$('#btnSauverReglages', racine);
                 btnSave.onclick = function () {
+                    var poidsCible = U.num(UI.$('#regPoidsCible', racine).value, null);
+                    var protCible = U.num(UI.$('#regProtCible', racine).value, null);
+                    var kcalCible = U.num(UI.$('#regKcalCible', racine).value, null);
+                    var confirmerRepere = UI.$('#regConfirmerRepere', racine).checked;
+                    var valeurs = [poidsCible, protCible, kcalCible];
+                    if (valeurs.some(function (v) { return v !== null && v <= 0; }) ||
+                        (protCible !== null && Math.round(protCible) <= 0) ||
+                        (kcalCible !== null && Math.round(kcalCible) <= 0)) {
+                        UI.toast('Les repères numériques doivent être supérieurs à zéro');
+                        return;
+                    }
+                    if (confirmerRepere && valeurs.some(function (v) { return v === null; })) {
+                        UI.toast('Renseigne tous les repères avant de les confirmer');
+                        return;
+                    }
                     var nouv = Object.assign({}, r, {
                         urlSuivi: UI.$('#regUrlSuivi', racine).value.trim(),
                         urlMenus: UI.$('#regUrlMenus', racine).value.trim(),
-                        poidsCibleKg: U.num(UI.$('#regPoidsCible', racine).value, 77.0),
-                        objectifProteinesG: Math.round(U.num(UI.$('#regProtCible', racine).value, 130)),
-                        objectifCaloriesKcal: Math.round(U.num(UI.$('#regKcalCible', racine).value, 1700)),
-                        supabaseUrl: UI.$('#regSupaUrl', racine).value.trim(),
-                        supabaseKey: UI.$('#regSupaKey', racine).value.trim(),
-                        profil: UI.$('#regProfil', racine).value
+                        poidsCibleKg: poidsCible === null ? r.poidsCibleKg : poidsCible,
+                        objectifProteinesG: protCible === null ? r.objectifProteinesG : Math.round(protCible),
+                        objectifCaloriesKcal: kcalCible === null ? r.objectifCaloriesKcal : Math.round(kcalCible),
+                        profileConfigured: confirmerRepere
                     });
                     Store.saveReglages(nouv);
                     fermer();
@@ -750,15 +685,16 @@
                     if (apresSauvegarde) apresSauvegarde(nouv);
                 };
 
-                var btnReset = UI.$('#btnResetDemo', racine);
-                btnReset.onclick = function () {
-                    if (confirm('Voulez-vous recharger le jeu de démonstration initial ?')) {
-                        Store.reinitialiserDemo();
-                        fermer();
-                        UI.toast('Données démo rechargées');
-                        if (apresSauvegarde) apresSauvegarde(Store.getReglages());
+                var btnClearLegacyKey = UI.$('#btnEffacerAnciennesCles', racine);
+                btnClearLegacyKey.onclick = function () {
+                    if (confirm('Effacer les anciennes URL et clé Supabase stockées localement sur cet appareil ?')) {
+                        Store.effacerAnciennesCles();
+                        delete r.supabaseUrl;
+                        delete r.supabaseKey;
+                        UI.toast('Anciennes clés locales supprimées');
                     }
                 };
+
             }
         });
     }
