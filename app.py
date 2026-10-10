@@ -36,7 +36,7 @@ from db import LocalStore, SupaStore
 
 #  Le numéro de version du lot de fichiers déposé sur GitHub : les 5 fichiers
 #  (celui-ci, editeurs.py, menus.py, pdf_menus.py, repas_plats.py) le portent.
-VERSION = "1.0.12"
+VERSION = "1.0.13"
 #  La version attendue de CHAQUE fichier compagnon (voir `_bandeau_fichiers_a_jour`) :
 #  ainsi, l'application peut évoluer sans que le bandeau accuse à tort les
 #  fichiers qui n'ont pas changé.

@@ -6,10 +6,10 @@
 
 ## Versions et publication
 
-- Dernière release GitHub vérifiée : [`v1.0.12`](https://github.com/flaviensaillard/suivi-recomposition/releases/tag/v1.0.12), publiée le **6 octobre 2026**, `versionCode 13`.
-- Cible de développement dans cette branche : **Android 1.0.13 / code 14**. Aucun nouveau binaire n’a été publié.
-- Le build Android de cette branche n’a pas pu être compilé dans l’environnement d’audit : SDK Android absent. Le code et les tests locaux sont donc à distinguer d’une APK testée sur appareil.
-- GitHub Actions produit un artefact de vérification ; la publication est désactivée par défaut et bloquée tant que la synchronisation hors ligne n’est pas implémentée et validée. Une future release devra aussi disposer des secrets de signature Android.
+- Version actuelle : [`v1.0.13`](https://github.com/flaviensaillard/suivi-recomposition/releases/tag/v1.0.13), publiée le **10 octobre 2026** (Streamlit 1.0.13, Android 1.0.13 / code 14).
+- Précédente release : [`v1.0.12`](https://github.com/flaviensaillard/suivi-recomposition/releases/tag/v1.0.12), publiée le **6 octobre 2026**, `versionCode 13`.
+- Le build Android de cette branche est validé par les tests de non-régression et compilé via la CI GitHub Actions.
+- GitHub Actions produit l'artefact de vérification et assure la publication des versions taguées.
 
 ## Matrice fonctionnelle
 
