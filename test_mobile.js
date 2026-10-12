@@ -477,7 +477,7 @@ function testFicheRecetteRappelleEtatCruCuit() {
         ingredients: [{
             id: 'c1', name: 'Carotte', unit: 'g', category: 'Légumes',
             kcal_100g: 30, proteines_100g: 0.9, glucides_100g: 5.9, lipides_100g: 0.2,
-            etat_defaut: 'cru',
+            etat_defaut: 'cru', etats_manuels: true,
             kcal_100g_cru: 30.2, proteines_100g_cru: 0.93, glucides_100g_cru: 5.9, lipides_100g_cru: 0.24,
             kcal_100g_cuit: 29.6, proteines_100g_cuit: 0.72, glucides_100g_cuit: 5.2, lipides_100g_cuit: 0.18
         }],
@@ -496,6 +496,10 @@ function testFicheRecetteRappelleEtatCruCuit() {
     const feuille = dom.resoudre('#feuille');
     assert.match(feuille.innerHTML, /Velouté de carotte/, 'la fiche doit s’ouvrir');
     assert.match(feuille.innerHTML, /cuit/, 'la fiche doit rappeler l’état pesé');
+    // Une valeur d'état tapée à la main ne vaut pas une mesure Ciqual : elle
+    // doit être signalée comme telle là où on la lit.
+    assert.match(feuille.innerHTML, /saisi à la main/,
+        'la fiche doit signaler les valeurs saisies à la main');
 
     // Les macros doivent suivre l'état de la ligne, pas la colonne historique :
     // 400 g × 29,6 kcal/100 g = 118,4 kcal, et non 400 × 30 / 100 = 120.

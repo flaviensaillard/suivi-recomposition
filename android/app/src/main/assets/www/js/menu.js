@@ -194,7 +194,8 @@
                 quantity: nombre(l.quantity), unit: l.unit || '', grams: Math.round(g * 10) / 10,
                 kcal: values.kcal, proteines: values.proteines, glucides: values.glucides,
                 lipides: values.lipides, sans_valeurs: sansValeurs, etat: macros.etat,
-                etat_modifiable: aChoixEtat(ing), estimate: calc.estimate });
+                etat_modifiable: aChoixEtat(ing), etats_manuels: ing.etats_manuels === true,
+                estimate: calc.estimate });
         });
         var parts = nombre(rec.base_servings) || 1;
         var roundedTotal = {}, perPart = {};

@@ -173,7 +173,7 @@
             var m = Menu.macrosPourEtat(i);
             html += '<div class="card tight" data-ingredient-card data-search="' + attribut(Menu.nomIngredient(i)) + '" style="margin-bottom:9px;">' +
                 '<div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;"><div><div style="font-weight:750;">' + h(Menu.nomIngredient(i)) + '</div><div class="st">' + h(i.category || 'Autre') + ' · ' + h(i.unit || 'g') + (owned ? ' · personnel' : ' · base de référence') + '</div></div><span class="badge mut">' + (i.code_ciqual ? 'Ciqual' : (owned ? 'À moi' : 'Base')) + '</span></div>' +
-                '<div class="st" style="margin:8px 0;">' + (m.kcal == null ? '—' : Math.round(Number(m.kcal) || 0)) + ' kcal · P ' + (m.proteines == null ? '—' : Menu.fmtNombre(m.proteines)) + ' g · G ' + (m.glucides == null ? '—' : Menu.fmtNombre(m.glucides)) + ' g · L ' + (m.lipides == null ? '—' : Menu.fmtNombre(m.lipides)) + ' g / 100 g' + (Menu.aChoixEtat(i) ? ' · ' + h(m.etat) : '') + (i.poids_piece_g ? ' · ' + Menu.fmtNombre(i.poids_piece_g) + ' g / unité' : '') + '</div>' +
+                '<div class="st" style="margin:8px 0;">' + (m.kcal == null ? '—' : Math.round(Number(m.kcal) || 0)) + ' kcal · P ' + (m.proteines == null ? '—' : Menu.fmtNombre(m.proteines)) + ' g · G ' + (m.glucides == null ? '—' : Menu.fmtNombre(m.glucides)) + ' g · L ' + (m.lipides == null ? '—' : Menu.fmtNombre(m.lipides)) + ' g / 100 g' + (Menu.aChoixEtat(i) ? ' · ' + h(m.etat) + (i.etats_manuels ? ' (saisi à la main)' : '') : '') + (i.poids_piece_g ? ' · ' + Menu.fmtNombre(i.poids_piece_g) + ' g / unité' : '') + '</div>' +
                 '<div class="grille g2"><button class="btn btn-flat" data-ing-toggle="exclude_from_list" data-ing-id="' + attribut(i.id) + '" data-ing-value="' + (!i.exclude_from_list) + '">' + (i.exclude_from_list ? '🚪 Fond de placard ✓' : '🚪 Fond de placard') + '</button><button class="btn btn-flat" data-ing-toggle="is_recurrent" data-ing-id="' + attribut(i.id) + '" data-ing-value="' + (!i.is_recurrent) + '">' + (i.is_recurrent ? '🔁 Récurrent ✓' : '🔁 Récurrent') + '</button></div>' +
                 (owned ? '<button class="btn btn-flat" data-ing-edit="' + attribut(i.id) + '" style="margin-top:7px;">✎ Modifier</button>' : '') + '</div>';
         });
@@ -283,7 +283,8 @@
                 // velouté et « carottes crues » en salade ne donnent pas les
                 // mêmes macros, et rien d'autre ne le signale à la lecture.
                 corps += '<div class="ligne"><div class="gr"><div class="tt">' + h(l.name) +
-                    (l.etat_modifiable ? ' <span class="badge mut">' + h(l.etat) + '</span>' : '') + '</div>' +
+                    (l.etat_modifiable ? ' <span class="badge mut">' + h(l.etat) +
+                        (l.etats_manuels ? ' · saisi à la main' : '') + '</span>' : '') + '</div>' +
                     '<div class="st">' + h(Menu.fmtNombre(l.quantity)) + ' ' + h(l.unit) + ' · ' +
                     Math.round(l.grams) + ' g</div></div>' +
                     '<div class="dr"><div class="a">' + Math.round(l.kcal) + ' kcal</div>' +
