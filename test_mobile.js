@@ -358,6 +358,41 @@ const MENUS_TEST = {
     ]
 };
 
+async function testCoachAnnonceQueLesFichiersNeSontPasLus() {
+    // Le Worker equilibre-coach-ia n'est plus déployé : le champ `attachments`
+    // est ignoré côté serveur. Le bouton 📎 ne doit pas promettre ce que le
+    // coach ne peut pas tenir — l'interface doit le dire au moment où on joint
+    // un fichier, pas dans une documentation que personne ne lit.
+    const app = creerAppli();
+    const dom = creerDomStub();
+    app.contexte.document = dom.document;
+    app.contexte.Native = { toast: () => { } };
+    // lireEnBase64 passe par FileReader, absent de Node. Le stub répond
+    // synchronément : on teste l'affichage, pas le décodage base64.
+    app.contexte.FileReader = function () {
+        this.readAsDataURL = function () {
+            this.result = 'data:image/jpeg;base64,QUJD';
+            if (this.onload) this.onload();
+        };
+        this.onerror = null;
+    };
+
+    // Aucune URL de Worker n'est configurée : chargerTout sort aussitôt, donc
+    // ce test ne fait aucun appel réseau.
+    const main = dom.resoudre('#view');
+    app.EQ.coach.attacher(main, { reglages: app.EQ.store.getReglages() }, () => { });
+
+    const fichier = dom.resoudre('#coachChatFiles');
+    fichier.files = [{ name: 'photo.jpg', type: 'image/jpeg', size: 2048 }];
+    fichier.onchange();
+    await new Promise((r) => setTimeout(r, 0));
+
+    const zone = dom.resoudre('#coachAttachments');
+    assert.match(zone.innerHTML, /photo\.jpg/, 'le fichier joint doit être listé');
+    assert.match(zone.innerHTML, /ne peut pas les voir/,
+        'l’interface doit annoncer que le coach ne lit pas les fichiers');
+}
+
 function testNomCourtAfficheEtProprieteInchangee() {
     // Convention retenue : la base garde les libellés Ciqual complets, c'est
     // nom_affiche qui s'affiche partout. Un nom court ne doit PAS faire
@@ -957,6 +992,7 @@ const TESTS = [
     testRepasTypesEditables,
     testEtatCruCuitChangeLesMacros,
     testEtatOmisSiLaColonneManque,
+    testCoachAnnonceQueLesFichiersNeSontPasLus,
     testNomCourtAfficheEtProprieteInchangee,
     testEditeurAlimentSaisitLesValeursCuit,
     testEtatIngredientOmisSiLesColonnesManquent,

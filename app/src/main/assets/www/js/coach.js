@@ -500,7 +500,7 @@
                     '<input type="file" id="coachChatFiles" multiple hidden accept="image/*,application/pdf,text/plain,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />' +
                     '<div id="coachAttachments" class="coach-attachments"></div>' +
                     '<div style="display:flex;gap:8px;align-items:center;">' +
-                        '<button class="btn btn-flat" id="btnCoachAttach" type="button"' + (busyChat ? ' disabled' : '') + ' title="Joindre des photos, captures d’écran ou documents">📎 Fichiers</button>' +
+                        '<button class="btn btn-flat" id="btnCoachAttach" type="button"' + (busyChat ? ' disabled' : '') + ' title="Joindre des fichiers — le coach ne peut pas encore les lire">📎 Fichiers</button>' +
                         '<button class="btn btn-hero" id="btnCoachSend" type="submit"' + (busyChat ? ' disabled' : '') + ' style="flex:1;">Envoyer</button>' +
                     '</div>' +
                 '</form>' +
@@ -558,7 +558,14 @@
         chargerTout(main);
     }
     // Pièces jointes du chat (photos, captures d'écran, documents).
-    // 1.4 : elles sont envoyées au Worker Coach IA dans le champ `attachments`.
+    //
+    // 1.4 : elles partent dans le champ `attachments` du POST /api/coach/chat.
+    // Le Worker qui doit les traiter (equilibre-coach-ia) n'est pas dans ce
+    // dépôt et n'est plus déployé : le serveur ignore donc ce champ et le coach
+    // ne voit pas les fichiers. L'envoi est conservé pour ne rien casser le
+    // jour où le Worker sera restauré, mais l'interface le dit clairement —
+    // un bouton qui promet une photo à un coach aveugle est pire qu'un bouton
+    // absent.
     var piecesJointes = [];
     var LIMITE_FICHIERS = 4;
     var LIMITE_OCTETS = 4 * 1024 * 1024; // 4 Mo par fichier
@@ -607,7 +614,10 @@
             return '<span class="badge" style="margin:4px 6px 0 0;display:inline-block;">📎 ' + h(p.name) +
                 ' · ' + Math.max(1, Math.round(p.size / 1024)) + ' ko ' +
                 '<a href="#" data-detach="' + i + '" style="margin-left:6px;">✕</a></span>';
-        }).join('');
+        }).join('') +
+            '<div class="st" style="margin-top:7px;">⚠️ Le service Coach IA en place ne lit ' +
+            'pas encore les fichiers : ils sont joints au message, mais le coach ne peut pas ' +
+            'les voir. Décris ce qu’ils montrent dans ton message.</div>';
         UI.$$('[data-detach]', box).forEach(function (lien) {
             lien.onclick = function (ev) {
                 ev.preventDefault();
