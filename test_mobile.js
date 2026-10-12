@@ -709,6 +709,57 @@ function testEtatCruCuitChangeLesMacros() {
         'les pâtes ont deux états : le sélecteur doit être proposé');
 }
 
+function testEtatOmisSiLaColonneManque() {
+    // 1.4 : la colonne recipe_ingredients.etat n'existe que si
+    // sql/etat_cru_cuit.sql a été exécuté. Si l'application est lancée avant la
+    // migration, l'envoi doit retomber sur une ligne sans `etat` au lieu de
+    // laisser l'élément bloqué dans la file de synchronisation.
+    const appels = [];
+    let repondreColonneManquante = true;
+
+    const Native = {
+        httpAsync(methode, url, entetes, corps, callbackId) {
+            appels.push({ methode, url, corps: JSON.parse(corps || '{}') });
+            const premier = appels.length === 1;
+            setTimeout(() => {
+                if (premier && repondreColonneManquante) {
+                    app.EQ.net._fin(callbackId, {
+                        ok: false, status: 400,
+                        body: '{"message":"column recipe_ingredients.etat does not exist"}'
+                    });
+                } else {
+                    app.EQ.net._fin(callbackId, { ok: true, status: 201, body: '[{"id":"li-1"}]' });
+                }
+            }, 0);
+        }
+    };
+
+    // config() lit eq.reglages.v1 (champs supabaseUrl / supabaseKey), pas une
+    // clé dédiée : semer autre chose ferait échouer le test pour la mauvaise raison.
+    const app = creerAppli({
+        'eq.reglages.v1': JSON.stringify({
+            supabaseUrl: 'https://test.supabase.co', supabaseKey: 'cle-anon-publique'
+        })
+    }, { Native });
+
+    // Le prédicat seul ne prouve rien : c'est le repli qui compte.
+    assert.equal(app.EQ.net._erreurColonneAbsente(new Error('column x.etat does not exist')), true);
+    assert.equal(app.EQ.net._erreurColonneAbsente(new Error('violation de contrainte')), false);
+
+    const session = { access_token: 'jeton', user: { id: '1' } };
+    return app.EQ.net._pushMenuItem(
+        { table: 'menu:recipe_ingredients', key: 'li-1', operation: 'insert',
+          row: { id: 'li-1', recipe_id: 'r1', ingredient_id: 'i1', quantity: 400, unit: 'g', etat: 'cuit' } },
+        session
+    ).then(() => {
+        assert.equal(appels.length, 2, 'un second envoi doit avoir lieu après l’échec');
+        assert.equal(appels[0].corps.etat, 'cuit', 'le premier envoi porte bien l’état');
+        assert.ok(!('etat' in appels[1].corps),
+            'le repli doit retirer `etat` plutôt que de bloquer la file');
+        assert.equal(appels[1].corps.quantity, 400, 'le reste de la ligne est préservé');
+    });
+}
+
 const TESTS = [
     testPremierLancementVide,
     testConservationDonneesLocalesApresMonteeDeVersion,
@@ -725,12 +776,22 @@ const TESTS = [
     testUniteChoisieDansLeJournalNutrition,
     testUnitePartDansLaSynchronisation,
     testRepasTypesEditables,
-    testEtatCruCuitChangeLesMacros
+    testEtatCruCuitChangeLesMacros,
+    testEtatOmisSiLaColonneManque
 ];
 let passes = 0;
-TESTS.forEach((test) => {
-    test();
-    passes += 1;
-    console.log('✓', test.name);
+(async () => {
+    for (const test of TESTS) {
+        // Les tests asynchrones doivent être attendus : sans `await`, un test
+        // renvoyant une promesse serait compté réussi sans avoir rien vérifié.
+        await test();
+        passes += 1;
+        console.log('✓', test.name);
+    }
+    console.log('\n%d/%d tests mobiles passent.', passes, TESTS.length);
+    if (passes !== TESTS.length) process.exitCode = 1;
+})().catch((e) => {
+    console.error('\n✗', e && e.message);
+    console.error('   %d/%d tests mobiles passent avant l\'échec.', passes, TESTS.length);
+    process.exitCode = 1;
 });
-console.log('\n%d/%d tests mobiles passent.', passes, TESTS.length);

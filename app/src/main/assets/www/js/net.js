@@ -297,6 +297,14 @@
         return row;
     }
 
+    // 1.4 — Les colonnes ajoutées par sql/etat_cru_cuit.sql peuvent ne pas
+    // exister encore si l'application est lancée avant la migration. On
+    // abandonne alors le champ fautif et on réessaie, plutôt que de laisser
+    // l'élément bloqué dans la file de synchronisation.
+    function erreurColonneAbsente(e) {
+        return /column|schema|42703|42P01/i.test(String((e && e.message) || ''));
+    }
+
     async function pushMenuItem(item, session) {
         var table = String(item.table || '').replace(/^menu:/, '');
         if (!lignesSupabase(table)) return true;
@@ -318,6 +326,12 @@
                 await requeteP('PATCH', base + '?id=eq.' + uuid(id),
                     headersAuth(session, { 'Prefer': 'return=minimal' }), row);
             } catch (e) {
+                if (erreurColonneAbsente(e) && table === 'recipe_ingredients' && 'etat' in row) {
+                    delete row.etat;
+                    await requeteP('PATCH', base + '?id=eq.' + uuid(id),
+                        headersAuth(session, { 'Prefer': 'return=minimal' }), row);
+                    return true;
+                }
                 if (table !== 'planned_meals' || !('ingredient_unit' in row) || !/ingredient_unit|column|schema/i.test(e.message)) throw e;
                 delete row.ingredient_unit;
                 await requeteP('PATCH', base + '?id=eq.' + uuid(id),
@@ -335,9 +349,13 @@
         try {
             rep = await requeteP('POST', url, headersAuth(session, { 'Prefer': prefer }), row);
         } catch (e) {
-            if (table !== 'planned_meals' || !('ingredient_unit' in row) || !/ingredient_unit|column|schema/i.test(e.message)) throw e;
-            delete row.ingredient_unit;
-            rep = await requeteP('POST', url, headersAuth(session, { 'Prefer': prefer }), row);
+            if (erreurColonneAbsente(e) && table === 'recipe_ingredients' && 'etat' in row) {
+                delete row.etat;
+                rep = await requeteP('POST', url, headersAuth(session, { 'Prefer': prefer }), row);
+            } else if (table === 'planned_meals' && 'ingredient_unit' in row && /ingredient_unit|column|schema/i.test(e.message)) {
+                delete row.ingredient_unit;
+                rep = await requeteP('POST', url, headersAuth(session, { 'Prefer': prefer }), row);
+            } else throw e;
         }
         var localId = source._local_id || source.local_id ||
             (table === 'planned_meals' && !aId ? item.key : null);
@@ -550,6 +568,8 @@
         // Forme exacte des lignes envoyées à Supabase : exposée pour que les
         // tests puissent borner les colonnes réellement transmises.
         _rowProtein: rowProtein,
+        _erreurColonneAbsente: erreurColonneAbsente,
+        _pushMenuItem: pushMenuItem,
         _localProtein: localProtein,
         config: config,
         connexion: connexion,
