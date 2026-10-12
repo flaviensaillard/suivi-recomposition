@@ -440,6 +440,9 @@
         UI.$$('[data-plan-open]', main).forEach(function (btn) {
             btn.onclick = function () { MenuViews.setEditorPlan(btn.getAttribute('data-plan-open')); rafraichirVue(); };
         });
+        UI.$$('[data-meal-recipe]', main).forEach(function (btn) {
+            btn.onclick = function () { MenuViews.ouvrirFicheRecette(btn.getAttribute('data-meal-recipe')); };
+        });
         UI.$$('[data-meal-edit]', main).forEach(function (btn) {
             btn.onclick = function () { MenuViews.setEditingMeal(btn.getAttribute('data-meal-edit')); rafraichirVue(); };
         });
@@ -697,10 +700,56 @@
 
         var ongletInitial = Store.getOnglet() || 'bord';
         if (ongletInitial === 'apps') ongletInitial = 'nutrition';
-        naviguer(ongletInitial);
 
-        surveillerReseau();
-        demarrerSynchronise();
+        verrouillerParEmpreinte(function () {
+            naviguer(ongletInitial);
+            surveillerReseau();
+            demarrerSynchronise();
+        });
+    }
+
+    /**
+     * 1.4 — Déverrouillage par empreinte à l'ouverture.
+     *
+     * Porte logique côté application : le réglage reste sans effet si
+     * l'appareil n'expose ni capteur biométrique ni verrouillage d'écran,
+     * ou si l'app tourne hors d'Android. Les données ne sont pas chiffrées
+     * par ce mécanisme — il empêche seulement l'ouverture de l'interface.
+     */
+    function verrouillerParEmpreinte(suite) {
+        var r = Store.getReglages();
+        var natif = (typeof Native !== 'undefined' && Native);
+        var dispo = !!(natif && natif.biometrieDisponible && natif.biometrieDisponible());
+        if (!r.empreinteActive || !dispo) { suite(); return; }
+
+        var vue = UI.$('#view');
+        if (vue) {
+            vue.innerHTML = '<div class="card" style="text-align:center;padding:34px 18px;">' +
+                '<div style="font-size:40px;">🔒</div>' +
+                '<div class="titre" style="margin-top:10px;">Équilibre verrouillé</div>' +
+                '<div class="st" style="margin-top:6px;">Identifie-toi avec ton empreinte pour continuer.</div>' +
+                '<button class="btn btn-hero" id="btnEmpreinteRetry" style="margin-top:18px;">Réessayer</button>' +
+                '</div>';
+            var btn = UI.$('#btnEmpreinteRetry', vue);
+            if (btn) btn.onclick = function () { demanderEmpreinte(suite); };
+        }
+        demanderEmpreinte(suite);
+    }
+
+    function demanderEmpreinte(suite) {
+        var id = 'empreinte-' + Date.now();
+        window.NativeSurEmpreinte = function (callbackId, succes, message) {
+            if (callbackId !== id) return;
+            window.NativeSurEmpreinte = null;
+            if (succes) { suite(); return; }
+            UI.toast('Empreinte non reconnue' + (message ? ' · ' + message : ''));
+        };
+        try {
+            Native.demanderEmpreinte(id);
+        } catch (e) {
+            window.NativeSurEmpreinte = null;
+            suite();
+        }
     }
 
     /**

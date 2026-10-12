@@ -280,6 +280,154 @@ function testMigrationLocaleVersSupabase() {
     assert.equal(EQ.store.syncCount(), 8);
 }
 
+
+// ---------------------------------------------------------------------------
+// 1.4 — DOM minimal : juste assez pour que UI.feuille rende dans une racine
+// inspectable, sans navigateur. Les éléments sont résolus par sélecteur depuis
+// `document` comme depuis une racine, ce qui reproduit UI.$(sel, racine).
+// ---------------------------------------------------------------------------
+function creerDomStub() {
+    const parSelecteur = new Map();
+    function creerElement(selecteur) {
+        const e = {
+            selecteur: selecteur || '', style: {}, innerHTML: '', value: '',
+            textContent: '', min: '', max: '', step: '', disabled: false,
+            checked: false, files: [], onclick: null, oninput: null, onchange: null,
+            classList: {
+                add() { }, remove() { }, toggle() { }, contains() { return false; }
+            },
+            setAttribute() { }, appendChild() { },
+            getAttribute(nom) { return e._attrs && nom in e._attrs ? e._attrs[nom] : null; }
+        };
+        e._attrs = {};
+        e.querySelector = (s) => resoudre(s);
+        // Les suggestions rendues sont relues depuis innerHTML pour pouvoir
+        // simuler un clic sur l'une d'elles.
+        e.querySelectorAll = (s) => {
+            if (s !== '[data-sugg]') return [];
+            // Les mêmes instances doivent être renvoyées à chaque appel : le
+            // code testé y pose ses gestionnaires onclick.
+            if (e._suggCache && e._suggCache.html === e.innerHTML) return e._suggCache.nodes;
+            const trouves = [...String(e.innerHTML).matchAll(/data-sugg="(\d+)"/g)];
+            const nodes = trouves.map((m) => {
+                const b = creerElement('bouton-suggestion-' + m[1]);
+                b._attrs['data-sugg'] = m[1];
+                return b;
+            });
+            e._suggCache = { html: e.innerHTML, nodes };
+            return nodes;
+        };
+        return e;
+    }
+    function resoudre(selecteur) {
+        if (!parSelecteur.has(selecteur)) parSelecteur.set(selecteur, creerElement(selecteur));
+        return parSelecteur.get(selecteur);
+    }
+    return {
+        document: {
+            querySelector: resoudre,
+            querySelectorAll: () => [],
+            createElement: () => creerElement(''),
+            addEventListener() { }, removeEventListener() { }
+        },
+        resoudre, parSelecteur
+    };
+}
+
+/** Amorcer les tables de menus partagées lues par Menu via Store.getMenuTable. */
+function amorcerMenus(app, tables) {
+    for (const [table, lignes] of Object.entries(tables)) {
+        app.localStorage.setItem('eq.menu.' + table + '.v1', JSON.stringify(lignes));
+    }
+}
+
+const MENUS_TEST = {
+    ingredients: [
+        { id: 'i1', name: 'Poulet', unit: 'g', poids_piece_g: 130, category: 'Boucherie & Poissonnerie',
+          kcal_100g: 165, proteines_100g: 31, glucides_100g: 0, lipides_100g: 3.6 },
+        { id: 'i2', name: 'Riz blanc', unit: 'g', poids_piece_g: 80, category: 'Épicerie Salée',
+          kcal_100g: 350, proteines_100g: 7, glucides_100g: 78, lipides_100g: 1 }
+    ],
+    recipes: [
+        { id: 'r1', name: 'Poulet au riz', base_servings: 2,
+          instructions: 'Cuire le poulet, servir avec le riz.' }
+    ],
+    recipe_ingredients: [
+        { id: 'l1', recipe_id: 'r1', ingredient_id: 'i1', quantity: 260, unit: 'g' },
+        { id: 'l2', recipe_id: 'r1', ingredient_id: 'i2', quantity: 160, unit: 'g' }
+    ]
+};
+
+function testFicheRecetteDepuisLePlanning() {
+    // 1.4 : un plat planifié doit permettre de consulter sa recette. La fiche
+    // est lue dans la base synchronisée, pas dans la liste statique d'exemples.
+    const app = creerAppli();
+    amorcerMenus(app, MENUS_TEST);
+    const dom = creerDomStub();
+    app.contexte.document = dom.document;
+
+    app.contexte.Native = { toast: () => { } };
+
+    app.EQ.menuViews.ouvrirFicheRecette('r1');
+
+    const feuille = dom.resoudre('#feuille');
+    assert.match(feuille.innerHTML, /Poulet au riz/,
+        'la fiche doit porter le nom de la recette');
+    assert.match(feuille.innerHTML, /Cuire le poulet/,
+        'la fiche doit afficher la préparation');
+    assert.match(feuille.innerHTML, /Poulet/, 'la fiche doit lister les ingrédients');
+    assert.match(feuille.innerHTML, /kcal/, 'la fiche doit afficher les macros par part');
+
+    // Une recette absente de la base ne doit rien afficher ni lever d'erreur.
+    const avant = feuille.innerHTML;
+    feuille.innerHTML = '';
+    app.EQ.menuViews.ouvrirFicheRecette('inconnue');
+    assert.equal(feuille.innerHTML, '', 'aucune fiche ne doit s’ouvrir sur un id inconnu');
+    // UI.toast écrit dans l'élément #toast de la page.
+    assert.match(dom.resoudre('#toast').textContent, /absente/,
+        'un toast doit expliquer l’absence');
+    assert.notEqual(avant, '', 'sanity : la première fiche avait bien rendu');
+}
+
+function testAutocompletionNutritionProposeRecettesEtAliments() {
+    // 1.4 : taper le début d'un nom dans le journal nutrition doit proposer
+    // les recettes et les aliments correspondants de la base.
+    const app = creerAppli();
+    amorcerMenus(app, MENUS_TEST);
+    const dom = creerDomStub();
+    app.contexte.document = dom.document;
+    app.contexte.Native = { toast: () => { } };
+
+    const ctx = { reglages: app.EQ.store.getReglages() };
+    app.EQ.views.feuilleNutrition(ctx, null, () => { });
+
+    const racine = dom.resoudre('#feuille');
+    const saisie = dom.resoudre('#inNutriItem');
+    const boites = dom.resoudre('#inNutriSuggestions');
+
+    assert.equal(typeof saisie.oninput, 'function',
+        'le champ de saisie doit être branché sur l’autocomplétion');
+
+    // Moins de deux lettres : aucune suggestion.
+    saisie.value = 'p';
+    saisie.oninput();
+    assert.equal(boites.innerHTML, '', 'rien à proposer avant 2 caractères');
+
+    saisie.value = 'poul';
+    saisie.oninput();
+    assert.match(boites.innerHTML, /Poulet au riz/, 'la recette doit être proposée');
+    assert.match(boites.innerHTML, /Poulet/, 'l’aliment doit être proposé');
+
+    // Cliquer sur la première suggestion (la recette) remplit le formulaire.
+    const boutons = boites.querySelectorAll('[data-sugg]');
+    assert.ok(boutons.length >= 1, 'au moins une suggestion cliquable');
+    boutons[0].onclick();
+    assert.equal(saisie.value, 'Poulet au riz', 'le nom choisi doit remplir le champ');
+    assert.equal(boites.innerHTML, '', 'la liste se referme après le choix');
+    assert.notEqual(Number(dom.resoudre('#inNutriP').value), 0,
+        'les protéines doivent être calculées depuis la recette');
+}
+
 const TESTS = [
     testPremierLancementVide,
     testConservationDonneesLocalesApresMonteeDeVersion,
@@ -289,7 +437,9 @@ const TESTS = [
     testSurfaceDesModulesRestaures,
     testEstEnLigneSuitLeReseau,
     testRetourEnLigneDeclencheLeDeversement,
-    testMigrationLocaleVersSupabase
+    testMigrationLocaleVersSupabase,
+    testFicheRecetteDepuisLePlanning,
+    testAutocompletionNutritionProposeRecettesEtAliments
 ];
 let passes = 0;
 TESTS.forEach((test) => {

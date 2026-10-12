@@ -484,7 +484,12 @@
                 '<div id="coachMessages" class="coach-messages" role="log" aria-live="polite"></div>' +
                 '<form id="coachChatForm" class="coach-chat-form">' +
                     '<textarea id="coachChatInput" class="coach-textarea" rows="3" maxlength="2000" placeholder="Écris au coach…" aria-label="Message au coach"></textarea>' +
-                    '<button class="btn btn-hero" id="btnCoachSend" type="submit"' + (busyChat ? ' disabled' : '') + '>Envoyer</button>' +
+                    '<input type="file" id="coachChatFiles" multiple hidden accept="image/*,application/pdf,text/plain,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />' +
+                    '<div id="coachAttachments" class="coach-attachments"></div>' +
+                    '<div style="display:flex;gap:8px;align-items:center;">' +
+                        '<button class="btn btn-flat" id="btnCoachAttach" type="button"' + (busyChat ? ' disabled' : '') + ' title="Joindre des photos, captures d’écran ou documents">📎 Fichiers</button>' +
+                        '<button class="btn btn-hero" id="btnCoachSend" type="submit"' + (busyChat ? ' disabled' : '') + ' style="flex:1;">Envoyer</button>' +
+                    '</div>' +
                 '</form>' +
             '</section>' +
             '<details class="card coach-memory-card" id="coachMemoryDetails">' +
@@ -512,6 +517,16 @@
         rendreRapports(main);
         var settings = UI.$('#btnCoachSettings', main);
         if (settings) settings.onclick = boutonOuvrirReglages;
+        var attach = UI.$('#btnCoachAttach', main);
+        var fichier = UI.$('#coachChatFiles', main);
+        if (attach && fichier) {
+            attach.onclick = function () { fichier.click(); };
+            fichier.onchange = function () {
+                ajouterPieces(main, fichier.files);
+                fichier.value = '';
+            };
+            rendrePieces(main);
+        }
         var form = UI.$('#coachChatForm', main);
         if (form) form.onsubmit = function (event) {
             event.preventDefault();
@@ -529,21 +544,91 @@
         if (refresh) refresh.onclick = function () { chargerRapports(main); chargerHistorique(main); };
         chargerTout(main);
     }
+    // Pièces jointes du chat (photos, captures d'écran, documents).
+    // 1.4 : elles sont envoyées au Worker Coach IA dans le champ `attachments`.
+    var piecesJointes = [];
+    var LIMITE_FICHIERS = 4;
+    var LIMITE_OCTETS = 4 * 1024 * 1024; // 4 Mo par fichier
+
+    function lireEnBase64(fichier) {
+        return new Promise(function (resolve, reject) {
+            var fr = new FileReader();
+            fr.onerror = function () { reject(new Error('Lecture impossible : ' + fichier.name)); };
+            fr.onload = function () {
+                var chaine = String(fr.result || '');
+                var i = chaine.indexOf(',');
+                resolve(i >= 0 ? chaine.slice(i + 1) : chaine);
+            };
+            fr.readAsDataURL(fichier);
+        });
+    }
+
+    async function ajouterPieces(main, fichiers) {
+        var liste = Array.prototype.slice.call(fichiers || []);
+        for (var i = 0; i < liste.length; i++) {
+            var f = liste[i];
+            if (piecesJointes.length >= LIMITE_FICHIERS) {
+                UI.toast('Maximum ' + LIMITE_FICHIERS + ' fichiers par message');
+                break;
+            }
+            if (f.size > LIMITE_OCTETS) {
+                UI.toast(f.name + ' dépasse ' + Math.round(LIMITE_OCTETS / 1024 / 1024) + ' Mo');
+                continue;
+            }
+            if (piecesJointes.some(function (p) { return p.name === f.name && p.size === f.size; })) continue;
+            try {
+                piecesJointes.push({
+                    name: f.name, type: f.type || 'application/octet-stream',
+                    size: f.size, data: await lireEnBase64(f)
+                });
+            } catch (e) { UI.toast(erreurTexte(e)); }
+        }
+        rendrePieces(main);
+    }
+
+    function rendrePieces(main) {
+        var box = UI.$('#coachAttachments', main);
+        if (!box) return;
+        if (!piecesJointes.length) { box.innerHTML = ''; return; }
+        box.innerHTML = piecesJointes.map(function (p, i) {
+            return '<span class="badge" style="margin:4px 6px 0 0;display:inline-block;">📎 ' + h(p.name) +
+                ' · ' + Math.max(1, Math.round(p.size / 1024)) + ' ko ' +
+                '<a href="#" data-detach="' + i + '" style="margin-left:6px;">✕</a></span>';
+        }).join('');
+        UI.$$('[data-detach]', box).forEach(function (lien) {
+            lien.onclick = function (ev) {
+                ev.preventDefault();
+                piecesJointes.splice(Number(lien.getAttribute('data-detach')), 1);
+                rendrePieces(main);
+            };
+        });
+    }
+
     async function envoyerMessage(main, ctx) {
         if (busyChat) return;
         var input = UI.$('#coachChatInput', main);
         var message = input ? input.value.trim() : '';
         if (!message) { UI.toast('Écris un message avant d’envoyer'); return; }
         if (message.length > 2000) { UI.toast('Limite de 2 000 caractères par message'); return; }
-        var pending = { id: 'pending-' + Date.now(), role: 'user', content: message, sources: [], pending: true };
+        var jointes = piecesJointes.slice();
+        var pending = {
+            id: 'pending-' + Date.now(), role: 'user', content: message, sources: [], pending: true,
+            attachments: jointes.map(function (p) { return { name: p.name, type: p.type, size: p.size }; })
+        };
         messages.push(pending);
+        piecesJointes = [];
+        rendrePieces(main);
         busyChat = true;
         if (input) { input.value = ''; input.disabled = true; }
         var send = UI.$('#btnCoachSend', main);
         if (send) { send.disabled = true; send.textContent = 'Envoi…'; }
         rendreMessages(main);
         try {
-            var result = await api('/api/coach/chat', 'POST', { message: message, appContext: construireContexteChat(ctx) }, true);
+            var result = await api('/api/coach/chat', 'POST', {
+                message: message,
+                appContext: construireContexteChat(ctx),
+                attachments: jointes
+            }, true);
             messages = messages.filter(function (x) { return !x.pending; });
             if (result.message) messages.push(result.message);
             if (!result.message && result.answer) messages.push({ role: 'assistant', content: result.answer, sources: result.sources || [] });

@@ -32,6 +32,7 @@
         supabaseUrl: '',
         supabaseKey: '',
         coachApiUrl: '',
+        empreinteActive: false,
         appCouranteWeb: 'suivi',
         profil: 'flavien',
         tailleCm: 185,

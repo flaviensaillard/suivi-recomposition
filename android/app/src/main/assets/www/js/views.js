@@ -908,7 +908,8 @@
         }
         var html = '<div class="champ"><label>Date</label><input type="date" id="inNutriDate" value="' + h(date) + '" /></div>' +
             htmlSource +
-            '<div class="champ"><label>Aliment ou repas</label><input id="inNutriItem" maxlength="120" value="' + h(x.item || '') + '" placeholder="ex. skyr, œufs, déjeuner…" /></div>' +
+            '<div class="champ"><label>Aliment ou repas</label><input id="inNutriItem" maxlength="120" value="' + h(x.item || '') + '" placeholder="Commence à taper : skyr, riz, poulet… (autocomplétion)" autocomplete="off" />' +
+                '<div id="inNutriSuggestions" role="listbox" aria-label="Suggestions d’aliments et de recettes"></div></div>' +
             '<div class="champ"><label id="inNutriQtyLabel">' + (entree ? 'Quantité (×)' : 'Portions') + '</label><input type="number" id="inNutriQty" min="0.1" max="20" step="0.1" value="' + (x.qty == null ? 1 : Number(x.qty)) + '" /></div>' +
             '<div class="grille g2">' +
                 '<div class="champ"><label>Protéines (g)</label><input type="number" id="inNutriP" min="0" max="5000" step="1" value="' + (x.protein_g || 0) + '" /></div>' +
@@ -947,9 +948,7 @@
                     inputP.value = 0; inputG.value = 0; inputL.value = 0;
                     calc();
                 }
-                function choisirRecette() {
-                    var select = UI.$('#inNutriRecipe', racine);
-                    var recette = recettesBase.find(function (r) { return String(r.id) === String(select && select.value || ''); });
+                function appliquerRecette(recette) {
                     qtyLabel.textContent = 'Portions';
                     qtyInput.min = '0.1'; qtyInput.max = '20'; qtyInput.step = '0.5';
                     if (!recette) { qtyInput.value = '1'; effacerValeursSource(); return; }
@@ -963,9 +962,7 @@
                         UI.toast('Certaines valeurs d’ingrédients de cette recette manquent dans la base.');
                     }
                 }
-                function choisirIngredient() {
-                    var select = UI.$('#inNutriIngredient', racine);
-                    var ing = ingredientsBase.find(function (i) { return String(i.id) === String(select && select.value || ''); });
+                function appliquerIngredient(ing) {
                     qtyLabel.textContent = 'Quantité (g)';
                     qtyInput.min = '1'; qtyInput.max = '999.9'; qtyInput.step = '5';
                     if (!ing) { qtyInput.value = '100'; effacerValeursSource(); return; }
@@ -981,6 +978,56 @@
                         UI.toast('Les macros ne sont pas renseignées pour cet aliment dans la base.');
                     }
                 }
+                function choisirRecette() {
+                    var select = UI.$('#inNutriRecipe', racine);
+                    appliquerRecette(recettesBase.find(function (r) {
+                        return String(r.id) === String(select && select.value || '');
+                    }));
+                }
+                function choisirIngredient() {
+                    var select = UI.$('#inNutriIngredient', racine);
+                    appliquerIngredient(ingredientsBase.find(function (i) {
+                        return String(i.id) === String(select && select.value || '');
+                    }));
+                }
+
+                // Autocomplétion : proposer recettes et aliments dès la 2e lettre.
+                var sugg = [];
+                function rendreSuggestions() {
+                    var box = UI.$('#inNutriSuggestions', racine);
+                    if (!box) return;
+                    if (!sugg.length) { box.innerHTML = ''; return; }
+                    box.innerHTML = sugg.map(function (s2, i) {
+                        return '<button type="button" class="btn btn-flat" data-sugg="' + i + '" ' +
+                            'style="display:block;width:100%;text-align:left;margin-top:5px;">' +
+                            (s2.type === 'recette' ? '📖 ' : '🥗 ') + h(s2.label) +
+                            ' <span class="st" style="float:right;">' + (s2.type === 'recette' ? 'recette' : 'aliment') + '</span></button>';
+                    }).join('');
+                    UI.$$('[data-sugg]', box).forEach(function (btn) {
+                        btn.onclick = function () {
+                            var choix = sugg[Number(btn.getAttribute('data-sugg'))];
+                            if (!choix) return;
+                            if (choix.type === 'recette') appliquerRecette(choix.obj);
+                            else appliquerIngredient(choix.obj);
+                            sugg = [];
+                            rendreSuggestions();
+                        };
+                    });
+                }
+                function suggerer() {
+                    var box = UI.$('#inNutriSuggestions', racine);
+                    if (!box || !Menu) return;
+                    var q = String(itemInput.value || '').trim();
+                    if (q.length < 2) { sugg = []; rendreSuggestions(); return; }
+                    sugg = Menu.recettes(q, false).slice(0, 5).map(function (r) {
+                        return { type: 'recette', obj: r, label: r.name || 'Recette' };
+                    }).concat(Menu.ingredients(q).slice(0, 5).map(function (i) {
+                        return { type: 'aliment', obj: i, label: Menu.nomIngredient(i) };
+                    }));
+                    rendreSuggestions();
+                }
+                if (itemInput) itemInput.oninput = suggerer;
+
                 if (!entree) {
                     var typeSelect = UI.$('#inNutriType', racine);
                     var recipeWrap = UI.$('#inNutriRecipeWrap', racine);
@@ -1125,6 +1172,13 @@
             '<div class="champ" style="margin-top:14px;"><label>URL du Worker Coach IA (Cloudflare)</label><input type="url" id="regCoachUrl" value="' + h(r.coachApiUrl || '') + '" placeholder="https://equilibre-coach-ia.…workers.dev" autocapitalize="off" /></div>' +
             '<div class="st" style="margin:-4px 0 12px;">Cette adresse est publique. Les clés Cloudflare et Tavily restent côté Worker et ne doivent jamais être collées dans l’application.</div>' +
             '<button class="btn btn-flat" id="btnSauverReglages">Enregistrer Supabase et Coach IA</button>' +
+            '<div class="titre" style="margin-top:18px;">Sécurité</div>' +
+            '<div class="card tight" style="display:flex;align-items:center;justify-content:space-between;gap:12px;">' +
+                '<div><div class="lbl">Ouvrir avec mon empreinte</div>' +
+                '<div class="st" id="empreinteInfo">Vérification du capteur…</div></div>' +
+                '<input type="checkbox" id="regEmpreinte"' + (r.empreinteActive ? ' checked' : '') +
+                    ' style="width:22px;height:22px;flex-shrink:0;" />' +
+            '</div>' +
             (connecte
                 ? '<div class="champ" style="margin-top:12px;"><label>Compte Supabase</label><input value="' + h(sess.user.email) + '" readonly /></div>' +
                   '<div id="syncMessage" class="auth-message" role="status" aria-live="polite"></div>' +
@@ -1178,6 +1232,29 @@
                     Store.saveReglages(nouv);
                     UI.toast('Configuration Supabase et Coach IA enregistrée');
                 };
+
+                // Empreinte : l'interrupteur n'a de sens que si l'appareil expose
+                // un capteur biométrique et un verrouillage d'écran.
+                var empreinteBox = UI.$('#regEmpreinte', racine);
+                var empreinteInfo = UI.$('#empreinteInfo', racine);
+                if (empreinteBox && empreinteInfo) {
+                    var dispo = (typeof Native !== 'undefined' && Native && Native.biometrieDisponible)
+                        ? Native.biometrieDisponible() : false;
+                    empreinteInfo.textContent = dispo
+                        ? 'Ton empreinte sera demandée à chaque ouverture de l’application.'
+                        : 'Indisponible sur cet appareil (capteur ou verrouillage d’écran absent).';
+                    empreinteBox.disabled = !dispo;
+                    if (!dispo) empreinteBox.checked = false;
+                    empreinteBox.onchange = function () {
+                        var nouv2 = Object.assign({}, Store.getReglages(), {
+                            empreinteActive: dispo && empreinteBox.checked
+                        });
+                        Store.saveReglages(nouv2);
+                        UI.toast(empreinteBox.checked
+                            ? 'Empreinte activée : elle sera demandée à l’ouverture'
+                            : 'Empreinte désactivée');
+                    };
+                }
 
                 var liensBtn = UI.$('#btnSauverLiens', racine);
                 if (liensBtn) liensBtn.onclick = function () {

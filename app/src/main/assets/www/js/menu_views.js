@@ -86,6 +86,8 @@
                 (Menu.recettes('', true).find(function (r) { return String(r.id) === String(m.recipe_id); }) && /^\[(Ing|Txt)\]/i.test(String((Menu.recetteParId()[String(m.recipe_id)] || {}).name || '')) ? '<div class="st">Repas rapide · liste de courses recalculée</div>' : '') +
             '</div>' +
             '<div style="display:flex;gap:5px;flex-shrink:0;">' +
+                (String(m.recipe_id || '') && Menu.recetteParId()[String(m.recipe_id)]
+                    ? '<button class="iconbtn" data-meal-recipe="' + attribut(m.recipe_id) + '" title="Voir la recette">📖</button>' : '') +
                 (calc ? '<button class="iconbtn" data-meal-log="' + attribut(key) + '" title="Ajouter au journal nutrition">＋</button>' : '') +
                 '<button class="iconbtn" data-meal-edit="' + attribut(key) + '" title="Modifier">✎</button>' +
                 '<button class="iconbtn" data-meal-delete="' + attribut(key) + '" title="Supprimer">×</button>' +
@@ -231,6 +233,50 @@
             '<div class="champ"><label>Unité</label><select data-line-unit>' + units.map(function (u) { return optionSelect(u, unit, u); }).join('') + '</select></div></div>' +
             '<button class="btn btn-flat" data-line-remove>Supprimer cette ligne</button></div>';
     }
+    /**
+     * Fiche de lecture d'une recette de la base synchronisée, ouvrable depuis
+     * n'importe quel écran — en particulier depuis les plats du planning, où
+     * il n'était pas possible de consulter la recette avant la 1.4.
+     */
+    function ouvrirFicheRecette(recipeId) {
+        var rec = Menu.recetteParId()[String(recipeId)];
+        if (!rec) { UI.toast('Recette absente de la base synchronisée'); return; }
+        var calc = Menu.calculerRecette(recipeId);
+        var corps = '<div class="card tight teal"><div class="lbl">Par part</div>' +
+            '<div class="st">' + (calc
+                ? Math.round(calc.par_part.kcal) + ' kcal · ' + Math.round(calc.par_part.proteines) + ' g P · ' +
+                  Math.round(calc.par_part.glucides) + ' g G · ' + Math.round(calc.par_part.lipides) + ' g L · ' +
+                  calc.parts + ' part(s)'
+                : 'Aucun ingrédient détaillé : les macros ne peuvent pas être calculées.') + '</div></div>';
+        if (calc) {
+            corps += '<div class="card"><div class="lbl">Ingrédients</div>';
+            if (!calc.lignes.length) corps += '<div class="st">Aucune ligne d’ingrédient.</div>';
+            calc.lignes.forEach(function (l) {
+                corps += '<div class="ligne"><div class="gr"><div class="tt">' + h(l.name) + '</div>' +
+                    '<div class="st">' + h(Menu.fmtNombre(l.quantity)) + ' ' + h(l.unit) + ' · ' +
+                    Math.round(l.grams) + ' g</div></div>' +
+                    '<div class="dr"><div class="a">' + Math.round(l.kcal) + ' kcal</div>' +
+                    '<div class="b">' + Math.round(l.proteines) + ' g P</div></div></div>';
+            });
+            corps += '</div>';
+            if (rec.instructions) {
+                corps += '<div class="card"><div class="lbl">Préparation</div>' +
+                    '<div class="st" style="white-space:pre-wrap;">' +
+                    h(String(rec.instructions)) + '</div></div>';
+            }
+            if (calc.inconnues.length) {
+                corps += '<div class="badge warn" style="white-space:normal;">Valeurs nutritionnelles ' +
+                    'manquantes pour : ' + h(calc.inconnues.join(', ')) + '</div>';
+            }
+        }
+        UI.feuille({
+            titre: rec.name || 'Recette',
+            aide: 'Recette issue de la base Menus synchronisée.',
+            html: corps,
+            apresRendu: function () { }
+        });
+    }
+
     function ouvrirEditeurRecette(recipeId, apresSauvegarde) {
         var all = Menu.rows('recipes'), recipe = recipeId ? all.find(function (r) { return String(r.id) === String(recipeId); }) : null;
         var initial = recipe ? Menu.recetteLignes(recipe.id) : [];
@@ -351,6 +397,7 @@
         setIngredientRayon: function (value) { filtreRayon = value || 'Tous'; },
         toggleRecipe: function (id) { recetteOuverte = recetteOuverte === String(id) ? '' : String(id); },
         ouvrirEditeurRecette: ouvrirEditeurRecette,
+        ouvrirFicheRecette: ouvrirFicheRecette,
         ouvrirEditeurIngredient: ouvrirEditeurIngredient
     };
 })(typeof window !== 'undefined' ? window : this);
