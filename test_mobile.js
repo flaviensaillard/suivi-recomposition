@@ -480,6 +480,58 @@ function testEditeurAlimentSaisitLesValeursCuit() {
         'un seul jeu d’état suffit à rendre le sélecteur disponible');
 }
 
+function testNomAfficheOmisSiLaColonneManque() {
+    // 1.4 — menu_views.js écrit `nom_affiche` à CHAQUE enregistrement d'aliment,
+    // y compris vide (null). Avant sql/noms_courts.sql la colonne n'existe pas
+    // en base : PostgREST rejette la ligne entière.
+    //
+    // Ce cas est distinct de celui des colonnes d'état : ici la ligne ne porte
+    // AUCUNE colonne d'état, donc le repli doit se déclencher sur nom_affiche
+    // seul. Sinon l'aliment reste bloqué dans la file de synchronisation.
+    const appels = [];
+
+    const Native = {
+        httpAsync(methode, url, entetes, corps, callbackId) {
+            appels.push({ methode, url, corps: JSON.parse(corps || '{}') });
+            const premier = appels.length === 1;
+            setTimeout(() => {
+                if (premier) {
+                    app.EQ.net._fin(callbackId, {
+                        ok: false, status: 400,
+                        body: '{"message":"column ingredients.nom_affiche does not exist"}'
+                    });
+                } else {
+                    app.EQ.net._fin(callbackId, { ok: true, status: 201, body: '[{"id":"ing-1"}]' });
+                }
+            }, 0);
+        }
+    };
+
+    const app = creerAppli({
+        'eq.reglages.v1': JSON.stringify({
+            supabaseUrl: 'https://test.supabase.co', supabaseKey: 'cle-anon-publique'
+        })
+    }, { Native });
+
+    const session = { access_token: 'jeton', user: { id: '1' } };
+    return app.EQ.net._pushMenuItem(
+        { table: 'menu:ingredients', key: 'ing-1', operation: 'insert',
+          row: { id: 'ing-1', name: 'Carotte, crue', nom_affiche: 'Carotte',
+                 unit: 'g', kcal_100g: 30, proteines_100g: 0.9 } },
+        session
+    ).then(() => {
+        assert.equal(appels.length, 2, 'un second envoi doit avoir lieu après l’échec');
+        assert.equal(appels[0].corps.nom_affiche, 'Carotte',
+            'le premier envoi porte bien le nom affiché');
+        assert.equal('nom_affiche' in appels[1].corps, false,
+            'le repli doit retirer nom_affiche');
+        assert.equal(appels[1].corps.name, 'Carotte, crue',
+            'le libellé Ciqual complet doit survivre au repli');
+        assert.equal(appels[1].corps.kcal_100g, 30,
+            'les macros doivent survivre au repli');
+    });
+}
+
 function testEtatIngredientOmisSiLesColonnesManquent() {
     // 1.4 — l'éditeur d'aliment écrit désormais etat_defaut, etats_manuels et
     // les huit colonnes d'état à chaque enregistrement. Sans la migration,
@@ -995,6 +1047,7 @@ const TESTS = [
     testCoachAnnonceQueLesFichiersNeSontPasLus,
     testNomCourtAfficheEtProprieteInchangee,
     testEditeurAlimentSaisitLesValeursCuit,
+    testNomAfficheOmisSiLaColonneManque,
     testEtatIngredientOmisSiLesColonnesManquent,
     testFicheRecetteRappelleEtatCruCuit
 ];

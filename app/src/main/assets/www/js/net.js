@@ -304,15 +304,19 @@
     // 1.4 — colonnes ajoutées par la migration cru/cuit. Tant qu'elle n'a pas
     // été jouée, PostgREST rejette la ligne entière : mieux vaut synchroniser
     // l'aliment sans ses valeurs d'état que de le laisser bloqué dans la file.
-    var COLONNES_ETAT_INGREDIENT = ['etat_defaut', 'etats_manuels',
+    // Colonnes ajoutées par migration (sql/etat_cru_cuit.sql, sql/noms_courts.sql) :
+    // elles peuvent ne pas exister en base tant que les scripts n'ont pas été
+    // exécutés. En cas de rejet « colonne inexistante », on retente sans elles
+    // plutôt que de bloquer toute la file de synchronisation.
+    var COLONNES_MIGRATION_INGREDIENT = ['nom_affiche', 'etat_defaut', 'etats_manuels',
         'kcal_100g_cru', 'proteines_100g_cru', 'glucides_100g_cru', 'lipides_100g_cru',
         'kcal_100g_cuit', 'proteines_100g_cuit', 'glucides_100g_cuit', 'lipides_100g_cuit'];
 
-    function aColonnesEtat(row) {
-        return COLONNES_ETAT_INGREDIENT.some(function (c) { return c in row; });
+    function aColonnesMigration(row) {
+        return COLONNES_MIGRATION_INGREDIENT.some(function (c) { return c in row; });
     }
-    function retirerColonnesEtat(row) {
-        COLONNES_ETAT_INGREDIENT.forEach(function (c) { delete row[c]; });
+    function retirerColonnesMigration(row) {
+        COLONNES_MIGRATION_INGREDIENT.forEach(function (c) { delete row[c]; });
         return row;
     }
 
@@ -347,9 +351,9 @@
                         headersAuth(session, { 'Prefer': 'return=minimal' }), row);
                     return true;
                 }
-                if (erreurColonneAbsente(e) && table === 'ingredients' && aColonnesEtat(row)) {
+                if (erreurColonneAbsente(e) && table === 'ingredients' && aColonnesMigration(row)) {
                     await requeteP('PATCH', base + '?id=eq.' + uuid(id),
-                        headersAuth(session, { 'Prefer': 'return=minimal' }), retirerColonnesEtat(row));
+                        headersAuth(session, { 'Prefer': 'return=minimal' }), retirerColonnesMigration(row));
                     return true;
                 }
                 if (table !== 'planned_meals' || !('ingredient_unit' in row) || !/ingredient_unit|column|schema/i.test(e.message)) throw e;
@@ -372,8 +376,8 @@
             if (erreurColonneAbsente(e) && table === 'recipe_ingredients' && 'etat' in row) {
                 delete row.etat;
                 rep = await requeteP('POST', url, headersAuth(session, { 'Prefer': prefer }), row);
-            } else if (erreurColonneAbsente(e) && table === 'ingredients' && aColonnesEtat(row)) {
-                rep = await requeteP('POST', url, headersAuth(session, { 'Prefer': prefer }), retirerColonnesEtat(row));
+            } else if (erreurColonneAbsente(e) && table === 'ingredients' && aColonnesMigration(row)) {
+                rep = await requeteP('POST', url, headersAuth(session, { 'Prefer': prefer }), retirerColonnesMigration(row));
             } else if (table === 'planned_meals' && 'ingredient_unit' in row && /ingredient_unit|column|schema/i.test(e.message)) {
                 delete row.ingredient_unit;
                 rep = await requeteP('POST', url, headersAuth(session, { 'Prefer': prefer }), row);
