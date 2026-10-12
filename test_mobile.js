@@ -26,20 +26,32 @@ const JS_DIR = path.join(__dirname, 'app/src/main/assets/www/js');
 const SOURCES = ['util.js', 'models.js', 'store.js', 'net.js', 'menu.js',
     'ui.js', 'menu_views.js', 'views.js', 'coach.js'];
 
-function creerAppli(stockInitial) {
+function creerAppli(stockInitial, options) {
+    const opt = options || {};
     const donnees = new Map(Object.entries(stockInitial || {}));
     const localStorage = {
         getItem(cle) { return donnees.has(cle) ? donnees.get(cle) : null; },
         setItem(cle, valeur) { donnees.set(cle, String(valeur)); },
         removeItem(cle) { donnees.delete(cle); }
     };
-    const contexte = { localStorage, console, Date, Intl, Math, JSON, Array, Object, String, Number, isFinite };
+    const listeners = {};
+    const contexte = {
+        localStorage, console, Date, Intl, Math, JSON, Array, Object, String, Number, isFinite,
+        setTimeout: () => 0, clearTimeout: () => {}, setInterval: () => 0, clearInterval: () => {},
+        navigator: opt.navigator || {},
+        Native: opt.Native || null,
+        addEventListener(type, fn) { (listeners[type] = listeners[type] || []).push(fn); },
+        removeEventListener(type, fn) { listeners[type] = (listeners[type] || []).filter((f) => f !== fn); }
+    };
     contexte.window = contexte;
     vm.createContext(contexte);
     for (const fichier of SOURCES) {
         vm.runInContext(fs.readFileSync(path.join(JS_DIR, fichier), 'utf8'), contexte, { filename: fichier });
     }
-    return { EQ: contexte.EQ, localStorage, donnees };
+    return {
+        EQ: contexte.EQ, localStorage, donnees, contexte,
+        declencher: (type) => (listeners[type] || []).slice().forEach((f) => f())
+    };
 }
 
 function dateIso(decalageJours) {
@@ -170,13 +182,103 @@ function testSurfaceDesModulesRestaures() {
         'net.js doit porter un transport authentifié');
 }
 
+function testEstEnLigneSuitLeReseau() {
+    // Sans aucune information contraire, l'app se considère en ligne.
+    assert.equal(creerAppli().EQ.store.estEnLigne(), true);
+    // navigator.onLine === false (navigateur) …
+    assert.equal(creerAppli({}, { navigator: { onLine: false } }).EQ.store.estEnLigne(), false);
+    // … et Native.isOnline() (WebView Android) doivent tous deux être entendus.
+    assert.equal(creerAppli({}, { Native: { isOnline: () => false } }).EQ.store.estEnLigne(), false);
+    assert.equal(creerAppli({}, { Native: { isOnline: () => true } }).EQ.store.estEnLigne(), true);
+}
+
+function testRetourEnLigneDeclencheLeDeversement() {
+    const navigator = { onLine: false };
+    const { EQ, declencher } = creerAppli({}, { navigator });
+    let appels = 0;
+    const arreter = EQ.store.surveillerConnexion(() => { appels += 1; }, 60000);
+
+    // Toujours hors ligne : rien ne doit partir.
+    declencher('online');
+    assert.equal(appels, 0, 'aucun déversement tant que le réseau est absent');
+
+    // Retour du réseau : le tampon doit être déversé une fois.
+    navigator.onLine = true;
+    declencher('online');
+    assert.equal(appels, 1, 'le retour en ligne doit déclencher la synchronisation');
+
+    // Un second événement alors qu'on est déjà en ligne ne relance rien.
+    declencher('online');
+    assert.equal(appels, 1, 'pas de synchronisation répétée sans nouvelle coupure');
+
+    // Nouvelle coupure puis nouveau retour : un second déversement.
+    navigator.onLine = false;
+    declencher('offline');
+    navigator.onLine = true;
+    declencher('online');
+    assert.equal(appels, 2);
+
+    arreter();
+    navigator.onLine = false;
+    declencher('offline');
+    navigator.onLine = true;
+    declencher('online');
+    assert.equal(appels, 2, 'arreter() doit couper la surveillance');
+}
+
+function testMigrationLocaleVersSupabase() {
+    const session = { access_token: 'tk', refresh_token: 'rk', user: { id: 'u1' } };
+    const { EQ, donnees } = creerAppli({
+        'eq.supabase.session.v1': JSON.stringify(session),
+        'eq.logs.v1': JSON.stringify([{ date: '2026-01-01', poids: 80 }, { date: '2026-01-02', poids: 79.6 }]),
+        'eq.mensurations.v1': JSON.stringify([{ date: '2026-01-01', tailleCm: 84 }]),
+        'eq.seances.v1': JSON.stringify([{ date: '2026-01-01', type: 'A' }]),
+        'eq.series.v1': JSON.stringify([{ date: '2026-01-01', type: 'A', exercise: 'squat', set_no: 1 }]),
+        'eq.nutrition.v1': JSON.stringify([{ local_id: 'n1', item: 'Repas', protein_g: 40 }]),
+        'eq.profil.v1': JSON.stringify({ displayName: 'Flavien', tailleCm: 185 }),
+        'eq.courses.v1': JSON.stringify([{ id: 'c1', produit: 'Riz', pris: true },
+            { id: 'c2', produit: 'Huile', pris: false }])
+    });
+
+    assert.equal(EQ.store.migrationFaite(), false);
+    const migres = EQ.store.migrerDonneesLocalesVersFile();
+    EQ.store.marquerMigrationFaite();
+
+    // 2 pesées + 1 mensuration + 1 séance + 1 série + 1 nutrition + 1 profil
+    // + 1 article coché (l'article non coché ne part pas).
+    assert.equal(migres, 8);
+    assert.equal(EQ.store.syncCount(), 8);
+
+    const tables = EQ.store.getSyncQueue().map((x) => x.table).sort();
+    assert.deepEqual(tables, ['daily_logs', 'daily_logs', 'measurements', 'profiles',
+        'protein_entries', 'shopping_state', 'workout_sets', 'workouts']);
+
+    // Les caches locaux sont vidés : Supabase devient la seule source.
+    assert.deepEqual(EQ.store.getLogs(), []);
+    assert.deepEqual(EQ.store.getMensurations(), []);
+    assert.deepEqual(EQ.store.getSeances(), []);
+    assert.deepEqual(EQ.store.getCourses(), []);
+    // La file, les réglages et la session survivent à la migration.
+    assert.equal(donnees.get('eq.sync.queue.v1') ? true : false, true);
+    assert.deepEqual(EQ.store.getRemoteSession(), session);
+    assert.equal(EQ.store.getReglages().coachApiUrl, '');
+
+    assert.equal(EQ.store.migrationFaite(), true, 'la migration ne doit pas se rejouer');
+    // Second passage : il ne reste rien à pousser.
+    assert.equal(EQ.store.migrerDonneesLocalesVersFile(), 0);
+    assert.equal(EQ.store.syncCount(), 8);
+}
+
 const TESTS = [
     testPremierLancementVide,
     testConservationDonneesLocalesApresMonteeDeVersion,
     testGraphiqueProteinesVideEtUneValeur,
     testReglagesExposentCoachIaEtSupabase,
     testContexteEnvoyeAuCoachIa,
-    testSurfaceDesModulesRestaures
+    testSurfaceDesModulesRestaures,
+    testEstEnLigneSuitLeReseau,
+    testRetourEnLigneDeclencheLeDeversement,
+    testMigrationLocaleVersSupabase
 ];
 let passes = 0;
 TESTS.forEach((test) => {

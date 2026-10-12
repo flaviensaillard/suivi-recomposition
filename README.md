@@ -1,9 +1,36 @@
 # Équilibre — suivi de recomposition, menus et Coach IA
 
-Version **1.3.10** (Android `versionCode 24`). Streamlit aligné sur la même version.
+Version **1.4** (Android `versionCode 25`). Streamlit aligné sur la même version.
 
-> **Provenance de cette version.** Le dépôt ne contenait plus le code correspondant à l'APK
-> réellement installée. Cette version a été **restaurée à partir du paquet binaire**
+## 1.4 — Supabase fait autorité
+
+La 1.3.10 était « local-first » : `store.js` écrivait toujours dans `localStorage` et ne poussait
+vers Supabase que si une session existait. Sans compte, l'application restait indéfiniment un
+carnet local. **Ce n'est plus le cas.**
+
+| | 1.3.10 | 1.4 |
+|---|---|---|
+| Source de vérité | `localStorage` | **Supabase** |
+| Sans compte Supabase | l'app fonctionne en local | **l'app ne s'ouvre pas** : l'écran de connexion s'affiche |
+| Hors ligne | fonctionnement normal, local | les saisies vont dans un **tampon local** |
+| Retour du réseau | rien, sauf si une nouvelle saisie déclenche la synchro | **le tampon se déverse automatiquement** dans Supabase |
+
+Trois mécanismes portent ce changement :
+
+- **`store.js` · `estEnLigne()`** — consulte `navigator.onLine` **et** `Native.isOnline()`, les
+  événements du navigateur n'étant pas fiables dans un WebView Android.
+- **`store.js` · `surveillerConnexion(cb)`** — écoute `online`/`offline` et sonde toutes les 5 s en
+  secours ; rappelle `cb` à chaque transition hors ligne → en ligne, jamais deux fois de suite.
+- **`store.js` · `migrerDonneesLocalesVersFile()`** — au premier lancement, pousse le contenu local
+  hérité de la 1.3.10 dans la file de synchronisation puis **vide les caches locaux**. Les réglages,
+  la session et la file survivent. Un marqueur `eq.migration.v1.4` garantit que l'opération ne se
+  rejoue pas.
+
+Le démarrage (`app.js` · `demarrerSynchronise()`) refuse donc l'entrée sans session, exécute la
+migration une fois, puis tire les données depuis Supabase avant d'afficher quoi que ce soit.
+
+> **Provenance de la base 1.3.10.** Le dépôt ne contenait plus le code correspondant à l'APK
+> réellement installée. Cette base a été **restaurée à partir du paquet binaire**
 > `telechargements/Equilibre-1.3.10.apk` (sha256 `b875d6c23b734de3d9e7a7725a295eb530902e4e7c0943cf25543215ebd3f8c6`,
 > 161 875 octets, signé `META-INF/EQUILIBR.RSA`). Voir « Ce qui a pu être restauré » plus bas.
 
@@ -47,10 +74,13 @@ Le test `testContexteEnvoyeAuCoachIa` les borne explicitement :
 
 `net.js` porte un transport Supabase authentifié avec file d'attente locale
 (clé `eq.sync.queue.v1`). Les écritures utilisent le jeton de l'utilisateur afin de respecter les
-règles RLS ; seule la clé publishable/anon est stockée sur l'appareil. Les clés de stockage local
-sont inchangées (`eq.logs.v1`, `eq.mensurations.v1`, `eq.seances.v1`, `eq.series.v1`,
-`eq.nutrition.v1`, `eq.courses.v1`, `eq.profil.v1`, `eq.reglages.v1`, `eq.menu.*.v1`) : une
-installation antérieure retrouve ses données après montée de version.
+règles RLS ; seule la clé publishable/anon est stockée sur l'appareil.
+
+Depuis la 1.4, `localStorage` n'est plus qu'un **tampon** : les clés restent les mêmes
+(`eq.logs.v1`, `eq.mensurations.v1`, `eq.seances.v1`, `eq.series.v1`, `eq.nutrition.v1`,
+`eq.courses.v1`, `eq.profil.v1`, `eq.reglages.v1`, `eq.menu.*.v1`) mais leur contenu est reconstruit
+depuis Supabase à chaque tirage. Une coupure réseau ne perd rien : les écritures s'accumulent dans
+`eq.sync.queue.v1` et partent au retour de la connexion.
 
 Le manifeste déclare `INTERNET`, `ACCESS_NETWORK_STATE` et `VIBRATE`. Les URL Streamlit ouvertes
 depuis l'app le sont dans le navigateur système, hors du WebView qui porte le pont natif.
@@ -90,7 +120,7 @@ Une seule modification de comportement a été apportée au code issu de l'APK :
 ## Tests
 
 ```bash
-node test_mobile.js                 # 6/6 — coque mobile, contrat 1.3.10
+node test_mobile.js                 # 9/9 — coque mobile, dont la synchro 1.4
 .venv/bin/python test_integrite.py  # 12/12 — profils, macros, unités, séances
 .venv/bin/python test_app.py        # 10/10 — pages Streamlit rendues
 .venv/bin/python -m compileall -q .
@@ -98,13 +128,14 @@ bash -n build.sh
 git diff --check
 ```
 
-La suite mobile a été réalignée sur le contrat réel de la 1.3.10 ; les assertions qui portaient sur
-les garde-fous supprimés ont été retirées et sont listées ci-dessus.
+La suite mobile a été réalignée sur le contrat réel de la base restaurée ; les assertions qui
+portaient sur les garde-fous supprimés ont été retirées et sont listées ci-dessus. Trois tests
+couvrent la 1.4 : détection du réseau, déversement au retour en ligne, et migration locale.
 
 ## Compilation de l'APK
 
 ```bash
-VERSION_NAME=1.3.10 VERSION_CODE=24 bash build.sh
+VERSION_NAME=1.4 VERSION_CODE=25 bash build.sh
 ```
 
 JDK 17 et SDK Android (platform 34, build-tools 34.0.0) requis. Sans clé de signature configurée,

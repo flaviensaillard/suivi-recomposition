@@ -459,5 +459,119 @@
         sauverJson(storageKey, Object.keys(parCle).map(function (k) { return parCle[k]; }));
     }
 
+    // ------------------------------------------------------------------
+    // 1.4 — Supabase est la source de vérité. Le stockage local n'est plus
+    // qu'un tampon : il sert quand le réseau est absent, et se déverse dans
+    // Supabase dès que la connexion revient.
+    // ------------------------------------------------------------------
+
+    var CLE_MIGRATION_14 = 'eq.migration.v1.4';
+
+    function estEnLigne() {
+        try {
+            if (root.navigator && root.navigator.onLine === false) return false;
+            if (root.Native && root.Native.isOnline && !root.Native.isOnline()) return false;
+        } catch (e) { /* l'absence de pont natif ne doit pas bloquer l'app */ }
+        return true;
+    }
+
+    /**
+     * Surveille la connectivité et rappelle `surRetourEnLigne` à chaque
+     * transition hors ligne -> en ligne.
+     *
+     * Les événements `online`/`offline` ne sont pas fiables dans un WebView
+     * Android, d'où le sondage de secours sur `Native.isOnline()`.
+     *
+     * Retourne une fonction qui arrête la surveillance.
+     */
+    function surveillerConnexion(surRetourEnLigne, intervalleMs) {
+        var etaitEnLigne = estEnLigne();
+        var timer = null;
+
+        function verifier() {
+            var enLigne = estEnLigne();
+            if (enLigne && !etaitEnLigne && typeof surRetourEnLigne === 'function') {
+                surRetourEnLigne();
+            }
+            etaitEnLigne = enLigne;
+        }
+
+        if (root.addEventListener) {
+            root.addEventListener('online', verifier);
+            root.addEventListener('offline', verifier);
+        }
+        timer = setInterval(verifier, intervalleMs || 5000);
+
+        return function arreter() {
+            if (root.removeEventListener) {
+                root.removeEventListener('online', verifier);
+                root.removeEventListener('offline', verifier);
+            }
+            if (timer) clearInterval(timer);
+        };
+    }
+
+    // Collections locales et table Supabase correspondante.
+    var TABLES_A_MIGRER = [
+        { cle: CLE_LOGS, table: 'daily_logs' },
+        { cle: CLE_MENSURATIONS, table: 'measurements' },
+        { cle: CLE_SEANCES, table: 'workouts' },
+        { cle: CLE_SERIES, table: 'workout_sets' },
+        { cle: CLE_NUTRITION, table: 'protein_entries' }
+    ];
+
+    /**
+     * Pousse tout le contenu local dans la file de synchronisation, puis vide
+     * les caches locaux : à partir de là, seule Supabase fait autorité et le
+     * prochain tirage reconstitue le contenu depuis le serveur.
+     *
+     * Les réglages, la session et la file elle-même sont conservés.
+     */
+    function migrerDonneesLocalesVersFile() {
+        var compte = 0;
+
+        var profil = chargerJson(CLE_PROFIL, null);
+        if (profil && Object.keys(profil).length) {
+            enfile('profiles', 'upsert', 'profile', profil);
+            compte++;
+        }
+
+        TABLES_A_MIGRER.forEach(function (t) {
+            chargerJson(t.cle, []).forEach(function (ligne) {
+                var cle = cleLocale(t.table, ligne);
+                if (!cle) return;
+                enfile(t.table, 'upsert', cle, ligne);
+                compte++;
+            });
+            sauverJson(t.cle, []);
+        });
+
+        // L'état coché de la liste de courses vit dans shopping_state.
+        var semaine = semaineCourante();
+        chargerJson(CLE_COURSES, []).forEach(function (item) {
+            if (!item || item.pris !== true) return;
+            var week = /^\d{4}-\d{2}-\d{2}\|/.test(String(item.id))
+                ? String(item.id).slice(0, 10) : semaine;
+            enfile('shopping_state', 'upsert', [item.id, week].join('|'), {
+                item_key: String(item.id), week_of: week, checked: true
+            });
+            compte++;
+        });
+
+        sauverJson(CLE_COURSES, []);
+        sauverJson(CLE_PROFIL, {});
+        return compte;
+    }
+
+    function migrationFaite() { return chargerJson(CLE_MIGRATION_14, false) === true; }
+    function marquerMigrationFaite() { sauverJson(CLE_MIGRATION_14, true); }
+
+    Store.estEnLigne = estEnLigne;
+    Store.surveillerConnexion = surveillerConnexion;
+    Store.migrerDonneesLocalesVersFile = migrerDonneesLocalesVersFile;
+    Store.migrationFaite = migrationFaite;
+    Store.marquerMigrationFaite = marquerMigrationFaite;
+    Store.viderFileMaintenant = function () { planifierSynchronisation(); };
+
     EQ.store = Store;
 })(typeof window !== 'undefined' ? window : this);

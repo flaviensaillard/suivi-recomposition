@@ -698,11 +698,60 @@
         var ongletInitial = Store.getOnglet() || 'bord';
         if (ongletInitial === 'apps') ongletInitial = 'nutrition';
         naviguer(ongletInitial);
-        if (Store.getRemoteSession()) {
-            Net.synchroniserSupabase(function (resultat) {
-                if (resultat && resultat.synchronise) rafraichirVue();
+
+        surveillerReseau();
+        demarrerSynchronise();
+    }
+
+    /**
+     * 1.4 — Supabase fait autorité. Sans session on n'entre pas dans
+     * l'application : l'écran de connexion (porté par la feuille Réglages)
+     * s'ouvre. Hors ligne, le tampon local prend le relais et se déverse
+     * dans Supabase au retour du réseau.
+     */
+    function demarrerSynchronise() {
+        if (!Store.getRemoteSession()) {
+            UI.toast('Connecte ton compte Supabase pour utiliser Équilibre');
+            Views.feuilleReglages(obtenirContexte(), function () {
+                rafraichirVue();
+                demarrerSynchronise();
             });
+            return;
         }
+
+        // Une seule fois : le contenu local hérité de la 1.3.10 est poussé
+        // vers Supabase, puis les caches locaux sont vidés.
+        if (!Store.migrationFaite()) {
+            var migres = Store.migrerDonneesLocalesVersFile();
+            Store.marquerMigrationFaite();
+            if (migres) UI.toast(migres + ' enregistrements locaux envoyés vers Supabase');
+        }
+
+        if (!Store.estEnLigne()) {
+            UI.toast('Hors ligne · les saisies partiront à la reconnexion');
+            return;
+        }
+
+        Net.synchroniserSupabase(function (resultat) {
+            if (resultat && resultat.synchronise) rafraichirVue();
+        });
+    }
+
+    /** Déverse le tampon local dans Supabase dès que la connexion revient. */
+    function surveillerReseau() {
+        Store.surveillerConnexion(function () {
+            if (!Store.getRemoteSession()) return;
+            UI.toast('Connexion rétablie · synchronisation…');
+            Net.synchroniserSupabase(function (resultat) {
+                if (resultat && resultat.raison) UI.toast(resultat.raison);
+                else if (resultat && resultat.enAttente) {
+                    UI.toast('Synchronisation partielle · ' + resultat.enAttente + ' en attente');
+                } else {
+                    UI.toast('Synchronisation terminée');
+                }
+                rafraichirVue();
+            });
+        }, 5000);
     }
 
     // Gestion du bouton retour Android
