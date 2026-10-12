@@ -301,6 +301,21 @@
     // exister encore si l'application est lancée avant la migration. On
     // abandonne alors le champ fautif et on réessaie, plutôt que de laisser
     // l'élément bloqué dans la file de synchronisation.
+    // 1.4 — colonnes ajoutées par la migration cru/cuit. Tant qu'elle n'a pas
+    // été jouée, PostgREST rejette la ligne entière : mieux vaut synchroniser
+    // l'aliment sans ses valeurs d'état que de le laisser bloqué dans la file.
+    var COLONNES_ETAT_INGREDIENT = ['etat_defaut', 'etats_manuels',
+        'kcal_100g_cru', 'proteines_100g_cru', 'glucides_100g_cru', 'lipides_100g_cru',
+        'kcal_100g_cuit', 'proteines_100g_cuit', 'glucides_100g_cuit', 'lipides_100g_cuit'];
+
+    function aColonnesEtat(row) {
+        return COLONNES_ETAT_INGREDIENT.some(function (c) { return c in row; });
+    }
+    function retirerColonnesEtat(row) {
+        COLONNES_ETAT_INGREDIENT.forEach(function (c) { delete row[c]; });
+        return row;
+    }
+
     function erreurColonneAbsente(e) {
         return /column|schema|42703|42P01/i.test(String((e && e.message) || ''));
     }
@@ -332,6 +347,11 @@
                         headersAuth(session, { 'Prefer': 'return=minimal' }), row);
                     return true;
                 }
+                if (erreurColonneAbsente(e) && table === 'ingredients' && aColonnesEtat(row)) {
+                    await requeteP('PATCH', base + '?id=eq.' + uuid(id),
+                        headersAuth(session, { 'Prefer': 'return=minimal' }), retirerColonnesEtat(row));
+                    return true;
+                }
                 if (table !== 'planned_meals' || !('ingredient_unit' in row) || !/ingredient_unit|column|schema/i.test(e.message)) throw e;
                 delete row.ingredient_unit;
                 await requeteP('PATCH', base + '?id=eq.' + uuid(id),
@@ -352,6 +372,8 @@
             if (erreurColonneAbsente(e) && table === 'recipe_ingredients' && 'etat' in row) {
                 delete row.etat;
                 rep = await requeteP('POST', url, headersAuth(session, { 'Prefer': prefer }), row);
+            } else if (erreurColonneAbsente(e) && table === 'ingredients' && aColonnesEtat(row)) {
+                rep = await requeteP('POST', url, headersAuth(session, { 'Prefer': prefer }), retirerColonnesEtat(row));
             } else if (table === 'planned_meals' && 'ingredient_unit' in row && /ingredient_unit|column|schema/i.test(e.message)) {
                 delete row.ingredient_unit;
                 rep = await requeteP('POST', url, headersAuth(session, { 'Prefer': prefer }), row);

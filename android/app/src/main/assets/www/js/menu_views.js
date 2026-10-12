@@ -374,6 +374,22 @@
         var categories = Menu.RAYONS.slice();
         if (ingredient && ingredient.category && categories.indexOf(ingredient.category) < 0) categories.unshift(ingredient.category);
         function val(key, fallback) { return ingredient && ingredient[key] != null ? ingredient[key] : fallback; }
+        // 1.4 — un aliment peut porter deux jeux de valeurs, un par état. Les
+        // champs vides reprennent la valeur de référence : on ne force personne
+        // à tout resaisir pour n'ajouter que l'état cuit.
+        function blocEtat(etat, titre) {
+            var col = '_' + etat.toLowerCase();
+            function champ(idSuffixe, cle, label, borne, pas) {
+                return '<div class="champ"><label>' + label + '</label><input id="menuIng' + idSuffixe + etat +
+                    '" type="number" min="0" max="' + borne + '" step="' + pas + '" value="' +
+                    attribut(val(cle + col, '')) + '"></div>';
+            }
+            return '<div class="titre">' + titre + '</div><div class="grille g2">' +
+                champ('Kcal', 'kcal_100g', 'Calories (kcal)', 1000, 1) +
+                champ('Protein', 'proteines_100g', 'Protéines (g)', 100, 0.1) +
+                champ('Carbs', 'glucides_100g', 'Glucides (g)', 100, 0.1) +
+                champ('Fat', 'lipides_100g', 'Lipides (g)', 100, 0.1) + '</div>';
+        }
         var html = '<div class="champ"><label>Nom</label><input id="menuIngName" maxlength="120" value="' + attribut(val('name', '')) + '"></div>' +
             '<div class="grille g2"><div class="champ"><label>Unité principale</label><select id="menuIngUnit">' + units.map(function (u) { return optionSelect(u, val('unit', 'g'), u); }).join('') + '</select></div>' +
             '<div class="champ"><label>Rayon</label><select id="menuIngCategory">' + categories.map(function (x) { return optionSelect(x, val('category', 'Autre'), x); }).join('') + '</select></div></div>' +
@@ -383,6 +399,14 @@
                 '<div class="champ"><label>Protéines (g)</label><input id="menuIngProtein" type="number" min="0" max="100" step="0.1" value="' + attribut(val('proteines_100g', '')) + '"></div>' +
                 '<div class="champ"><label>Glucides (g)</label><input id="menuIngCarbs" type="number" min="0" max="100" step="0.1" value="' + attribut(val('glucides_100g', '')) + '"></div>' +
                 '<div class="champ"><label>Lipides (g)</label><input id="menuIngFat" type="number" min="0" max="100" step="0.1" value="' + attribut(val('lipides_100g', '')) + '"></div></div>' +
+            '<div class="titre">Cru / cuit</div>' +
+            '<div class="champ"><label>État par défaut</label><select id="menuIngEtatDefaut">' +
+                optionSelect('cru', val('etat_defaut', 'cru'), 'cru') +
+                optionSelect('cuit', val('etat_defaut', 'cru'), 'cuit') + '</select></div>' +
+            '<div class="st">Renseigne les deux jeux ci-dessous pour faire apparaître le ' +
+            'sélecteur cru/cuit sur cet aliment. Un champ vide reprend la valeur de référence.</div>' +
+            blocEtat('Cru', 'Pour 100 g — cru') +
+            blocEtat('Cuit', 'Pour 100 g — cuit') +
             '<div class="grille g2"><label class="st"><input type="checkbox" id="menuIngExclude" ' + (val('exclude_from_list', false) ? 'checked' : '') + '> Fond de placard (exclure des courses)</label>' +
                 '<label class="st"><input type="checkbox" id="menuIngRecurrent" ' + (val('is_recurrent', false) ? 'checked' : '') + '> Récurrent chaque semaine</label></div>' +
             '<button class="btn btn-hero" id="btnMenuSaveIngredient" style="margin-top:12px;">💾 Enregistrer l’ingrédient</button>' +
@@ -395,11 +419,32 @@
                     var name = String(UI.$('#menuIngName', racine).value || '').trim();
                     if (!name) { UI.toast('Le nom de l’ingrédient est obligatoire'); return; }
                     function valNum(sel) { var v = UI.$(sel, racine).value; return v === '' ? null : Number(v); }
+                    // Une valeur par état que tu viens de taper n'est pas une valeur
+                    // Ciqual : elle doit rester signalée comme saisie à la main. On ne
+                    // marque que ce qui a vraiment bougé, pour ne pas déclasser une
+                    // paire déjà fournie par Ciqual.
+                    var pairesEtat = [
+                        ['kcal_100g_cru', '#menuIngKcalCru'], ['proteines_100g_cru', '#menuIngProteinCru'],
+                        ['glucides_100g_cru', '#menuIngCarbsCru'], ['lipides_100g_cru', '#menuIngFatCru'],
+                        ['kcal_100g_cuit', '#menuIngKcalCuit'], ['proteines_100g_cuit', '#menuIngProteinCuit'],
+                        ['glucides_100g_cuit', '#menuIngCarbsCuit'], ['lipides_100g_cuit', '#menuIngFatCuit']
+                    ];
+                    var etatsManuels = !!(ingredient && ingredient.etats_manuels);
+                    pairesEtat.forEach(function (p) {
+                        var avant = ingredient && ingredient[p[0]] != null ? Number(ingredient[p[0]]) : null;
+                        if (valNum(p[1]) !== avant) etatsManuels = true;
+                    });
                     var row = { id: ingredient && ingredient.id, name: name, nom_affiche: ingredient && ingredient.nom_affiche || null,
                         unit: UI.$('#menuIngUnit', racine).value, category: UI.$('#menuIngCategory', racine).value,
                         poids_piece_g: valNum('#menuIngWeight'), unite_liste_courses: ingredient && ingredient.unite_liste_courses || UI.$('#menuIngUnit', racine).value,
                         kcal_100g: valNum('#menuIngKcal'), proteines_100g: valNum('#menuIngProtein'),
                         glucides_100g: valNum('#menuIngCarbs'), lipides_100g: valNum('#menuIngFat'),
+                        etat_defaut: UI.$('#menuIngEtatDefaut', racine).value === 'cuit' ? 'cuit' : 'cru',
+                        kcal_100g_cru: valNum('#menuIngKcalCru'), proteines_100g_cru: valNum('#menuIngProteinCru'),
+                        glucides_100g_cru: valNum('#menuIngCarbsCru'), lipides_100g_cru: valNum('#menuIngFatCru'),
+                        kcal_100g_cuit: valNum('#menuIngKcalCuit'), proteines_100g_cuit: valNum('#menuIngProteinCuit'),
+                        glucides_100g_cuit: valNum('#menuIngCarbsCuit'), lipides_100g_cuit: valNum('#menuIngFatCuit'),
+                        etats_manuels: etatsManuels,
                         exclude_from_list: UI.$('#menuIngExclude', racine).checked,
                         is_recurrent: UI.$('#menuIngRecurrent', racine).checked,
                         source: ingredient && ingredient.source || 'mes ingrédients' };

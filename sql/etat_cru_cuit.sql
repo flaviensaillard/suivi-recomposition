@@ -29,6 +29,11 @@
 
 ALTER TABLE ingredients ADD COLUMN IF NOT EXISTS etat_defaut        text;
 
+-- Vrai quand les valeurs d'état ont été tapées dans l'application plutôt que
+-- fournies par Ciqual. L'application les signale comme telles : une valeur
+-- estimée à la main ne vaut pas une mesure de table de composition.
+ALTER TABLE ingredients ADD COLUMN IF NOT EXISTS etats_manuels      boolean;
+
 ALTER TABLE ingredients ADD COLUMN IF NOT EXISTS kcal_100g_cru      numeric(7,2);
 ALTER TABLE ingredients ADD COLUMN IF NOT EXISTS proteines_100g_cru numeric(6,2);
 ALTER TABLE ingredients ADD COLUMN IF NOT EXISTS glucides_100g_cru  numeric(6,2);

@@ -358,6 +358,116 @@ const MENUS_TEST = {
     ]
 };
 
+function testEditeurAlimentSaisitLesValeursCuit() {
+    // 1.4 — critère d'acceptation : les valeurs cuit manquantes doivent être
+    // saisissables à la main, et signalées comme telles. Ciqual ne fournit pas
+    // toutes les paires (les glucides du poisson, par exemple) : sans cette
+    // saisie, l'état cuit resterait indisponible pour ces aliments.
+    const app = creerAppli();
+    amorcerMenus(app, {
+        ingredients: [{
+            id: 'c1', name: 'Carotte', unit: 'g', category: 'Légumes', est_a_moi: true,
+            kcal_100g: 30, proteines_100g: 0.9, glucides_100g: 5.9, lipides_100g: 0.2
+        }],
+        recipes: [], recipe_ingredients: [], planned_meals: []
+    });
+    const dom = creerDomStub();
+    app.contexte.document = dom.document;
+    app.contexte.Native = { toast: () => { } };
+
+    app.EQ.menuViews.ouvrirEditeurIngredient('c1');
+
+    // L'éditeur doit proposer les deux jeux de valeurs et l'état par défaut.
+    assert.ok(dom.resoudre('#menuIngKcalCuit'), 'un champ kcal cuit doit exister');
+    assert.ok(dom.resoudre('#menuIngEtatDefaut'), 'un sélecteur d’état par défaut doit exister');
+
+    // On ne saisit que l'état cuit : le cru reste vide et retombe sur la
+    // colonne historique, jamais sur un calcul.
+    //
+    // Le stub ne parse pas le HTML rendu : un vrai WebView hydrate input.value
+    // depuis l'attribut value="30" que l'éditeur écrit. Sans cette hydratation,
+    // l'enregistrement écraserait les colonnes historiques avec null et le test
+    // échouerait sur le stub plutôt que sur le comportement testé.
+    dom.resoudre('#menuIngName').value = 'Carotte';
+    dom.resoudre('#menuIngKcal').value = '30';
+    dom.resoudre('#menuIngProtein').value = '0.9';
+    dom.resoudre('#menuIngCarbs').value = '5.9';
+    dom.resoudre('#menuIngFat').value = '0.2';
+    dom.resoudre('#menuIngKcalCuit').value = '29.6';
+    dom.resoudre('#menuIngProteinCuit').value = '0.72';
+    dom.resoudre('#menuIngEtatDefaut').value = 'cuit';
+    dom.resoudre('#btnMenuSaveIngredient').onclick();
+
+    const sauve = app.EQ.menu.rows('ingredients').find((i) => String(i.id) === 'c1');
+    assert.equal(sauve.kcal_100g_cuit, 29.6, 'la valeur cuite saisie doit être enregistrée');
+    assert.equal(sauve.proteines_100g_cuit, 0.72, 'les protéines cuites aussi');
+    assert.equal(sauve.etat_defaut, 'cuit', 'l’état par défaut doit suivre le choix');
+    assert.equal(sauve.etats_manuels, true,
+        'une valeur tapée à la main doit être signalée comme telle');
+
+    // Le cru laissé vide retombe sur la colonne historique (30), pas sur 0.
+    const m = app.EQ.menu.macrosPourEtat(sauve, 'cru');
+    assert.equal(m.kcal, 30, 'le cru vide doit retomber sur la colonne historique');
+    // Et l'état cuit porte bien la valeur saisie.
+    assert.equal(app.EQ.menu.macrosPourEtat(sauve, 'cuit').kcal, 29.6,
+        'l’état cuit doit porter la valeur saisie');
+    // Avec un seul jeu renseigné, le sélecteur devient disponible.
+    assert.equal(app.EQ.menu.aChoixEtat(sauve), true,
+        'un seul jeu d’état suffit à rendre le sélecteur disponible');
+}
+
+function testEtatIngredientOmisSiLesColonnesManquent() {
+    // 1.4 — l'éditeur d'aliment écrit désormais etat_defaut, etats_manuels et
+    // les huit colonnes d'état à chaque enregistrement. Sans la migration,
+    // PostgREST rejette la ligne entière : l'aliment resterait bloqué dans la
+    // file de synchronisation. Le repli doit le renvoyer sans ces colonnes.
+    const appels = [];
+
+    const Native = {
+        httpAsync(methode, url, entetes, corps, callbackId) {
+            appels.push({ methode, url, corps: JSON.parse(corps || '{}') });
+            const premier = appels.length === 1;
+            setTimeout(() => {
+                if (premier) {
+                    app.EQ.net._fin(callbackId, {
+                        ok: false, status: 400,
+                        body: '{"message":"column ingredients.kcal_100g_cuit does not exist"}'
+                    });
+                } else {
+                    app.EQ.net._fin(callbackId, { ok: true, status: 201, body: '[{"id":"ing-1"}]' });
+                }
+            }, 0);
+        }
+    };
+
+    const app = creerAppli({
+        'eq.reglages.v1': JSON.stringify({
+            supabaseUrl: 'https://test.supabase.co', supabaseKey: 'cle-anon-publique'
+        })
+    }, { Native });
+
+    const session = { access_token: 'jeton', user: { id: '1' } };
+    return app.EQ.net._pushMenuItem(
+        { table: 'menu:ingredients', key: 'ing-1', operation: 'insert',
+          row: { id: 'ing-1', name: 'Carotte', unit: 'g', kcal_100g: 30, proteines_100g: 0.9,
+                 etat_defaut: 'cru', etats_manuels: true,
+                 kcal_100g_cru: 30.2, proteines_100g_cru: 0.93,
+                 kcal_100g_cuit: 29.6, proteines_100g_cuit: 0.72 } },
+        session
+    ).then(() => {
+        assert.equal(appels.length, 2, 'un second envoi doit avoir lieu après l’échec');
+        assert.equal(appels[0].corps.kcal_100g_cuit, 29.6,
+            'le premier envoi porte bien les valeurs d’état');
+        ['etat_defaut', 'etats_manuels', 'kcal_100g_cru', 'kcal_100g_cuit',
+         'proteines_100g_cru', 'proteines_100g_cuit'].forEach((c) => {
+            assert.ok(!(c in appels[1].corps),
+                'le repli doit retirer ' + c + ' plutôt que de bloquer la file');
+        });
+        assert.equal(appels[1].corps.kcal_100g, 30, 'la colonne historique est préservée');
+        assert.equal(appels[1].corps.name, 'Carotte', 'le nom est préservé');
+    });
+}
+
 function testFicheRecetteRappelleEtatCruCuit() {
     // 1.4 — « carottes cuites » dans un velouté et « carottes crues » en
     // salade ne donnent pas les mêmes macros. Rien d'autre que la fiche ne
@@ -814,6 +924,8 @@ const TESTS = [
     testRepasTypesEditables,
     testEtatCruCuitChangeLesMacros,
     testEtatOmisSiLaColonneManque,
+    testEditeurAlimentSaisitLesValeursCuit,
+    testEtatIngredientOmisSiLesColonnesManquent,
     testFicheRecetteRappelleEtatCruCuit
 ];
 let passes = 0;
