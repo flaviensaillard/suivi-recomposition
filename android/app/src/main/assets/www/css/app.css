@@ -957,6 +957,8 @@ nav.bottom button span { font-size: 10.5px; }
 .coach-attachments:empty { display:none; }
 .coach-attachments .badge { max-width:100%; }
 .coach-attachments a { color:var(--txt-2); text-decoration:none; font-size:12px; }
+.coach-attachments-sent { display:flex; flex-direction:column; gap:3px; margin-top:6px; }
+.coach-attachment-sent { font-size:11.5px; color:var(--txt-2); background:rgba(255,255,255,.05); border:1px solid var(--line); border-radius:8px; padding:3px 8px; align-self:flex-start; max-width:100%; overflow-wrap:anywhere; }
 .coach-memory-card > summary { cursor:pointer; list-style:none; }
 .coach-memory-card > summary::-webkit-details-marker { display:none; }
 .coach-memory-card > summary::after { content:'＋'; float:right; color:var(--gold); font-size:18px; font-weight:700; }

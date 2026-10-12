@@ -17,6 +17,9 @@
     var CLE_FILE_SYNC = 'eq.sync.queue.v1';
     var TABLES_MENU = ['ingredients', 'recipes', 'recipe_ingredients', 'planned_meals'];
     var CLE_DERNIER_ONGLET = 'eq.onglet';
+    // Corrections et ajouts de l'utilisateur sur les repas types du modèle.
+    // Seuls les écarts sont stockés, jamais la liste complète.
+    var CLE_REPAS_TYPES = 'eq.repasTypes.v1';
 
     function cleMenu(table, ligne) {
         if (!ligne) return '';
@@ -592,6 +595,42 @@
     Store.migrationFaite = migrationFaite;
     Store.marquerMigrationFaite = marquerMigrationFaite;
     Store.viderFileMaintenant = function () { planifierSynchronisation(); };
+
+    /**
+     * Repas types tels que l'utilisateur les veut : le modèle de models.js
+     * sert de base, puis ses corrections et ses créations sont appliquées.
+     * Un repas marqué `supprime` disparaît de la liste.
+     */
+    Store.getRepasTypes = function () {
+        var modele = (EQ.modele && EQ.modele.REPAS_TYPES) || [];
+        var modifs = chargerJson(CLE_REPAS_TYPES, {});
+        var out = [];
+        modele.forEach(function (r) {
+            var m = modifs[r.cle];
+            if (m && m.supprime) return;
+            out.push(Object.assign({}, r, m || {}));
+        });
+        Object.keys(modifs).forEach(function (cle) {
+            var cree = modifs[cle];
+            if (cree && !cree.supprime && !modele.some(function (r) { return r.cle === cle; })) {
+                out.push(cree);
+            }
+        });
+        return out;
+    };
+
+    Store.saveRepasType = function (repas) {
+        if (!repas || !repas.cle) return false;
+        var modifs = chargerJson(CLE_REPAS_TYPES, {});
+        modifs[repas.cle] = Object.assign({}, modifs[repas.cle], repas, { supprime: false });
+        return sauverJson(CLE_REPAS_TYPES, modifs);
+    };
+
+    Store.supprimerRepasType = function (cle) {
+        var modifs = chargerJson(CLE_REPAS_TYPES, {});
+        modifs[cle] = Object.assign({}, modifs[cle], { supprime: true });
+        return sauverJson(CLE_REPAS_TYPES, modifs);
+    };
 
     EQ.store = Store;
 })(typeof window !== 'undefined' ? window : this);

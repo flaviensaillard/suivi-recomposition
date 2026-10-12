@@ -572,6 +572,56 @@ function testUnitePartDansLaSynchronisation() {
     }).unite, '', 'l’absence de colonne unite doit donner une chaîne vide');
 }
 
+function testRepasTypesEditables() {
+    // 1.4 : les repas types étaient figés dans models.js, impossible de corriger
+    // un aliment faux ou changé. Les corrections se stockent séparément et se
+    // substituent au modèle à la lecture.
+    const app = creerAppli();
+    const { EQ } = app;
+    const modele = EQ.modele.REPAS_TYPES;
+    assert.ok(modele.length >= 3, 'le modèle doit contenir les repas types d’origine');
+
+    // Sans aucune modification, on retrouve exactement le modèle.
+    const avant = EQ.store.getRepasTypes();
+    assert.equal(avant.length, modele.length, 'aucun ajout ni retrait au départ');
+    assert.deepEqual(avant.map((r) => r.cle), modele.map((r) => r.cle));
+
+    // Corriger un repas existant : mêmes clés, valeurs remplacées.
+    const cible = modele[0];
+    EQ.store.saveRepasType({
+        cle: cible.cle, nom: 'Gamelle corrigée', detail: '2 œufs · 80 g lentilles',
+        prot: 42, gluc: 30, lip: 18, kcal: 450
+    });
+    const apres = EQ.store.getRepasTypes();
+    assert.equal(apres.length, modele.length, 'une correction ne doit pas dupliquer la ligne');
+    const corrige = apres.find((r) => r.cle === cible.cle);
+    assert.equal(corrige.nom, 'Gamelle corrigée', 'le nom corrigé doit être lu');
+    assert.equal(Number(corrige.prot), 42, 'les macros corrigées doivent être lues');
+    assert.equal(corrige.emoji, cible.emoji,
+        'les champs non modifiés doivent rester ceux du modèle');
+
+    // Créer un repas personnel : il s’ajoute à la liste.
+    EQ.store.saveRepasType({ cle: 'perso_test', emoji: '🍲', nom: 'Mon repas',
+        detail: '', prot: 30, gluc: 20, lip: 10, kcal: 310 });
+    assert.equal(EQ.store.getRepasTypes().length, modele.length + 1,
+        'un repas créé doit s’ajouter');
+
+    // Supprimer : le repas disparaît, le modèle reste intact.
+    EQ.store.supprimerRepasType(cible.cle);
+    const restants = EQ.store.getRepasTypes();
+    assert.ok(!restants.some((r) => r.cle === cible.cle), 'le repas supprimé ne doit plus apparaître');
+    assert.equal(restants.length, modele.length, 'le repas personnel est toujours là');
+    assert.ok(modele.some((r) => r.cle === cible.cle),
+        'le modèle d’origine ne doit jamais être modifié');
+
+    // Les corrections survivent à une relecture depuis le stockage.
+    const app2 = creerAppli(Object.fromEntries(app.donnees));
+    assert.ok(!app2.EQ.store.getRepasTypes().some((r) => r.cle === cible.cle),
+        'la suppression doit persister');
+    assert.equal(app2.EQ.store.getRepasTypes().find((r) => r.cle === 'perso_test').nom,
+        'Mon repas', 'le repas créé doit persister');
+}
+
 const TESTS = [
     testPremierLancementVide,
     testConservationDonneesLocalesApresMonteeDeVersion,
@@ -586,7 +636,8 @@ const TESTS = [
     testAutocompletionNutritionProposeRecettesEtAliments,
     testBoutonRecettePresentSurLesPlatsACuisiner,
     testUniteChoisieDansLeJournalNutrition,
-    testUnitePartDansLaSynchronisation
+    testUnitePartDansLaSynchronisation,
+    testRepasTypesEditables
 ];
 let passes = 0;
 TESTS.forEach((test) => {

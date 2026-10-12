@@ -151,12 +151,24 @@
         }
 
         // Boutons 1-clic repas types
+        var btnAjoutRepasType = UI.$('#btnAjoutRepasType', main);
+        if (btnAjoutRepasType) {
+            btnAjoutRepasType.onclick = function () {
+                Views.feuilleRepasType(null, rafraichirVue);
+            };
+        }
+        UI.$$('.btn-editer-repas', main).forEach(function (btn) {
+            btn.onclick = function (e) {
+                e.stopPropagation();
+                Views.feuilleRepasType(btn.getAttribute('data-repas'), rafraichirVue);
+            };
+        });
         var btnsRepas = UI.$$('.btn-noter-repas', main);
         btnsRepas.forEach(function (btn) {
             btn.onclick = function (e) {
                 e.stopPropagation();
                 var cle = btn.getAttribute('data-repas');
-                var r = M.REPAS_TYPES.find(function (x) { return x.cle === cle; });
+                var r = Store.getRepasTypes().find(function (x) { return x.cle === cle; });
                 if (r) {
                     Store.addNutrition({
                         date: U.dateIso(new Date()),
@@ -581,7 +593,7 @@
         }
         UI.$$('.btn-nutri-preset', main).forEach(function (btn) {
             btn.onclick = function () {
-                var recette = M.REPAS_TYPES.find(function (x) { return x.cle === btn.getAttribute('data-nutri-preset'); });
+                var recette = Store.getRepasTypes().find(function (x) { return x.cle === btn.getAttribute('data-nutri-preset'); });
                 if (!recette) return;
                 Store.addNutrition({
                     date: Views.getDateNutrition(), item: recette.nom,

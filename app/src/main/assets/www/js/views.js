@@ -149,10 +149,13 @@
         '</div>';
 
         // --- TUILE : LES 3 REPAS TYPES DE FLAVIEN (1-clic)
-        html += '<div class="titre">⭐ Repas types de Flavien <span class="n">1 clic pour noter</span></div>' +
+        html += '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">' +
+            '<div class="titre" style="margin-bottom:0;">⭐ Repas types <span class="n">1 clic pour noter</span></div>' +
+            '<button class="iconbtn" id="btnAjoutRepasType" title="Créer un repas type" style="width:32px;height:32px;">＋</button>' +
+        '</div>' +
         '<div class="repas-carousel">';
 
-        M.REPAS_TYPES.forEach(function (r) {
+        Store.getRepasTypes().forEach(function (r) {
             html += '<div class="ligne-repas-type" data-repas="' + r.cle + '">' +
                 '<div style="font-size:22px; width:32px;">' + r.emoji + '</div>' +
                 '<div class="gr">' +
@@ -163,7 +166,8 @@
                     '<div class="a up">' + r.prot + ' g P</div>' +
                     '<div class="b">' + r.kcal + ' kcal</div>' +
                 '</div>' +
-                '<button class="iconbtn btn-noter-repas" data-repas="' + r.cle + '" style="margin-left:6px;width:34px;height:34px;" title="Ajouter à ma journée">＋</button>' +
+                '<button class="iconbtn btn-noter-repas" data-repas="' + h(r.cle) + '" style="margin-left:6px;width:34px;height:34px;" title="Ajouter à ma journée">＋</button>' +
+                '<button class="iconbtn btn-editer-repas" data-repas="' + h(r.cle) + '" style="width:34px;height:34px;" title="Modifier ce repas type">✎</button>' +
             '</div>';
         });
 
@@ -334,7 +338,7 @@
         '</div>';
 
         html += '<div class="titre">Raccourcis</div><div class="card tight">';
-        M.REPAS_TYPES.forEach(function (r) {
+        Store.getRepasTypes().forEach(function (r) {
             html += '<div class="ligne-repas-type" style="padding:9px 0;">' +
                 '<div style="font-size:21px;width:30px;">' + h(r.emoji) + '</div>' +
                 '<div class="gr"><div class="tt">' + h(r.nom) + '</div><div class="st">' + Math.round(r.prot) + ' g protéines · ' + Math.round(r.kcal) + ' kcal</div></div>' +
@@ -1180,6 +1184,80 @@
         });
     }
 
+    /**
+     * 1.4 — Éditeur de repas type. Les repas types du modèle étaient figés dans
+     * models.js : impossible de corriger un aliment faux ou changé. Les
+     * corrections et créations sont stockées localement (store.js) et se
+     * substituent au modèle à la lecture.
+     */
+    function feuilleRepasType(cle, apresEnregistrement) {
+        var existant = Store.getRepasTypes().find(function (r) { return String(r.cle) === String(cle || ''); });
+        var r = existant || { cle: '', emoji: '🍽️', nom: '', detail: '', prot: 0, gluc: 0, lip: 0, kcal: 0 };
+        var estNouveau = !existant;
+
+        UI.feuille({
+            titre: estNouveau ? 'Nouveau repas type' : 'Modifier le repas type',
+            aide: estNouveau
+                ? 'Un raccourci que tu pourras ajouter à ta journée en un clic.'
+                : 'Corrige les aliments, les quantités ou les macros. Les calories sont recalculées.',
+            html: '<div class="grille g2">' +
+                    '<div class="champ"><label>Emoji</label><input id="rtEmoji" maxlength="4" value="' + h(r.emoji || '🍽️') + '" /></div>' +
+                    '<div class="champ"><label>Nom</label><input id="rtNom" maxlength="60" value="' + h(r.nom || '') + '" placeholder="ex. Gamelle de midi" /></div>' +
+                '</div>' +
+                '<div class="champ"><label>Composition (texte libre)</label>' +
+                    '<textarea id="rtDetail" rows="3" maxlength="300" placeholder="ex. 3 œufs durs · 100 g lentilles · 100 g skyr">' + h(r.detail || '') + '</textarea></div>' +
+                '<div class="grille g2">' +
+                    '<div class="champ"><label>Protéines (g)</label><input type="number" id="rtProt" min="0" max="500" step="0.5" value="' + Number(r.prot || 0) + '" /></div>' +
+                    '<div class="champ"><label>Glucides (g)</label><input type="number" id="rtGluc" min="0" max="500" step="0.5" value="' + Number(r.gluc || 0) + '" /></div>' +
+                    '<div class="champ"><label>Lipides (g)</label><input type="number" id="rtLip" min="0" max="500" step="0.5" value="' + Number(r.lip || 0) + '" /></div>' +
+                    '<div class="champ"><label>Calories</label><div class="mini" style="margin-top:6px;"><div class="v" id="rtKcal">0 <small>kcal</small></div></div></div>' +
+                '</div>' +
+                '<div class="st" style="margin:6px 0 12px;">Les calories sont calculées : 4 kcal par gramme de protéines et de glucides, 9 kcal par gramme de lipides.</div>' +
+                '<div class="grille g2">' +
+                    '<button class="btn btn-hero" id="btnRepasTypeSave">Enregistrer</button>' +
+                    (estNouveau ? '' : '<button class="btn btn-flat" id="btnRepasTypeDelete">Supprimer</button>') +
+                '</div>',
+            apresRendu: function (racine, fermer) {
+                var iP = UI.$('#rtProt', racine), iG = UI.$('#rtGluc', racine), iL = UI.$('#rtLip', racine);
+                var sortie = UI.$('#rtKcal', racine);
+                function calc() {
+                    var kcal = Math.round((U.num(iP.value, 0) + U.num(iG.value, 0)) * 4 + U.num(iL.value, 0) * 9);
+                    if (sortie) sortie.innerHTML = kcal + ' <small>kcal</small>';
+                    return kcal;
+                }
+                [iP, iG, iL].forEach(function (i) { if (i) i.oninput = calc; });
+                calc();
+
+                UI.$('#btnRepasTypeSave', racine).onclick = function () {
+                    var nom = (UI.$('#rtNom', racine).value || '').trim();
+                    if (!nom) { UI.toast('Donne un nom à ce repas type'); return; }
+                    var cleFinale = estNouveau
+                        ? 'perso_' + String(nom).toLowerCase().replace(/[^a-z0-9]+/gi, '_').slice(0, 30) + '_' + Date.now().toString(36)
+                        : r.cle;
+                    Store.saveRepasType({
+                        cle: cleFinale,
+                        emoji: (UI.$('#rtEmoji', racine).value || '🍽️').trim().slice(0, 4),
+                        nom: nom,
+                        detail: (UI.$('#rtDetail', racine).value || '').trim(),
+                        prot: U.num(iP.value, 0), gluc: U.num(iG.value, 0), lip: U.num(iL.value, 0),
+                        kcal: calc()
+                    });
+                    fermer();
+                    UI.toast('Repas type enregistré');
+                    if (apresEnregistrement) apresEnregistrement();
+                };
+
+                var btnSuppr = UI.$('#btnRepasTypeDelete', racine);
+                if (btnSuppr) btnSuppr.onclick = function () {
+                    Store.supprimerRepasType(r.cle);
+                    fermer();
+                    UI.toast('Repas type supprimé');
+                    if (apresEnregistrement) apresEnregistrement();
+                };
+            }
+        });
+    }
+
     // --- Modal : Voir recette & ajuster convives
     function feuilleRecette(recetteId) {
         var r = M.RECETTES_EXEMPLES.find(function (x) { return x.id === recetteId; });
@@ -1594,6 +1672,7 @@
         feuilleMensurations: feuilleMensurations,
         feuilleNutrition: feuilleNutrition,
         feuilleRecette: feuilleRecette,
+        feuilleRepasType: feuilleRepasType,
         feuilleReglages: feuilleReglages,
         demarrerMinuteur: demarrerMinuteur,
         setSousOngletMenus: function (tab) { EQ.menuViews.setTab(tab); },

@@ -282,6 +282,19 @@
             item.appendChild(creerEl('div', 'coach-message-who', m.role === 'user' ? 'Toi' : 'Coach IA'));
             var copy = creerEl('div', 'coach-message-copy', String(m.content || ''));
             item.appendChild(copy);
+            // 1.4 : rappeler les fichiers joints au message, sinon l'envoi est
+            // invisible pour l'utilisateur.
+            var pieces = Array.isArray(m.attachments) ? m.attachments : [];
+            if (pieces.length) {
+                var boitePieces = creerEl('div', 'coach-attachments-sent');
+                pieces.forEach(function (piece) {
+                    var ko = Number(piece.size) > 0
+                        ? ' · ' + Math.max(1, Math.round(Number(piece.size) / 1024)) + ' ko' : '';
+                    boitePieces.appendChild(creerEl('div', 'coach-attachment-sent',
+                        '📎 ' + String(piece.name || 'fichier') + ko));
+                });
+                item.appendChild(boitePieces);
+            }
             var sources = Array.isArray(m.sources) ? m.sources : [];
             if (sources.length) {
                 var box = creerEl('div', 'coach-sources');
@@ -637,6 +650,20 @@
                 var history = await api('/api/coach/history?limit=60', 'GET', null, true);
                 messages = Array.isArray(history.messages) ? history.messages : messages;
             } catch (e2) { }
+            // L'historique vient du serveur, qui ne connaît pas les fichiers :
+            // on rattache les pièces jointes au message utilisateur correspondant.
+            if (jointes.length) {
+                var meta = jointes.map(function (p) {
+                    return { name: p.name, type: p.type, size: p.size };
+                });
+                for (var i = messages.length - 1; i >= 0; i--) {
+                    if (messages[i].role === 'user' &&
+                        String(messages[i].content || '') === message) {
+                        messages[i].attachments = meta;
+                        break;
+                    }
+                }
+            }
             sauverCache();
             if (result.search && result.search.status === 'quota_reached') UI.toast('Réponse reçue · quota gratuit de recherche atteint');
         } catch (e) {
