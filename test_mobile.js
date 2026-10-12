@@ -534,6 +534,44 @@ function testUniteChoisieDansLeJournalNutrition() {
     assert.equal(Number(enregistrees[0].qty), 2, 'la quantité doit être conservée');
 }
 
+function testUnitePartDansLaSynchronisation() {
+    // 1.4 : l'unité choisie à la saisie doit partir vers Supabase et revenir
+    // dans la ligne locale. Les tables de suivi sont préfixées « sr_ » côté
+    // serveur (net.js:347), la colonne visée est donc sr_protein_entries.unite.
+    const { EQ } = creerAppli();
+
+    const ligne = {
+        date: '2026-10-12', item: 'Œuf', qty: 2, unite: 'c. à soupe',
+        protein_g: 13, carbs_g: 1, fat_g: 11
+    };
+    const envoyee = EQ.net._rowProtein(ligne, 'uid-1');
+
+    assert.equal(envoyee.unite, 'c. à soupe', 'l’unité doit être transmise à Supabase');
+    assert.equal(envoyee.user_id, 'uid-1');
+    assert.equal(envoyee.entry_date, '2026-10-12', 'la date locale doit devenir entry_date');
+    assert.equal(Number(envoyee.qty), 2);
+
+    // Sans unité renseignée, la colonne n'est pas envoyée du tout : une base
+    // qui n'aurait pas encore la colonne continue d'accepter l'insertion.
+    const sansUnite = EQ.net._rowProtein(
+        { date: '2026-10-12', item: 'Riz', qty: 1, protein_g: 7 }, 'uid-1');
+    assert.ok(!('unite' in sansUnite),
+        'une entrée sans unité ne doit pas exiger la colonne unite');
+
+    // Au retour du serveur, l'unité doit être restituée à l'interface.
+    const relue = EQ.net._localProtein({
+        id: 42, entry_date: '2026-10-12', item: 'Œuf', qty: 2,
+        unite: 'c. à soupe', protein_g: 13, carbs_g: 1, fat_g: 11
+    });
+    assert.equal(relue.unite, 'c. à soupe', 'l’unité doit revenir du serveur');
+    assert.equal(relue.date, '2026-10-12', 'entry_date doit redevenir date');
+
+    // Une ligne serveur sans colonne unite ne doit pas casser la lecture.
+    assert.equal(EQ.net._localProtein({
+        id: 43, entry_date: '2026-10-12', item: 'Riz', qty: 1, protein_g: 7
+    }).unite, '', 'l’absence de colonne unite doit donner une chaîne vide');
+}
+
 const TESTS = [
     testPremierLancementVide,
     testConservationDonneesLocalesApresMonteeDeVersion,
@@ -547,7 +585,8 @@ const TESTS = [
     testFicheRecetteDepuisLePlanning,
     testAutocompletionNutritionProposeRecettesEtAliments,
     testBoutonRecettePresentSurLesPlatsACuisiner,
-    testUniteChoisieDansLeJournalNutrition
+    testUniteChoisieDansLeJournalNutrition,
+    testUnitePartDansLaSynchronisation
 ];
 let passes = 0;
 TESTS.forEach((test) => {

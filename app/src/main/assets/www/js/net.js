@@ -239,13 +239,18 @@
             qty: Number(x.qty == null ? 1 : x.qty) };
         if (x.carbs_g != null) r.carbs_g = Number(x.carbs_g);
         if (x.fat_g != null) r.fat_g = Number(x.fat_g);
+        // 1.4 : l'unité choisie à la saisie (g, unité, c. à soupe…). Envoyée
+        // seulement quand elle est renseignée, pour ne pas exiger la colonne
+        // sur une base qui ne l'aurait pas encore.
+        if (x.unite) r.unite = String(x.unite);
         if (x.id && /^\d+$/.test(String(x.id))) r.id = Number(x.id);
         return r;
     }
     function localProtein(x) {
         return { id: x.id, local_id: String(x.id), date: String(x.entry_date || x.date || '').slice(0, 10),
             item: x.item || '', protein_g: Number(x.protein_g || 0), carbs_g: Number(x.carbs_g || 0),
-            fat_g: Number(x.fat_g || 0), qty: Number(x.qty == null ? 1 : x.qty) };
+            fat_g: Number(x.fat_g || 0), qty: Number(x.qty == null ? 1 : x.qty),
+            unite: String(x.unite || '') };
     }
     function rowProfile(x, userId) {
         var r = { user_id: userId, display_name: x.displayName || x.display_name || '',
@@ -542,6 +547,10 @@
         requete: requete,
         requeteP: requeteP,
         _fin: _fin,
+        // Forme exacte des lignes envoyées à Supabase : exposée pour que les
+        // tests puissent borner les colonnes réellement transmises.
+        _rowProtein: rowProtein,
+        _localProtein: localProtein,
         config: config,
         connexion: connexion,
         deconnexion: deconnexion,
