@@ -352,7 +352,11 @@
                 var id = String(x.id || x.local_id || '');
                 html += '<div class="ligne">' +
                     '<div class="gr"><div class="tt">' + h(x.item || 'Repas') + '</div>' +
-                    '<div class="st">P ' + Math.round(x.protein_g || 0) + ' g · G ' + Math.round(x.carbs_g || 0) + ' g · L ' + Math.round(x.fat_g || 0) + ' g · ' + k + ' kcal</div></div>' +
+                    '<div class="st">' +
+                    (x.qty != null && x.qty !== ''
+                        ? h(Menu.fmtNombre(x.qty)) + (x.unite ? ' ' + h(x.unite) : '') + ' · '
+                        : '') +
+                    'P ' + Math.round(x.protein_g || 0) + ' g · G ' + Math.round(x.carbs_g || 0) + ' g · L ' + Math.round(x.fat_g || 0) + ' g · ' + k + ' kcal</div></div>' +
                     '<div style="display:flex;gap:5px;align-items:center;">' +
                     '<button class="iconbtn btn-nutri-edit" data-id="' + h(id) + '" title="Corriger">✎</button>' +
                     '<button class="iconbtn btn-nutri-delete" data-id="' + h(id) + '" title="Supprimer">×</button></div>' +
@@ -910,7 +914,12 @@
             htmlSource +
             '<div class="champ"><label>Aliment ou repas</label><input id="inNutriItem" maxlength="120" value="' + h(x.item || '') + '" placeholder="Commence à taper : skyr, riz, poulet… (autocomplétion)" autocomplete="off" />' +
                 '<div id="inNutriSuggestions" role="listbox" aria-label="Suggestions d’aliments et de recettes"></div></div>' +
-            '<div class="champ"><label id="inNutriQtyLabel">' + (entree ? 'Quantité (×)' : 'Portions') + '</label><input type="number" id="inNutriQty" min="0.1" max="20" step="0.1" value="' + (x.qty == null ? 1 : Number(x.qty)) + '" /></div>' +
+            '<div class="champ"><label id="inNutriQtyLabel">Quantité</label>' +
+                '<div style="display:flex;gap:8px;align-items:stretch;">' +
+                    '<input type="number" id="inNutriQty" min="0.1" max="999.9" step="0.1" value="' + (x.qty == null ? 1 : Number(x.qty)) + '" style="flex:1;min-width:0;" />' +
+                    '<select id="inNutriUnit" aria-label="Unité" style="width:132px;flex-shrink:0;"></select>' +
+                '</div>' +
+                '<div class="st" id="inNutriUnitInfo" style="margin-top:5px;"></div></div>' +
             '<div class="grille g2">' +
                 '<div class="champ"><label>Protéines (g)</label><input type="number" id="inNutriP" min="0" max="5000" step="1" value="' + (x.protein_g || 0) + '" /></div>' +
                 '<div class="champ"><label>Glucides (g)</label><input type="number" id="inNutriG" min="0" max="5000" step="1" value="' + (x.carbs_g || 0) + '" /></div>' +
@@ -927,7 +936,38 @@
                 var qtyInput = UI.$('#inNutriQty', racine);
                 var qtyLabel = UI.$('#inNutriQtyLabel', racine);
                 var inputP = UI.$('#inNutriP', racine), inputG = UI.$('#inNutriG', racine), inputL = UI.$('#inNutriL', racine);
+                var uniteInput = UI.$('#inNutriUnit', racine);
+                var uniteInfo = UI.$('#inNutriUnitInfo', racine);
                 var baseMacros = null;
+                // baseUnite dit ce que représente baseMacros : 'g' (macros par
+                // gramme) ou 'part' (macros par portion, quand le poids d'une
+                // part est inconnu).
+                var baseUnite = 'g';
+                var ingCourant = null;   // aliment choisi, sert aux conversions
+                var poidsParPart = 0;    // grammes d'une part de recette, si connu
+
+                /** Grammes correspondant à `qte` exprimée dans `unite`. */
+                function grammesPour(qte, unite) {
+                    if (!Menu) return null;
+                    if (baseUnite === 'part') {
+                        if (unite === 'part') return qte * poidsParPart;
+                        if (unite === 'g') return qte;
+                        return null;
+                    }
+                    var parUnite = Menu.poidsUnite(ingCourant, unite);
+                    return parUnite > 0 ? qte * parUnite : null;
+                }
+
+                function remplirUnites(liste, defaut) {
+                    if (!uniteInput) return;
+                    var choix = (liste && liste.length) ? liste : (Menu ? Menu.UNITES : ['g']);
+                    uniteInput.innerHTML = choix.map(function (u) {
+                        return '<option value="' + h(u) + '">' + h(u) + '</option>';
+                    }).join('');
+                    var voulu = defaut && choix.indexOf(defaut) >= 0 ? defaut : choix[0];
+                    uniteInput.value = voulu;
+                }
+
                 function calc() {
                     var p = U.num(inputP.value, 0);
                     var g = U.num(inputG.value, 0);
@@ -935,11 +975,36 @@
                     UI.$('#inNutriKcal', racine).innerHTML = Math.round((p + g) * 4 + l * 9) + ' <small>kcal</small>';
                 }
                 function remplirMacros() {
-                    if (!baseMacros) { calc(); return; }
+                    if (!baseMacros) {
+                        if (uniteInfo) uniteInfo.textContent = '';
+                        calc();
+                        return;
+                    }
                     var q = Math.max(0, U.num(qtyInput.value, 1));
-                    inputP.value = Math.round(baseMacros.p * q * 10) / 10;
-                    inputG.value = Math.round(baseMacros.g * q * 10) / 10;
-                    inputL.value = Math.round(baseMacros.l * q * 10) / 10;
+                    var unite = uniteInput ? uniteInput.value : 'g';
+                    var grammes = grammesPour(q, unite);
+                    if (grammes == null) {
+                        // Unité sans équivalent en poids pour cet aliment : on
+                        // n'invente pas de valeur, on le dit.
+                        inputP.value = 0; inputG.value = 0; inputL.value = 0;
+                        if (uniteInfo) uniteInfo.textContent =
+                            'Impossible de convertir « ' + unite + ' » en poids pour cet aliment. ' +
+                            'Renseigne son poids par pièce, ou choisis une autre unité.';
+                        calc();
+                        return;
+                    }
+                    if (uniteInfo) {
+                        uniteInfo.textContent = baseUnite === 'part' && unite === 'part'
+                            ? Math.round(grammes) + ' g au total'
+                            : 'soit ' + Math.round(grammes) + ' g';
+                    }
+                    // baseMacros est toujours ramené au gramme.
+                    var parGramme = baseUnite === 'part' && poidsParPart > 0
+                        ? { p: baseMacros.p / poidsParPart, g: baseMacros.g / poidsParPart, l: baseMacros.l / poidsParPart }
+                        : baseMacros;
+                    inputP.value = Math.round(parGramme.p * grammes * 10) / 10;
+                    inputG.value = Math.round(parGramme.g * grammes * 10) / 10;
+                    inputL.value = Math.round(parGramme.l * grammes * 10) / 10;
                     calc();
                 }
                 function effacerValeursSource() {
@@ -949,25 +1014,49 @@
                     calc();
                 }
                 function appliquerRecette(recette) {
-                    qtyLabel.textContent = 'Portions';
+                    qtyLabel.textContent = 'Quantité';
+                    ingCourant = null;
+                    baseUnite = 'part';
+                    poidsParPart = 0;
                     qtyInput.min = '0.1'; qtyInput.max = '20'; qtyInput.step = '0.5';
-                    if (!recette) { qtyInput.value = '1'; effacerValeursSource(); return; }
+                    if (!recette) {
+                        qtyInput.value = '1';
+                        remplirUnites(['part'], 'part');
+                        effacerValeursSource();
+                        return;
+                    }
                     var valeurs = Menu.calculerRecette(recette.id);
                     if (!valeurs) { UI.toast('Impossible de calculer cette recette'); return; }
                     itemInput.value = recette.name || 'Recette';
                     qtyInput.value = '1';
                     baseMacros = { p: valeurs.par_part.proteines, g: valeurs.par_part.glucides, l: valeurs.par_part.lipides };
+                    var parts = Number(valeurs.parts) || 0;
+                    poidsParPart = parts > 0 ? Number(valeurs.poids_g || 0) / parts : 0;
+                    remplirUnites(poidsParPart > 0 ? ['part', 'g'] : ['part'], 'part');
                     remplirMacros();
                     if (valeurs.inconnues && valeurs.inconnues.length) {
                         UI.toast('Certaines valeurs d’ingrédients de cette recette manquent dans la base.');
                     }
                 }
                 function appliquerIngredient(ing) {
-                    qtyLabel.textContent = 'Quantité (g)';
-                    qtyInput.min = '1'; qtyInput.max = '999.9'; qtyInput.step = '5';
-                    if (!ing) { qtyInput.value = '100'; effacerValeursSource(); return; }
+                    qtyLabel.textContent = 'Quantité';
+                    baseUnite = 'g';
+                    poidsParPart = 0;
+                    qtyInput.min = '0.1'; qtyInput.max = '999.9'; qtyInput.step = '5';
+                    if (!ing) {
+                        ingCourant = null;
+                        qtyInput.value = '100';
+                        remplirUnites(Menu ? Menu.UNITES : ['g'], 'g');
+                        effacerValeursSource();
+                        return;
+                    }
+                    ingCourant = ing;
                     itemInput.value = Menu.nomIngredient(ing);
-                    qtyInput.value = '100';
+                    // « convives » n'a pas de sens pour une prise personnelle.
+                    var unites = Menu.unitesProposees(ing).filter(function (u) { return u !== 'convives'; });
+                    remplirUnites(unites, Menu.uniteParDefaut(ing));
+                    var parUnite = Menu.poidsUnite(ing, uniteInput ? uniteInput.value : 'g');
+                    qtyInput.value = parUnite > 0 ? String(Math.round(100 / parUnite * 10) / 10) : '100';
                     baseMacros = {
                         p: Number(ing.proteines_100g || 0) / 100,
                         g: Number(ing.glucides_100g || 0) / 100,
@@ -1043,8 +1132,12 @@
                         else if (type === 'ingredient') choisirIngredient();
                         else {
                             itemInput.value = '';
-                            qtyLabel.textContent = 'Quantité (×)';
-                            qtyInput.min = '0.1'; qtyInput.max = '20'; qtyInput.step = '0.1'; qtyInput.value = '1';
+                            qtyLabel.textContent = 'Quantité';
+                            ingCourant = null;
+                            baseUnite = 'g';
+                            poidsParPart = 0;
+                            qtyInput.min = '0.1'; qtyInput.max = '999.9'; qtyInput.step = '0.1'; qtyInput.value = '1';
+                            remplirUnites(Menu ? Menu.UNITES : ['g'], 'g');
                             inputP.value = 0; inputG.value = 0; inputL.value = 0; calc();
                         }
                     };
@@ -1052,6 +1145,16 @@
                     if (ingredientSelect) ingredientSelect.onchange = choisirIngredient;
                 }
                 qtyInput.oninput = remplirMacros;
+                if (uniteInput) uniteInput.onchange = remplirMacros;
+                if (entree) {
+                    // Correction d'une entrée : on retrouve l'unité enregistrée,
+                    // sans source en base puisque les listes ne sont pas chargées.
+                    baseUnite = 'g';
+                    ingCourant = null;
+                    poidsParPart = 0;
+                    qtyLabel.textContent = 'Quantité';
+                    remplirUnites(Menu ? Menu.UNITES : ['g'], x.unite || 'g');
+                }
                 [inputP, inputG, inputL].forEach(function (input) { input.oninput = calc; });
                 var valider = UI.$('#btnValiderNutrition', racine);
                 valider.onclick = function () {
@@ -1061,6 +1164,7 @@
                     var payload = {
                         date: jour, item: nom,
                         qty: U.num(qtyInput.value, 1),
+                        unite: (uniteInput && uniteInput.value) || '',
                         protein_g: Math.round(U.num(inputP.value, 0)),
                         carbs_g: Math.round(U.num(inputG.value, 0)),
                         fat_g: Math.round(U.num(inputL.value, 0))

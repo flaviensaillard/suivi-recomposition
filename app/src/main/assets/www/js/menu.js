@@ -427,6 +427,7 @@
         ingredientParId: ingredientParId, recetteParId: recetteParId, lignesParRecette: lignesParRecette,
         calculerRecette: calculerRecette, recetteLignes: recetteLignes, portionPersonne: portionPersonne,
         unitesProposees: unitesProposees, uniteParDefaut: uniteParDefaut, courses: courses,
+        poidsUnite: poidsUnite, quantiteGrammes: quantiteGrammes,
         lundiDe: lundiDe, dateIso: dateIso, dateAffiche: dateAffiche, fmtNombre: fmtNombre,
         planned: planned, detailsRepas: detailsRepas, ajouterRepas: ajouterRepas,
         modifierRepas: modifierRepas, supprimerRepas: supprimerRepas,

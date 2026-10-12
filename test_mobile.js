@@ -466,6 +466,74 @@ function testBoutonRecettePresentSurLesPlatsACuisiner() {
         'le bouton doit ouvrir la fiche de la bonne recette');
 }
 
+function testUniteChoisieDansLeJournalNutrition() {
+    // 1.4 : la quantité saisie doit pouvoir être exprimée dans l'unité de son
+    // choix (g, unité, cuillère à soupe…) et les macros doivent suivre.
+    const app = creerAppli();
+    // Œuf : 50 g par pièce, 13 g de protéines pour 100 g.
+    amorcerMenus(app, {
+        ingredients: [{
+            id: 'i9', name: 'Œuf', unit: 'g', poids_piece_g: 50,
+            category: 'Frais & Produits Laitiers',
+            kcal_100g: 143, proteines_100g: 13, glucides_100g: 1.1, lipides_100g: 11
+        }],
+        recipes: [], recipe_ingredients: []
+    });
+    const dom = creerDomStub();
+    app.contexte.document = dom.document;
+    app.contexte.Native = { toast: () => { } };
+
+    const ctx = { reglages: app.EQ.store.getReglages() };
+    app.EQ.views.feuilleNutrition(ctx, null, () => { });
+
+    const ing = app.EQ.menu.ingredients('')[0];
+    const saisie = dom.resoudre('#inNutriItem');
+    const unites = dom.resoudre('#inNutriUnit');
+    const qte = dom.resoudre('#inNutriQty');
+    const prot = dom.resoudre('#inNutriP');
+    const info = dom.resoudre('#inNutriUnitInfo');
+
+    // Choisir l'aliment via l'autocomplétion remplit aussi le sélecteur d'unité.
+    saisie.value = 'œuf';
+    saisie.oninput();
+    const boites = dom.resoudre('#inNutriSuggestions');
+    const boutons = boites.querySelectorAll('[data-sugg]');
+    const choix = boutons.find((b) => b.getAttribute('data-sugg') != null);
+    assert.ok(choix, 'l’aliment doit être proposé');
+    choix.onclick();
+
+    assert.equal(saisie.value, 'Œuf', 'l’aliment choisi remplit le champ');
+    assert.match(unites.innerHTML, /c\. à soupe/, 'les unités culinaires doivent être proposées');
+    assert.equal(unites.value, 'unité',
+        'l’unité par défaut d’un aliment à 50 g la pièce est l’unité');
+    // 100 g de référence ÷ 50 g par pièce = 2 unités.
+    assert.equal(Number(qte.value), 2, 'la quantité par défaut vaut 100 g exprimée en unités');
+    assert.equal(Number(prot.value), 13, '2 œufs = 100 g = 13 g de protéines');
+
+    // Même aliment, exprimé en grammes : résultat identique.
+    unites.value = 'g';
+    unites.onchange();
+    qte.value = '100';
+    qte.oninput();
+    assert.equal(Number(prot.value), 13, '100 g donnent les mêmes 13 g de protéines');
+
+    // En cuillères à soupe (15 g chacune) : 2 × 15 g = 30 g.
+    unites.value = 'c. à soupe';
+    unites.onchange();
+    qte.value = '2';
+    qte.oninput();
+    assert.equal(Number(prot.value), 3.9, '2 c. à soupe = 30 g = 3,9 g de protéines');
+    assert.match(info.textContent, /30 g/, 'l’équivalence en grammes doit être affichée');
+
+    // L'unité choisie est enregistrée avec l'entrée.
+    dom.resoudre('#inNutriDate').value = new Date().toISOString().slice(0, 10);
+    dom.resoudre('#btnValiderNutrition').onclick();
+    const enregistrees = app.EQ.store.getNutrition();
+    assert.equal(enregistrees.length, 1, 'une entrée doit être enregistrée');
+    assert.equal(enregistrees[0].unite, 'c. à soupe', 'l’unité doit être conservée');
+    assert.equal(Number(enregistrees[0].qty), 2, 'la quantité doit être conservée');
+}
+
 const TESTS = [
     testPremierLancementVide,
     testConservationDonneesLocalesApresMonteeDeVersion,
@@ -478,7 +546,8 @@ const TESTS = [
     testMigrationLocaleVersSupabase,
     testFicheRecetteDepuisLePlanning,
     testAutocompletionNutritionProposeRecettesEtAliments,
-    testBoutonRecettePresentSurLesPlatsACuisiner
+    testBoutonRecettePresentSurLesPlatsACuisiner,
+    testUniteChoisieDansLeJournalNutrition
 ];
 let passes = 0;
 TESTS.forEach((test) => {
