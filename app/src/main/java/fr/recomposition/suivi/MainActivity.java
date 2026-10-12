@@ -2,6 +2,7 @@ package fr.recomposition.suivi;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.content.Intent;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
@@ -18,6 +19,7 @@ import android.webkit.WebSettings;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.webkit.ValueCallback;
 import android.widget.Toast;
 
 /** WebView réservé aux assets locaux ; les pages distantes s'ouvrent hors de l'app. */
@@ -30,6 +32,8 @@ public class MainActivity extends Activity {
     private NativeBridge pont;
     private View splash;
     private boolean backPressedOnce = false;
+    private static final int REQ_CHOISIR_FICHIER = 4242;
+    private ValueCallback<Uri[]> fileCallback;
     private final Handler handler = new Handler(Looper.getMainLooper());
 
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
@@ -60,7 +64,9 @@ public class MainActivity extends Activity {
         settings.setAllowContentAccess(false);
         settings.setAllowFileAccessFromFileURLs(false);
         settings.setAllowUniversalAccessFromFileURLs(false);
-        settings.setBlockNetworkLoads(true); // mode local : aucun fetch/iframe vers Internet
+        // 1.4 : Supabase est la source de vérité et le Coach IA est distant —
+        // le WebView doit pouvoir émettre des requêtes réseau.
+        settings.setBlockNetworkLoads(false);
         settings.setLoadWithOverviewMode(false);
         settings.setUseWideViewPort(true);
         settings.setSupportZoom(false);
@@ -96,9 +102,34 @@ public class MainActivity extends Activity {
             }
         });
 
-        webView.setWebChromeClient(new WebChromeClient());
+        // Sélecteur de fichiers : sans ce rappel, un <input type="file"> de la
+        // page (pièces jointes du Coach IA) ne produit rien du tout dans un WebView.
+        webView.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback,
+                                             FileChooserParams params) {
+                if (fileCallback != null) {
+                    fileCallback.onReceiveValue(null);
+                }
+                fileCallback = callback;
+                try {
+                    Intent intent = params.createIntent();
+                    if (params.getMode() == FileChooserParams.MODE_OPEN_MULTIPLE) {
+                        intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+                    }
+                    startActivityForResult(intent, REQ_CHOISIR_FICHIER);
+                } catch (Exception e) {
+                    fileCallback = null;
+                    Toast.makeText(MainActivity.this, "Sélecteur de fichiers indisponible",
+                            Toast.LENGTH_SHORT).show();
+                    return false;
+                }
+                return true;
+            }
+        });
         webView.setBackgroundColor(Color.parseColor("#0B0F17"));
         pont = new NativeBridge(this);
+        pont.setWebView(webView);
         webView.addJavascriptInterface(pont, "Native");
         webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
 
@@ -112,6 +143,22 @@ public class MainActivity extends Activity {
                 hideSplash();
             }
         }, 5000);
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode == REQ_CHOISIR_FICHIER) {
+            if (fileCallback != null) {
+                Uri[] resultat = null;
+                if (resultCode == RESULT_OK) {
+                    resultat = WebChromeClient.FileChooserParams.parseResult(resultCode, data);
+                }
+                fileCallback.onReceiveValue(resultat);
+                fileCallback = null;
+            }
+            return;
+        }
+        super.onActivityResult(requestCode, resultCode, data);
     }
 
     private boolean gererNavigation(String url) {

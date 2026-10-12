@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-    <meta name="theme-color" content="#0B0F17">
+    <meta name="theme-color" content="#090D14">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Équilibre · Recomposition Corporelle</title>
@@ -17,7 +17,7 @@
                 Tableau de bord
                 <span class="sub" id="sousTitre">recomposition corporelle</span>
             </h1>
-            <button class="iconbtn" id="btnRefresh" title="État de synchronisation" aria-label="État de synchronisation">
+            <button class="iconbtn" id="btnRefresh" title="Actualiser" aria-label="Actualiser">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <polyline points="23 4 23 10 17 10"></polyline>
                     <polyline points="1 20 1 14 7 14"></polyline>
@@ -35,7 +35,7 @@
         <!-- Conteneur principal de la vue active -->
         <main id="view" class="enter"></main>
 
-        <!-- Barre de navigation basse à 5 onglets -->
+        <!-- Barre de navigation basse à 6 onglets -->
         <nav class="bottom" id="nav">
             <button data-onglet="bord" class="actif">
                 <svg viewBox="0 0 24 24">
@@ -69,13 +69,21 @@
                 </svg>
                 <span>Menus</span>
             </button>
-            <button data-onglet="apps">
+            <button data-onglet="nutrition">
                 <svg viewBox="0 0 24 24">
-                    <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
-                    <polyline points="2 17 12 22 22 17"></polyline>
-                    <polyline points="2 12 12 17 22 12"></polyline>
+                    <path d="M3 8h18v1a9 9 0 0 1-18 0V8z"></path>
+                    <path d="M6 4v3M10 3v4M14 3v4M18 4v3"></path>
+                    <path d="M12 18v3M8 21h8"></path>
                 </svg>
-                <span>Apps Web</span>
+                <span>Nutrition</span>
+            </button>
+            <button data-onglet="coach">
+                <svg viewBox="0 0 24 24">
+                    <path d="M12 3l1.2 4.2L17.5 9l-4.3 1.8L12 15l-1.2-4.2L6.5 9l4.3-1.8L12 3z"></path>
+                    <path d="M19 14l.7 2.3L22 17l-2.3.7L19 20l-.7-2.3L16 17l2.3-.7L19 14z"></path>
+                    <path d="M5 14l.8 2.2L8 17l-2.2.8L5 20l-.8-2.2L2 17l2.2-.8L5 14z"></path>
+                </svg>
+                <span>Coach IA</span>
             </button>
         </nav>
 
@@ -95,8 +103,11 @@
     <script src="js/models.js"></script>
     <script src="js/store.js"></script>
     <script src="js/net.js"></script>
+    <script src="js/menu.js"></script>
     <script src="js/ui.js"></script>
+    <script src="js/menu_views.js"></script>
     <script src="js/views.js"></script>
+    <script src="js/coach.js"></script>
     <script src="js/app.js"></script>
 </body>
 </html>

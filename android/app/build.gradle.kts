@@ -11,8 +11,8 @@ android {
         applicationId = "fr.recomposition.suivi"
         minSdk = 24
         targetSdk = 34
-        versionCode = 14
-        versionName = "1.0.13"
+        versionCode = 25
+        versionName = "1.4"
     }
 
     compileOptions {

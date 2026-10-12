@@ -5,14 +5,14 @@
     var U = EQ.util;
 
     var DEFAUTS_PROFIL = {
-        tailleCm: null,
-        poidsDepartKg: null,
-        poidsCibleKg: null,
-        objectifProteinesG: null,
-        objectifCaloriesKcal: null,
-        objectifGlucidesG: null,
-        objectifLipidesG: null,
-        tdeeKcal: null
+        tailleCm: 185,
+        poidsDepartKg: 85.0,
+        poidsCibleKg: 77.0,
+        objectifProteinesG: 130,
+        objectifCaloriesKcal: 1700,
+        objectifGlucidesG: 140,
+        objectifLipidesG: 50,
+        tdeeKcal: 2400
     };
 
     // ------------------------------------------------------------- Séances
@@ -40,7 +40,7 @@
                         unilateral: true,
                         variantes: ['N1 Assis-debout sur chaise', 'N2 Split squat au sol', 'N3 Bulgare avec 2×5 kg', 'N4 Bulgare + sac 10 kg', 'N5 Bulgare tempo 3 s + sac 15 kg'],
                         lests: ['Poids du corps', '2×5 kg', 'Sac 5 kg', 'Sac 10 kg', 'Sac 15 kg'],
-                        description: 'Pied arrière sur banc ou canapé. Descente contrôlée en gardant le genou avant au-dessus de la cheville, buste légèrement penché pour engager le grand fessier.'
+                        description: 'Pose le dessus du pied arrière sur un canapé ou une chaise. Avance l’autre pied d’un bon pas. Descends le genou arrière vers le sol en gardant le buste droit, puis remonte. Fais toutes tes répétitions d’une jambe, puis change de jambe.'
                     },
                     {
                         id: 'pompes',
@@ -49,7 +49,7 @@
                         unilateral: false,
                         variantes: ['N1 Mains sur canapé', 'N2 Sur les genoux', 'N3 Au sol amplitude complète', 'N4 Pieds surélevés 40 cm', 'N5 Surélevées + sac 10 kg'],
                         lests: ['Poids du corps', 'Sac 5 kg', 'Sac 10 kg'],
-                        description: 'Corps gainé des talons à la tête. Coudes à 45° du buste (pas en T). Poitrine qui frôle le sol, repousser en écartant les omoplates en haut.'
+                        description: 'Mains au sol un peu plus larges que les épaules, corps aligné des talons à la tête. Plie les coudes en les gardant à 45° du corps, pas écartés à 90°. Descends la poitrine près du sol, puis repousse jusqu’à tendre les bras.'
                     }
                 ]
             },
@@ -64,7 +64,7 @@
                         unilateral: true,
                         variantes: ['N1 Deux pieds au sol', 'N2 Unilatéral poids de corps', 'N3 Unilatéral avec sac 5 kg', 'N4 Unilatéral avec sac 10 kg'],
                         lests: ['Poids du corps', 'Sac 5 kg', 'Sac 10 kg'],
-                        description: 'Charnière de hanche : pousser les fesses en arrière en gardant le dos droit. Légère flexion du genou d’appui, ressentir l’étirement de l’ischio-jambier.'
+                        description: 'Debout sur une jambe, l’autre légèrement décollée du sol. Bascule le buste vers l’avant en poussant les fesses vers l’arrière, le dos bien plat. La jambe libre monte derrière toi. Tu dois sentir l’arrière de la cuisse s’étirer, puis tu remontes.'
                     },
                     {
                         id: 'rowing_inverse',
@@ -73,7 +73,7 @@
                         unilateral: false,
                         variantes: ['N1 Corps incliné à 45°', 'N2 Corps presque horizontal', 'N3 Pieds surélevés sur chaise', 'N4 Pause 2 s en haut'],
                         lests: ['Poids du corps', 'Sac sur le torse'],
-                        description: 'Sous la table ou barre basse. Tirer la poitrine vers la barre en resserrant fort les omoplates. Gaine abdominale verrouillée.'
+                        description: 'Allonge-toi sous une table solide ou une barre basse, le corps gainé et tendu. Attrape le bord au-dessus de ta poitrine. Tire la poitrine vers la table en serrant les omoplates, puis redescends lentement bras tendus.'
                     }
                 ]
             },
@@ -88,7 +88,7 @@
                         unilateral: true,
                         variantes: ['N1 Fentes lentes', 'N2 Fentes avec impulsion', 'N3 Fentes avec charge 10 kg'],
                         lests: ['Poids du corps', 'Sac 5 kg', 'Sac 10 kg'],
-                        description: 'Grand pas en arrière, descente verticale sans heurter le sol. Pousser sur le talon avant pour remonter.'
+                        description: 'Debout, fais un grand pas en arrière. Descends le genou arrière vers le sol sans le toucher. Remonte en poussant sur le talon avant et reviens pieds joints. Alterne les jambes à chaque répétition.'
                     },
                     {
                         id: 'gainage_planche',
@@ -97,7 +97,7 @@
                         unilateral: false,
                         variantes: ['N1 Sur les genoux', 'N2 Sur pointes de pieds', 'N3 Planche RKC active'],
                         lests: ['Poids du corps'],
-                        description: 'Rétroversion du bassin, fessiers et abdos contractés au maximum. Pousser activement dans les coudes pour éloigner les épaules des oreilles.'
+                        description: 'En appui sur les avant-bras et les pointes de pieds, corps bien droit. Rentre le bassin : ne creuse pas le bas du dos. Serre les fessiers et les abdos. Pousse dans les coudes pour éloigner les épaules des oreilles. Tiens sans bouger.'
                     }
                 ]
             }
@@ -127,7 +127,7 @@
                         unilateral: false,
                         variantes: ['N1 Descentes ralenties (négatives)', 'N2 Tractions avec élastique', 'N3 Poids du corps strictes', 'N4 Tractions lestées +5 kg'],
                         lests: ['Poids du corps', 'Sac 5 kg', 'Sac 10 kg'],
-                        description: 'Prise légèrement plus large que les épaules. Tirer avec les coudes vers le bas et l’arrière jusqu’à dépasser le menton. Contrôler la descente.'
+                        description: 'Suspendu à la barre, mains un peu plus larges que les épaules. Tire en amenant les coudes vers le bas et l’arrière, jusqu’à passer le menton au-dessus de la barre. Redescends lentement jusqu’aux bras tendus.'
                     },
                     {
                         id: 'pike_pushup',
@@ -136,7 +136,7 @@
                         unilateral: false,
                         variantes: ['N1 Pieds au sol hanches hautes', 'N2 Pieds sur chaise 40 cm', 'N3 Descente tempo 3 s', 'N4 Handstand push-up assisté'],
                         lests: ['Poids du corps'],
-                        description: 'Corps en V inversé. Regarder entre les mains, descendre la tête vers l’avant pour former un trépied, puis repousser vers l’arrière.'
+                        description: 'Mains et pieds au sol, fesses levées vers le ciel : ton corps forme un V renversé. Plie les coudes et descends la tête vers le sol, en avant des mains. Repousse pour revenir au V. C’est une pompe pour les épaules.'
                     }
                 ]
             },
@@ -151,7 +151,7 @@
                         unilateral: false,
                         variantes: ['N1 Buste à 45°', 'N2 Buste horizontal', 'N3 Pieds surélevés', 'N4 Tempo 3-1-1'],
                         lests: ['Poids du corps', 'Sac 5 kg'],
-                        description: 'Paumes tournées vers soi. Engage les biceps et le bas des dorsaux. Coudes serrés contre le buste.'
+                        description: 'Même position que le rowing inversé, mais les paumes tournées vers toi. Tire en gardant les coudes serrés contre le corps. Tu le sentiras surtout dans les biceps.'
                     },
                     {
                         id: 'face_pull',
@@ -160,7 +160,7 @@
                         unilateral: false,
                         variantes: ['N1 Élastique moyen', 'N2 Élastique fort', 'N3 Pause 2 s en contraction'],
                         lests: ['Élastique'],
-                        description: 'Tirer l’élastique vers les yeux en écartant les mains. Clé absolue de la posture et de la santé des épaules.'
+                        description: 'Attache un élastique à hauteur du visage. Tire-le vers tes yeux en écartant les mains de chaque côté de la tête, coudes hauts. Serre les omoplates en fin de mouvement. Excellent pour la posture et les épaules.'
                     }
                 ]
             },
@@ -175,7 +175,7 @@
                         unilateral: true,
                         variantes: ['N1 Genou au sol', 'N2 Pieds empilés', 'N3 Avec levée de jambe'],
                         lests: ['Poids du corps'],
-                        description: 'Corps parfaitement aligné. Pousser les hanches vers le haut, bras libre tendu vers le ciel.'
+                        description: 'Sur le côté, en appui sur un avant-bras et le bord des pieds. Lève les hanches pour aligner le corps. Tends l’autre bras vers le plafond. Tiens la position, puis change de côté.'
                     },
                     {
                         id: 'hollow_hold',
@@ -184,7 +184,7 @@
                         unilateral: false,
                         variantes: ['N1 Genoux fléchis', 'N2 Une jambe tendue', 'N3 Position complète bras tendus'],
                         lests: ['Poids du corps'],
-                        description: 'Bas du dos plaqué sans aucun jour contre le sol. Côtes aspirées, pointes de pieds tendues.'
+                        description: 'Allongé sur le dos, bras tendus derrière la tête et jambes tendues. Décolle légèrement les épaules et les jambes du sol. Plaque tout le bas du dos au sol : aucun espace ne doit passer. Tiens la position.'
                     }
                 ]
             }
