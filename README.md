@@ -1,104 +1,124 @@
-# Équilibre — menus, nutrition et suivi de recomposition
+# Équilibre — suivi de recomposition, menus et Coach IA
 
-> **État audité le 10 octobre 2026.** Ce dépôt contient deux expériences distinctes : une application Streamlit connectée au foyer et une coque Android à données locales. Voir le [rapport d’audit complet](AUDIT_COMPLET_2026-10-10.md).
->
-> **Important : l’exigence produit « APK hors ligne synchronisée » n’est pas satisfaite.** L’APK actuelle fonctionne hors ligne sur un seul appareil, mais n’envoie ni ne reçoit aucune donnée. Les menus de l’APK ne sont pas partagés avec le foyer ni avec Streamlit. Ne pas la présenter comme un client synchronisé.
+Version **1.3.10** (Android `versionCode 24`). Streamlit aligné sur la même version.
 
-## Versions et publication
+> **Provenance de cette version.** Le dépôt ne contenait plus le code correspondant à l'APK
+> réellement installée. Cette version a été **restaurée à partir du paquet binaire**
+> `telechargements/Equilibre-1.3.10.apk` (sha256 `b875d6c23b734de3d9e7a7725a295eb530902e4e7c0943cf25543215ebd3f8c6`,
+> 161 875 octets, signé `META-INF/EQUILIBR.RSA`). Voir « Ce qui a pu être restauré » plus bas.
 
-- Version actuelle : [`v1.0.13`](https://github.com/flaviensaillard/suivi-recomposition/releases/tag/v1.0.13), publiée le **10 octobre 2026** (Streamlit 1.0.13, Android 1.0.13 / code 14).
-- Précédente release : [`v1.0.12`](https://github.com/flaviensaillard/suivi-recomposition/releases/tag/v1.0.12), publiée le **6 octobre 2026**, `versionCode 13`.
-- Le build Android de cette branche est validé par les tests de non-régression et compilé via la CI GitHub Actions.
-- GitHub Actions produit l'artefact de vérification et assure la publication des versions taguées.
+## Ce que fait l'application
 
-## Matrice fonctionnelle
+| Fonction | Où |
+|---|---|
+| Pesées, mensurations, nutrition, séances | `assets/www/js/store.js`, `views.js` |
+| Menus familiaux, recettes, liste de courses | `assets/www/js/menu.js`, `menu_views.js` |
+| **Coach IA** : conversation persistante, analyse de journée, rapports validés | `assets/www/js/coach.js` |
+| Synchronisation Supabase (authentification, file d'attente locale) | `assets/www/js/net.js` |
+| Coque Android (WebView + pont natif) | `MainActivity.java`, `NativeBridge.java` |
+| Application Streamlit de bureau | `app.py`, `menus.py`, `repas.py`, `seances.py`, `editeurs.py` |
 
-| Besoin | Streamlit | APK Android (code actuel) |
-|---|---|---|
-| Menus familiaux partagés | Planning, recettes et courses passent par le magasin de menus connecté ; un parcours « partage » existe. Les permissions de la base de menus en production n’ont pas été vérifiées pendant cet audit. | Quelques écrans et données locales peuvent être utilisés sur le téléphone, mais il n’existe ni partage familial entre appareils, ni synchronisation avec le magasin Streamlit. |
-| Suivis personnels | Connexion Supabase et filtrage par compte dans le code ; le schéma SQL suivi définit des règles RLS par `auth.uid()`. L’état réel des politiques Supabase n’a pas été inspecté. | Une seule zone locale au téléphone, sans authentification ni séparation de membres. |
-| Utilisation hors ligne | Le service cloud nécessite un réseau. SQLite est réservé au développement mono-utilisateur explicitement activé ; il ne synchronise rien. | Les actifs HTML/JS et la saisie locale fonctionnent sans réseau. C’est du **stockage hors ligne uniquement**, pas du « offline-first synchronisé ». |
-| Persistance | Supabase en mode connecté ; SQLite temporaire pour les tests et le développement local. | `localStorage` du WebView. Pas de file d’envoi, de fusion, de reprise après conflit ou de sauvegarde Android (`allowBackup=false`). |
-| Accès aux pages Web | Application Streamlit. | Les URL Streamlit sont ouvertes dans le navigateur système, hors du WebView privilégié. |
+Les deux arbres `app/src/main` et `android/app/src/main` sont maintenus identiques.
 
-Le parcours familial et les suivis privés restent donc à éprouver avec deux comptes de test et sur l’instance réelle avant toute affirmation de confidentialité de bout en bout.
+## Coach IA — ce qu'il faut savoir avant de l'utiliser
 
-## Architecture vérifiée dans le dépôt
+L'IA **n'est pas dans l'APK** : aucun SDK d'apprentissage n'est empaqueté. L'application est un
+client HTTP d'un **Worker Cloudflare** dont l'adresse se règle dans ⚙ Réglages
+(`regCoachUrl`, vide par défaut). Tant qu'elle n'est pas renseignée, `coach.js:55` refuse tout appel.
 
-```text
-app.py, db.py, menus.py, repas.py, seances.py  → application Python / Streamlit
-schema.sql                                      → schéma proposé pour les tables personnelles
-app/src/main/                                   → source Android utilisée par build.sh
-android/app/src/main/                           → copie Gradle, synchronisée avec la source ci-dessus
-app/src/main/assets/www/js/net.js               → transport Supabase désactivé
-app/src/main/assets/www/js/store.js             → données du téléphone dans localStorage
-data/foods_ciqual.csv                           → extrait Ciqual local (3 339 lignes)
-data/demo_menus.json                            → jeu de démonstration, pas la base de production
-.github/workflows/apk.yml                       → build CI, release protégée
-```
+- **Endpoints appelés** : `/api/coach/chat`, `/api/coach/analyze`, `/api/coach/memory`,
+  `/api/coach/history`, `/api/coach/reports`, `/api/coach/reports/approve`, `/api/health`
+- **Authentification** : le jeton de session Supabase est réutilisé (`Authorization: Bearer …`, `coach.js:67`)
+- **Recherche web** : effectuée côté Worker, sources affichées et cliquables (`coach.js:288`)
+- **Secrets** : les clés Cloudflare et Tavily restent côté Worker, jamais dans l'application
 
-`MainActivity.java` charge les actifs locaux dans un WebView dont les requêtes réseau sont bloquées. Le pont JavaScript natif expose notamment haptique et ouverture de liens HTTPS, mais aucun transport HTTP de synchronisation. `net.js` renvoie explicitement l’état « désactivée ». Le code de l’APK ne constitue donc pas un client de Supabase.
+**Données qui quittent l'appareil** vers `/api/coach/chat` (`construireContexteChat`, `coach.js:124`).
+Le test `testContexteEnvoyeAuCoachIa` les borne explicitement :
 
-### Limites importantes de la configuration de données
+- nutrition des **7 derniers jours** uniquement (totaux et moyennes, jamais le détail jour par jour)
+- **4 dernières séances**, notes tronquées à **160 caractères**
+- **la dernière mensuration** seulement
+- les 7 dernières pesées (date + poids), pas, sommeil, énergie
+- les objectifs du profil et les repas planifiés du jour
 
-- Le script `schema.sql` suivi ici ne contient pas les colonnes d’objectifs glucides, lipides et calories que l’interface Streamlit demande. L’interface refuse maintenant de confirmer une sauvegarde partielle du profil lorsque le schéma est incompatible. **Aucune migration n’a été exécutée** ; faire vérifier et mettre à niveau le schéma avant de confirmer un profil complet.
-- L’accès aux menus peut emprunter la clé publique si aucun compte de partage n’est configuré. Le code source ne suffit pas à établir les droits effectifs : les politiques des tables de menus en production doivent être contrôlées séparément.
-- Les liens personnels Streamlit contenant `?cle=…` sont des secrets porteurs d’accès. Éviter de les publier, de les envoyer à des tiers ou de les laisser dans des journaux/captures.
-- Le mode SQLite local ne doit pas être exposé sur Internet et n’isole pas plusieurs membres.
+`/api/coach/analyze` envoie en plus la journée complète et le texte libre saisi.
 
-## Nutrition : calculs et provenance
+## Synchronisation et stockage
 
-- Le fichier `data/foods_ciqual.csv` contient **3 339 codes distincts** : 8 valeurs protéines, 144 glucides, 10 lipides, 3 281 fibres et 120 sels sont absents. Il ne s’agit pas d’une mesure des données familiales en production.
-- Le convertisseur `ciqual.py` vise l’édition Ciqual 2025 de l’ANSES, qui annonce 3 484 aliments ; le CSV suivi dans ce dépôt n’a pas été réconcilié avec le classeur officiel pendant cet audit. La version exacte de cet extrait reste à établir.
-- Les données sont des valeurs de référence pour 100 g de partie comestible. Des quantités/unités mal renseignées rendent les macros incomplètes ou approximatives. Les conversions estimées doivent rester visibles et ne pas être traitées comme une mesure exacte.
-- Les totaux « calories estimées » à partir des macros utilisent une approximation 4/4/9 ; ils peuvent différer de l’énergie Ciqual. Les macros manquantes restent inconnues, pas zéro. Une valeur « 0 » explicitement saisie reste un zéro valide.
-- Les objectifs et exemples codés dans `content.py` sont des repères historiques, non des recommandations universelles. Les écrans de comparaison restent neutralisés tant que le profil personnel n’est pas complet. L’exemple de journée restrictive a été retiré de l’écran Nutrition ; les objectifs de l’utilisateur n’ont pas été modifiés.
+`net.js` porte un transport Supabase authentifié avec file d'attente locale
+(clé `eq.sync.queue.v1`). Les écritures utilisent le jeton de l'utilisateur afin de respecter les
+règles RLS ; seule la clé publishable/anon est stockée sur l'appareil. Les clés de stockage local
+sont inchangées (`eq.logs.v1`, `eq.mensurations.v1`, `eq.seances.v1`, `eq.series.v1`,
+`eq.nutrition.v1`, `eq.courses.v1`, `eq.profil.v1`, `eq.reglages.v1`, `eq.menu.*.v1`) : une
+installation antérieure retrouve ses données après montée de version.
 
-Sources : [Table Ciqual 2025 — ANSES](https://ciqual.anses.fr/cms/sites/default/files/inline-files/Table%20Ciqual%202025%20doc%20FR_2025_11_19.pdf) · [Notice du jeu de données et licence](https://entrepot.recherche.data.gouv.fr/dataset.xhtml?persistentId=doi%3A10.57745%2FRDMHWY). Toute redistribution doit conserver l’attribution ANSES et la licence applicables.
+Le manifeste déclare `INTERNET`, `ACCESS_NETWORK_STATE` et `VIBRATE`. Les URL Streamlit ouvertes
+depuis l'app le sont dans le navigateur système, hors du WebView qui porte le pont natif.
 
-## Proposition sportive (générique, à adapter)
+## Ce qui a pu être restauré, et ce qui ne l'a pas été
 
-Le calendrier **lundi renforcement A / jeudi rugby / vendredi renforcement B** est intentionnel et conservé. Proposition prudente, non personnalisée :
+| Élément | État |
+|---|---|
+| 12 fichiers `assets/www/**` (HTML, CSS, 10 modules JS) | **Restaurés à l'octet près** depuis l'APK, vérifié par `cmp` sur les 12 |
+| `coach.js` (37 866 o), `menu.js` (26 181 o), `menu_views.js` (33 535 o) | Absents du dépôt, **réintégrés** |
+| `MainActivity.java`, `NativeBridge.java` | **Non décompilables** ici (pas de JDK). Les sources du dépôt exposent exactement la même surface : pont enregistré sous `Native`, 7 méthodes `isOnline`, `haptic`, `toast`, `openExternal`, `share`, `versionCode`, `versionName`. Seuls les numéros de version ont été mis à jour |
+| `AndroidManifest.xml`, `res/` | Sources du dépôt conservées ; valeurs vérifiées sur le binaire (`fr.recomposition.suivi`, `.MainActivity`, `@string/app_name`) |
+| Code Python / Streamlit | **Non issu de l'APK** — inchangé hormis `VERSION` |
 
-- **Lundi — bas du corps et tronc :** squat ou variante, charnière de hanche, mouvement unilatéral, tronc ; choisir des variantes maîtrisées, démarrer avec un volume tolérable et garder quelques répétitions en réserve.
-- **Jeudi — rugby :** activité principale à intensité variable ; noter la durée réellement effectuée et le ressenti. Une dépense calorique par formule MET reste une estimation très incertaine et ne doit pas modifier automatiquement l’alimentation.
-- **Vendredi — haut du corps :** tirage et poussée, épaules et tronc ; alléger ou reporter selon la récupération après le rugby, et ne pas entraîner une zone douloureuse.
-- **Progression :** ne changer qu’un paramètre à la fois après plusieurs séances confortables et correctement consignées. Un RPE, le sommeil ou une performance isolée ne diagnostiquent ni la récupération ni la conservation musculaire. En cas de douleur persistante ou inquiétante, demander un avis professionnel.
+## Garde-fous non repris
 
-Le programme dans le code reste une base générique : matériel, antécédents, niveau, charge réelle et contraintes individuelles ne sont pas validés. Les adaptations proposées doivent rester explicites et confirmées par la personne.
+Le fork 1.0.12/1.0.13 publié depuis ce dépôt avait ajouté des protections qui **n'existent pas
+dans la 1.3.10** et n'ont donc pas été réintroduites :
 
-## Tests reproductibles exécutés
+- `store.anciennesDonneesAverifier()` et le bandeau « Données locales antérieures à vérifier »
+- la clé de migration `eq.revisionDonnees.v2`
+- `reglages.profileConfigured` et le bandeau « Repères à vérifier — non personnalisés »
+- les écrans de comparaison neutralisés tant que le profil n'est pas complet
 
-Depuis la racine du dépôt :
+La 1.3.10 préremplit les objectifs (130 g de protéines, 1 700 kcal, 140 g de glucides, 50 g de
+lipides, TDEE 2 400 kcal, `store.js:29`). Ce sont des valeurs par défaut, pas des recommandations
+personnalisées : à corriger dans Réglages avant de s'y fier.
+
+## Correction appliquée au code restauré
+
+Une seule modification de comportement a été apportée au code issu de l'APK :
+
+- `ui.js:199` — `svgBarresProteines` produisait `x="NaN"` lorsqu'une **seule** journée de données
+  était disponible (`gap` valait `264/0 = Infinity`, puis `0 × Infinity = NaN`). Garde ajoutée sur
+  `donnees7j.length > 1`. Détecté par `testGraphiqueProteinesVideEtUneValeur`.
+
+## Tests
 
 ```bash
-node test_mobile.js
-.venv/bin/python test_integrite.py
-.venv/bin/python test_app.py
+node test_mobile.js                 # 6/6 — coque mobile, contrat 1.3.10
+.venv/bin/python test_integrite.py  # 12/12 — profils, macros, unités, séances
+.venv/bin/python test_app.py        # 10/10 — pages Streamlit rendues
 .venv/bin/python -m compileall -q .
 bash -n build.sh
 git diff --check
 ```
 
-Résultats de cet audit :
+La suite mobile a été réalignée sur le contrat réel de la 1.3.10 ; les assertions qui portaient sur
+les garde-fous supprimés ont été retirées et sont listées ci-dessus.
 
-- **6/6** tests mobiles ciblés passent (premier lancement vide, conservation des données locales anciennes, macros non préremplies, saisies facultatives, rendus mobiles).
-- **12/12** tests d’intégrité Python passent (profils, macros, unités, sessions, douleur et estimation rugby).
-- **10/10** pages Streamlit sont rendues sans exception dans le banc `AppTest`, avec SQLite jetable et mode mono-utilisateur de test.
-- Compilation syntaxique Python, `bash -n` et `git diff --check` passent ; les arbres `app/src/main` et `android/app/src/main` sont identiques.
-- **Compilation APK non vérifiée** : `bash build.sh` s’arrête faute de SDK Android dans cet environnement. Aucun téléphone/émulateur, compte réel, base Supabase ou instance Streamlit de production n’a été testé.
+## Compilation de l'APK
 
-Pour compiler localement, installer un JDK 17 et le SDK Android avec build-tools 34.0.0, puis lancer `bash build.sh`. Sans clé persistante explicitement configurée, le script utilise une clé temporaire aléatoire, supprimée en fin de build ; l’APK ainsi signée n’est pas une release installable par-dessus une version signée avec la clé de production.
+```bash
+VERSION_NAME=1.3.10 VERSION_CODE=24 bash build.sh
+```
 
-## Feuille de route priorisée
+JDK 17 et SDK Android (platform 34, build-tools 34.0.0) requis. Sans clé de signature configurée,
+`build.sh` utilise une clé temporaire aléatoire supprimée en fin de build : l'APK produite ne peut
+pas être installée par-dessus une version signée avec la clé de production.
 
-1. **P0 — APK synchronisée :** concevoir authentification individuelle, stockage local durable, file d’opérations idempotente, reprise réseau, suppressions/tombstones, conflits, confidentialité au repos, migrations locales, déconnexion, export et stratégie de récupération. Tester avec deux comptes et deux appareils. Tant que ce lot n’est pas validé, garder `APK_SYNC_READY=false` et ne pas publier.
-2. **P0 — Confidentialité de production :** vérifier, en lecture seule, les politiques RLS de toutes les tables personnelles et de menus, le parcours `?partage=1`, les comptes de partage et l’isolation Léa/Flavien ; documenter précisément qui peut lire/écrire. Ne pas confondre les commentaires du code avec une mesure en production.
-3. **P1 — Schéma et sauvegarde du profil :** réconcilier `schema.sql` avec les champs réellement utilisés par Streamlit, tester la mise à niveau sur une base de test, puis seulement planifier une migration contrôlée. Ce dépôt n’a appliqué aucune migration.
-4. **P1 — Données nutritionnelles :** comparer l’extrait de 3 339 lignes au fichier Ciqual officiel 2025, conserver provenance/licence et valeurs « traces » comme inconnues, mesurer la couverture des ingrédients du foyer et faire valider les unités/portions.
-5. **P1 — Validation sportive :** vérifier le matériel, les variantes et le volume avec l’utilisateur ; distinguer séances prévues et réalisées, puis n’exploiter que des séries réellement saisies. Faire relire les contenus santé par un professionnel.
-6. **P2 — Versionnement et documentation :** harmoniser les numéros de version Streamlit/Android et les URLs configurées ; archiver les rapports précédents comme historiques afin qu’ils ne soient pas confondus avec l’état courant.
+La CI (`.github/workflows/apk.yml`) construit un artefact de vérification. La publication d'une
+release reste bloquée tant que `APK_SYNC_READY` n'est pas passé à `true`.
 
-## Périmètre de sécurité de cette session
+## Historique récent
 
-Tests isolés et code source seulement. Pas de lecture/écriture Supabase, pas de changement de permissions, pas de migration, pas d’accès aux secrets de production, pas de déploiement Streamlit, pas de publication GitHub, pas de commit ni push. Le rapport décrit ce qui est vérifié dans ce checkout ; toute propriété de la base ou du service actuellement déployé qui n’a pas été mesurée est indiquée comme non vérifiée.
+- Les releases `v1.0.12`, `v1.2.0` et `v1.0.13` et leurs tags ont été supprimés : elles
+  correspondaient à une branche appauvrie (hors ligne seul, synchronisation neutralisée, ni Coach IA
+  ni menus connectés), et non à l'application réellement utilisée.
+- Les documents de suivi obsolètes ont été retirés (`AUDIT_1.0.8.md`, `AUDIT_COMPLET_2026-10-10.md`,
+  `A_LIRE.md`, `EMPREINTES_MD5.txt`, `LIRE_MOI.md`, `PROCHAINES_ETAPES.md`). Ils restent consultables
+  dans l'historique Git.

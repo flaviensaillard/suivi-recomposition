@@ -99,7 +99,7 @@ public class NativeBridge {
 
     @JavascriptInterface
     public int versionCode() {
-        return 14;
+        return 24;
     }
 
     @JavascriptInterface
@@ -108,7 +108,7 @@ public class NativeBridge {
             return activity.getPackageManager()
                     .getPackageInfo(activity.getPackageName(), 0).versionName;
         } catch (Exception e) {
-            return "1.0.13";
+            return "1.3.10";
         }
     }
 }

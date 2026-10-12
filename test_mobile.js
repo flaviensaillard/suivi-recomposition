@@ -1,5 +1,18 @@
 /* Tests ciblés de la coque mobile, sans navigateur ni dépendance externe.
  * Exécuter avec : node test_mobile.js
+ *
+ * Cette suite a été réalignée sur la version 1.3.10 restaurée depuis l'APK
+ * téléversé dans telechargements/. L'ordre de chargement reprend celui
+ * d'index.html. app.js est volontairement exclu : il démarre l'interface et
+ * exige un DOM.
+ *
+ * Trois assertions de l'ancienne suite ont été retirées parce que la fonction
+ * qu'elles couvraient n'existe pas en 1.3.10 :
+ *   - store.anciennesDonneesAverifier() et store.masquerAvertissementDonneesPreexistantes()
+ *   - la clé localStorage eq.revisionDonnees.v2
+ *   - reglages.profileConfigured et le bandeau « Repères à vérifier — non personnalisés »
+ * Ces garde-fous avaient été ajoutés par le fork 1.0.12/1.0.13 ; voir README,
+ * section « Garde-fous non repris ».
  */
 'use strict';
 
@@ -9,7 +22,9 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const JS_DIR = path.join(__dirname, 'app/src/main/assets/www/js');
-const SOURCES = ['util.js', 'models.js', 'store.js', 'ui.js', 'views.js'];
+// Ordre réel des <script> dans index.html, app.js exclu.
+const SOURCES = ['util.js', 'models.js', 'store.js', 'net.js', 'menu.js',
+    'ui.js', 'menu_views.js', 'views.js', 'coach.js'];
 
 function creerAppli(stockInitial) {
     const donnees = new Map(Object.entries(stockInitial || {}));
@@ -27,128 +42,146 @@ function creerAppli(stockInitial) {
     return { EQ: contexte.EQ, localStorage, donnees };
 }
 
+function dateIso(decalageJours) {
+    const d = new Date();
+    d.setHours(12, 0, 0, 0);
+    d.setDate(d.getDate() + decalageJours);
+    return d.toISOString().slice(0, 10);
+}
+
 function testPremierLancementVide() {
-    const { EQ, donnees } = creerAppli();
+    const { EQ } = creerAppli();
     assert.deepEqual(Array.from(EQ.store.getLogs()), []);
     assert.deepEqual(Array.from(EQ.store.getMensurations()), []);
     assert.deepEqual(Array.from(EQ.store.getSeances()), []);
     assert.deepEqual(Array.from(EQ.store.getCourses()), []);
-    assert.equal(EQ.store.getReglages().profileConfigured, false);
-    assert.equal(EQ.store.anciennesDonneesAverifier(), false);
-    assert.equal(JSON.parse(donnees.get('eq.revisionDonnees.v2')), 2);
+    // Valeurs par défaut lues dans DEFAUTS_REGLAGES (store.js).
+    const r = EQ.store.getReglages();
+    assert.equal(r.coachApiUrl, '', 'l’URL du Worker Coach IA ne doit pas être préremplie');
+    assert.equal(r.supabaseUrl, '', 'l’URL Supabase ne doit pas être préremplie');
+    assert.equal(r.supabaseKey, '', 'la clé Supabase ne doit pas être préremplie');
+    assert.equal(r.urlSuivi, 'https://suivi-recomposition.streamlit.app');
+    // Le profil personnel démarre vide, sans identifiant.
+    assert.equal(EQ.store.getProfil().displayName, '');
 }
 
-function testConservationEtAvertissementAncienStockage() {
-    const logsAnciens = [{ date: '2026-01-01', poids: 80, proteinesG: 47, caloriesKcal: 1234 }];
+function testConservationDonneesLocalesApresMonteeDeVersion() {
+    // Les clés de stockage sont inchangées entre le fork 1.0.13 et la 1.3.10 :
+    // une installation existante doit retrouver ses données telles quelles.
+    const logs = [{ date: '2026-01-01', poids: 80, proteinesG: 47 }];
+    const courses = [{ id: 'old', produit: 'Article', pris: false }];
     const { EQ } = creerAppli({
-        'eq.logs.v1': JSON.stringify(logsAnciens),
-        'eq.courses.v1': JSON.stringify([{ id: 'old', produit: 'Article', pris: false }])
+        'eq.logs.v1': JSON.stringify(logs),
+        'eq.courses.v1': JSON.stringify(courses),
+        'eq.mensurations.v1': JSON.stringify([{ date: '2026-01-01', tailleCm: 84 }]),
+        'eq.seances.v1': JSON.stringify([{ date: '2026-01-01', type: 'A' }])
     });
-    assert.deepEqual(JSON.parse(JSON.stringify(EQ.store.getLogs())), logsAnciens);
+    assert.deepEqual(JSON.parse(JSON.stringify(EQ.store.getLogs())), logs);
     assert.equal(EQ.store.getCourses().length, 1);
-    assert.equal(EQ.store.anciennesDonneesAverifier(), true);
-    const html = EQ.views.vueBord({ reglages: EQ.store.getReglages(), logs: EQ.store.getLogs() });
-    assert.match(html, /Données locales antérieures à vérifier/);
-    EQ.store.masquerAvertissementDonneesPreexistantes();
-    assert.equal(EQ.store.anciennesDonneesAverifier(), false);
-    assert.deepEqual(JSON.parse(JSON.stringify(EQ.store.getLogs())), logsAnciens);
+    assert.equal(EQ.store.getMensurations().length, 1);
+    assert.equal(EQ.store.getSeances().length, 1);
 }
 
 function testGraphiqueProteinesVideEtUneValeur() {
     const { EQ } = creerAppli();
+    // Comportement réel de ui.js:194 en 1.3.10 : sans donnée, le graphique
+    // trace seulement la ligne de cible. Le texte « Aucune saisie de protéines »
+    // était un ajout du fork réduit, il n'existe pas ici.
     const vide = EQ.ui.svgBarresProteines([], 130);
-    assert.match(vide, /Aucune saisie de protéines/);
+    assert.match(vide, /<svg/);
+    assert.match(vide, /Cible 130 g/);
+    assert.doesNotMatch(vide, /<rect/, 'aucune barre ne doit être tracée sans donnée');
+    assert.doesNotMatch(vide, /NaN|Infinity/);
+
     const uneBarre = EQ.ui.svgBarresProteines([{ date: '2026-01-01', proteinesG: 42 }], 130);
-    assert.match(uneBarre, /<svg/);
-    assert.match(uneBarre, /42/);
+    assert.match(uneBarre, /<rect/);
+    assert.match(uneBarre, />42</);
     assert.doesNotMatch(uneBarre, /NaN|Infinity/);
-    assert.match(EQ.ui.svgBarresProteines([{ date: '2026-01-01', proteinesG: null }], 130), /Aucune saisie/);
-    assert.match(EQ.ui.svgBarresProteines([{ date: '2026-01-01', proteinesG: 42 }], 0), /vérifié dans Réglages/);
+
+    // Une protéine absente compte pour 0 (barre à la hauteur minimale), pas pour une erreur.
+    const nulle = EQ.ui.svgBarresProteines([{ date: '2026-01-01', proteinesG: null }], 130);
+    assert.match(nulle, /<rect/);
+    assert.doesNotMatch(nulle, /NaN|Infinity/);
+
+    // cibleG falsy retombe sur 130 (ui.js:195), il n'y a pas d'état « à vérifier ».
+    assert.match(EQ.ui.svgBarresProteines([{ date: '2026-01-01', proteinesG: 42 }], 0), /Cible 130 g/);
 }
 
-function testFormulairePeseeSansMacrosPreremplies() {
+function testReglagesExposentCoachIaEtSupabase() {
     const { EQ } = creerAppli();
-    const champs = {
-        '#inDatePesee': { value: '2026-01-02' },
-        '#inPoids': { value: '80.2' },
-        '#inGras': { value: '' },
-        '#inProt': { value: '' },
-        '#inKcal': { value: '' },
-        '#btnValiderNouvellePesee': { onclick: null }
-    };
-    let configFeuille;
-    let fermee = false;
-    EQ.ui.$ = (selecteur) => champs[selecteur] || null;
-    EQ.ui.toast = () => {};
-    EQ.ui.feuille = (config) => {
-        configFeuille = config;
-        config.apresRendu({}, () => { fermee = true; });
-    };
-    EQ.views.feuillePesee({ reglages: EQ.store.getReglages(), logs: [] });
-    for (const id of ['inGras', 'inProt', 'inKcal']) {
-        assert.match(configFeuille.html, new RegExp(`id="${id}"[^>]*value=""`));
-    }
-    champs['#btnValiderNouvellePesee'].onclick();
-    const [saisie] = EQ.store.getLogs();
-    assert.equal(saisie.poids, 80.2);
-    assert.equal(Object.hasOwn(saisie, 'proteinesG'), false);
-    assert.equal(Object.hasOwn(saisie, 'caloriesKcal'), false);
-    assert.equal(Object.hasOwn(saisie, 'masseGrassePct'), false);
-    assert.equal(fermee, true);
-}
-
-function testRepèresMobilesVidesSansConfirmation() {
-    const { EQ } = creerAppli();
-    const reglages = EQ.store.getReglages();
-    assert.equal(reglages.profileConfigured, false);
     let feuille;
     EQ.ui.feuille = (config) => { feuille = config; };
-    EQ.views.feuilleReglages({ reglages }, () => {});
-    for (const id of ['regPoidsCible', 'regProtCible', 'regKcalCible']) {
-        assert.match(feuille.html, new RegExp(`id="${id}" value=""`));
-    }
-    assert.match(feuille.html, /Repères à vérifier — non personnalisés/);
+    EQ.views.feuilleReglages({ reglages: EQ.store.getReglages() }, () => {});
+    // Le champ du Worker Coach IA existe et démarre vide (coach.js:55 refuse
+    // tout appel tant qu'il n'est pas renseigné).
+    assert.match(feuille.html, /id="regCoachUrl"[^>]*value=""/);
+    assert.match(feuille.html, /Worker Coach IA/);
+    assert.match(feuille.html, /id="regSupaUrl"/);
+    assert.match(feuille.html, /id="regSupaKey"/);
 }
 
-function testMensurationPartielleEtSeanceGenerique() {
+function testContexteEnvoyeAuCoachIa() {
+    // Documente précisément ce qui quitte l'appareil vers /api/coach/chat.
     const { EQ } = creerAppli();
-    const champs = {
-        '#inDateMens': { value: '2026-01-03' },
-        '#inTailleCm': { value: '84.5' },
-        '#inHanchesCm': { value: '' },
-        '#inBrasCm': { value: '' },
-        '#inCuisseCm': { value: '' },
-        '#btnValiderMens': { onclick: null }
+    const noteLongue = 'x'.repeat(200);
+    const ctx = {
+        reglages: EQ.store.getReglages(),
+        logs: [{ date: dateIso(0), poids: 78, pas: 8000, sommeilH: 7, energy: 6 }],
+        nutrition: [
+            { date: dateIso(0), item: 'Repas midi', protein_g: 40, carbs_g: 60, fat_g: 15 },
+            { date: dateIso(-10), item: 'Hors fenêtre', protein_g: 99, carbs_g: 99, fat_g: 99 }
+        ],
+        // Six séances : seules les quatre dernières doivent partir.
+        seances: [-5, -4, -3, -2, -1, 0].map((j, i) => ({
+            date: dateIso(j), type: 'A', dureeMin: 40 + i, ressenti: 'ok', notes: noteLongue
+        })),
+        mensurations: [{ date: dateIso(-30), tailleCm: 84 }, { date: dateIso(-1), tailleCm: 83 }]
     };
-    EQ.ui.$ = (selecteur) => champs[selecteur] || null;
-    EQ.ui.toast = () => {};
-    EQ.ui.feuille = (config) => config.apresRendu({}, () => {});
-    EQ.views.feuilleMensurations({}, () => {});
-    champs['#btnValiderMens'].onclick();
-    const [mesure] = EQ.store.getMensurations();
-    assert.equal(mesure.tailleCm, 84.5);
-    assert.equal(Object.hasOwn(mesure, 'hanchesCm'), false);
-    assert.equal(Object.hasOwn(mesure, 'brasCm'), false);
+    const c = EQ.coach.construireContexteChat(ctx);
 
-    EQ.views.setSousOngletSeances('B');
-    const html = EQ.views.vueSeances({});
-    assert.match(html, /Programme générique/);
-    assert.match(html, /data-type="B"/);
-    assert.match(html, /data-nom="Séance B/);
-    assert.doesNotMatch(html, /value="10"|value="PDC"/);
-    assert.match(html, /saisies de séries restent temporaires/);
+    assert.equal(c.nutrition_7j.jours_avec_saisie, 1, 'la saisie de plus de 7 jours doit être exclue');
+    assert.equal(c.nutrition_7j.totaux_saisis.proteines_g, 40);
+    assert.equal(c.seances_recentes.length, 4, 'seules les 4 dernières séances partent');
+    assert.equal(c.seances_recentes[3].date, dateIso(0));
+    assert.equal(c.seances_recentes[0].notes.length, 160, 'les notes doivent être tronquées à 160 caractères');
+    assert.equal(c.derniere_mensuration.tailleCm, 83, 'seule la dernière mensuration part');
+    assert.equal(c.objectifs.proteines_g, 130, 'les objectifs par défaut partent tels quels');
+    assert.match(c.nutrition_7j.avertissement, /approximatifs/);
 }
 
-[
-    testPremierLancementVide,
-    testConservationEtAvertissementAncienStockage,
-    testGraphiqueProteinesVideEtUneValeur,
-    testFormulairePeseeSansMacrosPreremplies,
-    testRepèresMobilesVidesSansConfirmation,
-    testMensurationPartielleEtSeanceGenerique
-].forEach((test) => {
-    test();
-    console.log(`✓ ${test.name}`);
-});
+function testSurfaceDesModulesRestaures() {
+    // Vérifie que les trois modules absents du fork réduit sont bien chargés
+    // et initialisés dans l'ordre d'index.html.
+    const { EQ } = creerAppli();
+    for (const m of ['store', 'ui', 'views', 'menu', 'menuViews', 'coach']) {
+        assert.ok(EQ[m], `module manquant : EQ.${m}`);
+    }
+    for (const f of ['vue', 'attacher', 'construireContexteChat', 'construireJournee']) {
+        assert.equal(typeof EQ.coach[f], 'function', `EQ.coach.${f} absent`);
+    }
+    assert.equal(typeof EQ.menu.planned, 'function');
+    assert.equal(typeof EQ.net.synchroniserSupabase, 'function');
+    // La synchronisation n'est plus neutralisée d'office comme dans le fork
+    // réduit : net.js ne doit plus renvoyer l'état « desactivee » en dur.
+    const sourceNet = fs.readFileSync(path.join(JS_DIR, 'net.js'), 'utf8');
+    assert.doesNotMatch(sourceNet, /etat:\s*'desactivee'/,
+        'net.js renvoie encore l’état « desactivee » en dur');
+    assert.match(sourceNet, /access_token|Authorization|jwt/i,
+        'net.js doit porter un transport authentifié');
+}
 
-console.log('Tous les tests mobiles ciblés passent.');
+const TESTS = [
+    testPremierLancementVide,
+    testConservationDonneesLocalesApresMonteeDeVersion,
+    testGraphiqueProteinesVideEtUneValeur,
+    testReglagesExposentCoachIaEtSupabase,
+    testContexteEnvoyeAuCoachIa,
+    testSurfaceDesModulesRestaures
+];
+let passes = 0;
+TESTS.forEach((test) => {
+    test();
+    passes += 1;
+    console.log('✓', test.name);
+});
+console.log('\n%d/%d tests mobiles passent.', passes, TESTS.length);

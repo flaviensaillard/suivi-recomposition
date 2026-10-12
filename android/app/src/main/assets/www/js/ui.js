@@ -152,20 +152,20 @@
         var gridLines = yTicks.map(function (val) {
             var y = getY(val);
             return '<line x1="' + padLeft + '" y1="' + y + '" x2="' + (w - padRight) + '" y2="' + y + '" stroke="rgba(255,255,255,0.06)" />' +
-                   '<text x="' + (padLeft - 6) + '" y="' + (y + 3) + '" fill="#6B7789" font-size="9.5" text-anchor="end">' + val.toFixed(1) + '</text>';
+                   '<text x="' + (padLeft - 6) + '" y="' + (y + 3) + '" fill="#738096" font-size="9.5" text-anchor="end">' + val.toFixed(1) + '</text>';
         }).join('');
 
         // Graduations X (première et dernière date)
         var dateDebut = U.dateFr(donnees[0].date, { court: true });
         var dateFin = U.dateFr(donnees[donnees.length - 1].date, { court: true });
-        var dateLabels = '<text x="' + padLeft + '" y="' + (h - 6) + '" fill="#6B7789" font-size="9.5" text-anchor="start">' + dateDebut + '</text>' +
-                         '<text x="' + (w - padRight) + '" y="' + (h - 6) + '" fill="#6B7789" font-size="9.5" text-anchor="end">' + dateFin + '</text>';
+        var dateLabels = '<text x="' + padLeft + '" y="' + (h - 6) + '" fill="#738096" font-size="9.5" text-anchor="start">' + dateDebut + '</text>' +
+                         '<text x="' + (w - padRight) + '" y="' + (h - 6) + '" fill="#738096" font-size="9.5" text-anchor="end">' + dateFin + '</text>';
 
         // Cercles interactifs
         var cercles = svgPoints.map(function (pt, idx) {
             var isLast = idx === svgPoints.length - 1;
             var r = isLast ? 4.5 : 2.5;
-            var fill = isLast ? '#0D9488' : '#38BDF8';
+            var fill = isLast ? '#31C98C' : '#65AEFF';
             var stroke = isLast ? '#FFFFFF' : 'none';
             return '<circle class="point-poids" cx="' + pt.x + '" cy="' + pt.y + '" r="' + r + '" fill="' + fill + '" stroke="' + stroke + '" stroke-width="1.5" ' +
                    'data-date="' + pt.d + '" data-poids="' + pt.p + '" style="cursor:pointer;" />';
@@ -175,14 +175,14 @@
             '<svg viewBox="0 0 ' + w + ' ' + h + '" class="svg-graphique" preserveAspectRatio="none">' +
                 '<defs>' +
                     '<linearGradient id="degradePoids" x1="0" y1="0" x2="0" y2="1">' +
-                        '<stop offset="0%" stop-color="#0D9488" stop-opacity="0.28"/>' +
-                        '<stop offset="100%" stop-color="#0D9488" stop-opacity="0.00"/>' +
+                        '<stop offset="0%" stop-color="#31C98C" stop-opacity="0.28"/>' +
+                        '<stop offset="100%" stop-color="#31C98C" stop-opacity="0.00"/>' +
                     '</linearGradient>' +
                 '</defs>' +
                 gridLines +
                 cibleSvg +
                 '<path d="' + areaD + '" fill="url(#degradePoids)" />' +
-                '<path d="' + pathD + '" fill="none" stroke="#0D9488" stroke-width="2.5" stroke-linecap="round" />' +
+                '<path d="' + pathD + '" fill="none" stroke="#31C98C" stroke-width="2.5" stroke-linecap="round" />' +
                 cercles +
                 dateLabels +
             '</svg>' +
@@ -192,43 +192,32 @@
 
     // -------------------------------------------------- Barres protéines 7 jours
     function svgBarresProteines(donnees7j, cibleG) {
+        cibleG = cibleG || 130;
         var w = 320, h = 90;
         var padLeft = 14, padRight = 14, padBottom = 22, padTop = 10;
         var barW = 28;
+        var gap = donnees7j.length > 1 ? (w - padLeft - padRight - (donnees7j.length * barW)) / (donnees7j.length - 1) : 0;
+        var maxProt = Math.max(cibleG * 1.25, Math.max.apply(null, donnees7j.map(function (x) { return x.proteinesG || 0; })));
+
         var chartH = h - padTop - padBottom;
-        var jours = Array.isArray(donnees7j) ? donnees7j.filter(function (x) {
-            return x && typeof x.proteinesG === 'number' && isFinite(x.proteinesG) && x.proteinesG >= 0;
-        }) : [];
-
-        if (!jours.length) {
-            return '<div class="vide">Aucune saisie de protéines à afficher.</div>';
-        }
-
-        cibleG = U.num(cibleG, null);
-        if (cibleG === null || cibleG <= 0) {
-            return '<div class="vide">Le repère protéines doit être vérifié dans Réglages.</div>';
-        }
-        var maxSaisi = Math.max.apply(null, jours.map(function (x) { return x.proteinesG; }));
-        var maxProt = Math.max(cibleG * 1.25, maxSaisi, 1);
         var cibleY = padTop + chartH - (cibleG / maxProt) * chartH;
-        var pas = jours.length > 1 ? (w - padLeft - padRight - barW) / (jours.length - 1) : 0;
 
-        var barres = jours.map(function (d, i) {
-            var x = jours.length > 1 ? padLeft + i * pas : (w - barW) / 2;
-            var val = d.proteinesG;
+        var barres = donnees7j.map(function (d, i) {
+            var x = padLeft + i * (barW + gap);
+            var val = d.proteinesG || 0;
             var bH = Math.max(3, (val / maxProt) * chartH);
             var y = padTop + chartH - bH;
             var ok = val >= cibleG;
-            var col = ok ? '#10B981' : '#38BDF8';
+            var col = ok ? '#10B981' : '#65AEFF';
             var jour = U.jourCourt(d.date);
 
             return '<rect x="' + x + '" y="' + y + '" width="' + barW + '" height="' + bH + '" rx="5" fill="' + col + '" />' +
-                   '<text x="' + (x + barW / 2) + '" y="' + (y - 4) + '" fill="#F2F5FA" font-size="9" font-weight="700" text-anchor="middle">' + val + '</text>' +
-                   '<text x="' + (x + barW / 2) + '" y="' + (h - 6) + '" fill="#6B7789" font-size="9.5" text-anchor="middle">' + jour + '</text>';
+                   '<text x="' + (x + barW / 2) + '" y="' + (y - 4) + '" fill="#F3F6FB" font-size="9" font-weight="700" text-anchor="middle">' + val + '</text>' +
+                   '<text x="' + (x + barW / 2) + '" y="' + (h - 6) + '" fill="#738096" font-size="9.5" text-anchor="middle">' + jour + '</text>';
         }).join('');
 
         var ligneCible = '<line x1="' + padLeft + '" y1="' + cibleY + '" x2="' + (w - padRight) + '" y2="' + cibleY + '" stroke="#F5C451" stroke-dasharray="3,3" stroke-width="1" />' +
-                         '<text x="' + (w - padRight) + '" y="' + (cibleY - 3) + '" fill="#F5C451" font-size="8.5" text-anchor="end">Repère ' + cibleG + ' g</text>';
+                         '<text x="' + (w - padRight) + '" y="' + (cibleY - 3) + '" fill="#F5C451" font-size="8.5" text-anchor="end">Cible ' + cibleG + ' g</text>';
 
         return '<svg viewBox="0 0 ' + w + ' ' + h + '" class="svg-barres" preserveAspectRatio="none">' +
             ligneCible +
