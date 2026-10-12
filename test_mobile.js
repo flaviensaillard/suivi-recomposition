@@ -622,6 +622,93 @@ function testRepasTypesEditables() {
         'Mon repas', 'le repas créé doit persister');
 }
 
+function testEtatCruCuitChangeLesMacros() {
+    // 1.4 : le même aliment n'a pas les mêmes macros pesé cru ou pesé cuit.
+    // 100 g de pâtes sèches font 364 kcal, cuites 167. Le choix se fait à la
+    // saisie (journal nutrition ou ligne de recette), pas dans la fiche aliment.
+    //
+    // Aucun coefficient de conversion n'est appliqué : la perte d'eau va de
+    // +1 % (pomme de terre) à -58 % (pois chiche) selon l'aliment et la cuisson.
+    const app = creerAppli();
+    amorcerMenus(app, {
+        ingredients: [
+            { id: 'ing-pates', name: 'Pâtes', category: 'Épicerie Salée', unit: 'g',
+              kcal_100g: 364, proteines_100g: 12, glucides_100g: 75, lipides_100g: 1.5,
+              etat_defaut: 'cru',
+              kcal_100g_cru: 364, proteines_100g_cru: 12, glucides_100g_cru: 75, lipides_100g_cru: 1.5,
+              kcal_100g_cuit: 167, proteines_100g_cuit: 6, glucides_100g_cuit: 33, lipides_100g_cuit: 0.9 },
+            { id: 'ing-carotte', name: 'Carotte', category: 'Fruits & Légumes', unit: 'g',
+              kcal_100g: 30.2, proteines_100g: 0.77, glucides_100g: 4.74, lipides_100g: 0.24 },
+            { id: 'ing-pdt', name: 'Pomme de terre', category: 'Fruits & Légumes', unit: 'g',
+              kcal_100g: 80, proteines_100g: 2, glucides_100g: 17, lipides_100g: 0.1,
+              etat_defaut: 'cru', kcal_100g_cuit: 81, proteines_100g_cuit: 2,
+              glucides_100g_cuit: 17.5, lipides_100g_cuit: 0.1 }
+        ],
+        recipes: [
+            { id: 'rec-veloute', name: 'Velouté de carotte', base_servings: 2 },
+            { id: 'rec-pates', name: 'Pâtes', base_servings: 1 }
+        ],
+        recipe_ingredients: [
+            { id: 'li-1', recipe_id: 'rec-veloute', ingredient_id: 'ing-carotte',
+              quantity: 400, unit: 'g', etat: 'cuit' }
+        ]
+    });
+    const M = app.EQ.menu;
+
+    // 1. Le choix n'est proposé que si l'aliment a au moins une valeur d'état.
+    const parId = M.ingredientParId();
+    const pates = parId['ing-pates'];
+    const carotte = parId['ing-carotte'];
+    assert.ok(pates, 'les pâtes doivent être lues depuis le cache des menus');
+    assert.equal(M.aChoixEtat(pates), true, 'les pâtes ont deux états renseignés');
+    assert.equal(M.aChoixEtat(carotte), false,
+        'sans valeur d’état, pas de sélecteur : on n’invente pas de coefficient');
+
+    // 2. Les macros suivent l'état choisi.
+    assert.equal(Number(M.macrosPourEtat(pates, 'cru').kcal), 364, 'pâtes crues = 364 kcal');
+    assert.equal(Number(M.macrosPourEtat(pates, 'cuit').kcal), 167, 'pâtes cuites = 167 kcal');
+    assert.equal(Number(M.macrosPourEtat(pates, 'cuit').glucides), 33, 'les glucides suivent aussi');
+
+    // 3. Sans choix explicite, l'état par défaut de l'aliment s'applique.
+    assert.equal(M.etatDefaut(pates), 'cru', 'l’état par défaut est lu sur l’aliment');
+    assert.equal(M.macrosPourEtat(pates, '').etat, 'cru', 'un état vide retombe sur le défaut');
+    assert.equal(Number(M.macrosPourEtat(pates, '').kcal), 364);
+
+    // 4. Valeur d'état absente : repli sur la colonne historique, jamais sur 0.
+    const seulementCuit = { id: 'x', kcal_100g: 80, proteines_100g: 2,
+        glucides_100g: 17, lipides_100g: 0.1, kcal_100g_cuit: 81 };
+    assert.equal(Number(M.macrosPourEtat(seulementCuit, 'cru').kcal), 80,
+        'état cru absent : on retombe sur la valeur historique');
+    assert.equal(Number(M.macrosPourEtat(seulementCuit, 'cuit').kcal), 81);
+
+    // 5. Une ligne de recette porte son propre état : le velouté utilise des
+    //    carottes cuites, pas crues.
+    const veloute = M.calculerRecette('rec-veloute');
+    assert.ok(veloute, 'la recette doit se calculer');
+    assert.equal(veloute.lignes[0].etat, 'cuit', 'la ligne retient l’état choisi');
+    assert.equal(veloute.lignes[0].etat_modifiable, false,
+        'la carotte n’a pas de valeur d’état : rien à choisir');
+
+    // 6. Même recette avec des pâtes : l'état change bien le total.
+    function lignePates(etat) {
+        amorcerMenus(app, {
+            recipe_ingredients: [
+                { id: 'li-2', recipe_id: 'rec-pates', ingredient_id: 'ing-pates',
+                  quantity: 100, unit: 'g', etat: etat }
+            ]
+        });
+        return M.calculerRecette('rec-pates');
+    }
+    const cru = lignePates('cru');
+    const cuit = lignePates('cuit');
+    assert.equal(Math.round(cru.total.kcal), 364, '100 g de pâtes crues = 364 kcal');
+    assert.equal(Math.round(cuit.total.kcal), 167, '100 g de pâtes cuites = 167 kcal');
+    assert.ok(cru.total.kcal - cuit.total.kcal > 150,
+        'l’écart cru/cuit doit être visible sur le total de la recette');
+    assert.equal(cuit.lignes[0].etat_modifiable, true,
+        'les pâtes ont deux états : le sélecteur doit être proposé');
+}
+
 const TESTS = [
     testPremierLancementVide,
     testConservationDonneesLocalesApresMonteeDeVersion,
@@ -637,7 +724,8 @@ const TESTS = [
     testBoutonRecettePresentSurLesPlatsACuisiner,
     testUniteChoisieDansLeJournalNutrition,
     testUnitePartDansLaSynchronisation,
-    testRepasTypesEditables
+    testRepasTypesEditables,
+    testEtatCruCuitChangeLesMacros
 ];
 let passes = 0;
 TESTS.forEach((test) => {

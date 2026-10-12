@@ -133,6 +133,40 @@
         if (portion && q >= 1 && q <= 1000) return { grams: q * portion, estimate: true };
         return { grams: g, estimate: false };
     }
+    // 1.4 — Un même aliment n'a pas les mêmes macros pesé cru ou pesé cuit :
+    // 100 g de pâtes sèches font 364 kcal, 100 g de pâtes cuites 167. Le choix
+    // se fait à la saisie, pas dans la fiche aliment.
+    //
+    // Les colonnes historiques (kcal_100g, proteines_100g…) restent la
+    // référence et servent de repli : aucun aliment existant n'est
+    // re-labellisé, et une valeur d'état absente retombe sur elles.
+    function etatDefaut(ing) {
+        return String((ing && ing.etat_defaut) || 'cru') === 'cuit' ? 'cuit' : 'cru';
+    }
+
+    function macrosPourEtat(ing, etat) {
+        ing = ing || {};
+        var voulu = etat === 'cru' || etat === 'cuit' ? etat : etatDefaut(ing);
+        var suffixe = '_' + voulu;
+        var out = { etat: voulu };
+        ['kcal', 'proteines', 'glucides', 'lipides'].forEach(function (f) {
+            var specifique = ing[f + '_100g' + suffixe];
+            out[f] = specifique == null || specifique === '' ? ing[f + '_100g'] : specifique;
+        });
+        return out;
+    }
+
+    // Le choix cru/cuit n'est proposé que si au moins une valeur d'état existe.
+    // Inventer un coefficient de conversion donnerait des nombres faux : la
+    // perte d'eau va de +1 % (pomme de terre) à -58 % (pois chiche) selon
+    // l'aliment et la cuisson.
+    function aChoixEtat(ing) {
+        if (!ing) return false;
+        return ['kcal', 'proteines', 'glucides', 'lipides'].some(function (f) {
+            return ing[f + '_100g_cru'] != null || ing[f + '_100g_cuit'] != null;
+        });
+    }
+
     function calculerRecette(recetteId) {
         var rec = recetteParId()[String(recetteId)];
         if (!rec) return null;
@@ -147,18 +181,20 @@
             var g = calc.grams;
             poids += g;
             if (calc.estimate) estimees.push(nom(ing));
-            if (!ing.kcal_100g && !ing.proteines_100g) inconnues.push(nom(ing));
+            var macros = macrosPourEtat(ing, l.etat);
+            var sansValeurs = !nombre(macros.kcal) && !nombre(macros.proteines);
+            if (sansValeurs) inconnues.push(nom(ing));
             var values = {};
             ['kcal', 'proteines', 'glucides', 'lipides'].forEach(function (field) {
-                var val = nombre(ing[field + '_100g']) * g / 100;
+                var val = nombre(macros[field]) * g / 100;
                 total[field] += val;
                 values[field] = Math.round(val * 10) / 10;
             });
             detail.push({ id: id(l), ingredient_id: String(l.ingredient_id || ''), name: nom(ing),
                 quantity: nombre(l.quantity), unit: l.unit || '', grams: Math.round(g * 10) / 10,
                 kcal: values.kcal, proteines: values.proteines, glucides: values.glucides,
-                lipides: values.lipides, sans_valeurs: !ing.kcal_100g && !ing.proteines_100g,
-                estimate: calc.estimate });
+                lipides: values.lipides, sans_valeurs: sansValeurs, etat: macros.etat,
+                etat_modifiable: aChoixEtat(ing), estimate: calc.estimate });
         });
         var parts = nombre(rec.base_servings) || 1;
         var roundedTotal = {}, perPart = {};
@@ -425,7 +461,10 @@
         TABLES: TABLES, UNITES: UNITES, RAYONS: RAYONS, JOURS: JOURS,
         rows: lignes, ingredients: ingredients, recettes: recettes, estPersonnel: estPersonnel,
         ingredientParId: ingredientParId, recetteParId: recetteParId, lignesParRecette: lignesParRecette,
-        calculerRecette: calculerRecette, recetteLignes: recetteLignes, portionPersonne: portionPersonne,
+        calculerRecette: calculerRecette,
+        macrosPourEtat: macrosPourEtat,
+        aChoixEtat: aChoixEtat,
+        etatDefaut: etatDefaut, recetteLignes: recetteLignes, portionPersonne: portionPersonne,
         unitesProposees: unitesProposees, uniteParDefaut: uniteParDefaut, courses: courses,
         poidsUnite: poidsUnite, quantiteGrammes: quantiteGrammes,
         lundiDe: lundiDe, dateIso: dateIso, dateAffiche: dateAffiche, fmtNombre: fmtNombre,

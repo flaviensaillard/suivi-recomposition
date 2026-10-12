@@ -924,6 +924,13 @@
                     '<select id="inNutriUnit" aria-label="Unité" style="width:132px;flex-shrink:0;"></select>' +
                 '</div>' +
                 '<div class="st" id="inNutriUnitInfo" style="margin-top:5px;"></div></div>' +
+            // 1.4 — le même aliment n'a pas les mêmes macros pesé cru ou pesé
+            // cuit : 100 g de pâtes sèches font 364 kcal, cuites 167. Le choix
+            // se fait à la saisie, et les macros suivent.
+            '<div class="champ" id="inNutriEtatBox" style="display:none;"><label>État pesé</label>' +
+                '<select id="inNutriEtat"><option value="">Par défaut</option>' +
+                '<option value="cru">Cru</option><option value="cuit">Cuit</option></select>' +
+                '<div class="st" id="inNutriEtatInfo" style="margin-top:5px;"></div></div>' +
             '<div class="grille g2">' +
                 '<div class="champ"><label>Protéines (g)</label><input type="number" id="inNutriP" min="0" max="5000" step="1" value="' + (x.protein_g || 0) + '" /></div>' +
                 '<div class="champ"><label>Glucides (g)</label><input type="number" id="inNutriG" min="0" max="5000" step="1" value="' + (x.carbs_g || 0) + '" /></div>' +
@@ -942,6 +949,9 @@
                 var inputP = UI.$('#inNutriP', racine), inputG = UI.$('#inNutriG', racine), inputL = UI.$('#inNutriL', racine);
                 var uniteInput = UI.$('#inNutriUnit', racine);
                 var uniteInfo = UI.$('#inNutriUnitInfo', racine);
+                var etatInput = UI.$('#inNutriEtat', racine);
+                var etatBox = UI.$('#inNutriEtatBox', racine);
+                var etatInfo = UI.$('#inNutriEtatInfo', racine);
                 var baseMacros = null;
                 // baseUnite dit ce que représente baseMacros : 'g' (macros par
                 // gramme) ou 'part' (macros par portion, quand le poids d'une
@@ -1011,6 +1021,37 @@
                     inputL.value = Math.round(parGramme.l * grammes * 10) / 10;
                     calc();
                 }
+                // Le choix cru/cuit n'est proposé que si l'aliment possède au
+                // moins une valeur par état. Sans donnée réelle on retombe sur
+                // la valeur historique : inventer un coefficient de conversion
+                // donnerait des nombres faux, la perte d'eau allant de +1 %
+                // (pomme de terre) à -58 % (pois chiche) selon l'aliment.
+                function majEtat() {
+                    if (!etatBox) return;
+                    var dispo = !!(ingCourant && Menu && Menu.aChoixEtat(ingCourant));
+                    etatBox.style.display = dispo ? '' : 'none';
+                    if (!dispo) { if (etatInput) etatInput.value = ''; if (etatInfo) etatInfo.textContent = ''; return; }
+                    var choisi = etatInput && etatInput.value;
+                    var effectif = Menu.etatDefaut(ingCourant);
+                    var m = Menu.macrosPourEtat(ingCourant, choisi);
+                    if (etatInfo) {
+                        var specifique = ingCourant['kcal_100g_' + m.etat] != null;
+                        etatInfo.textContent = specifique
+                            ? 'Valeurs pour 100 g ' + m.etat + ' : ' + Math.round(U.num(m.kcal, 0)) + ' kcal · P ' +
+                              Menu.fmtNombre(m.proteines) + ' g · G ' + Menu.fmtNombre(m.glucides) + ' g · L ' + Menu.fmtNombre(m.lipides) + ' g'
+                            : 'Aucune valeur « ' + m.etat + ' » renseignée pour cet aliment : les valeurs par défaut (« ' +
+                              effectif + ' ») sont utilisées.';
+                    }
+                }
+
+                /** Recharge baseMacros depuis l'aliment courant et l'état choisi. */
+                function majMacrosEtat() {
+                    if (!ingCourant) return;
+                    var m = Menu.macrosPourEtat(ingCourant, etatInput && etatInput.value);
+                    baseMacros = { p: U.num(m.proteines, 0) / 100, g: U.num(m.glucides, 0) / 100, l: U.num(m.lipides, 0) / 100 };
+                    remplirMacros();
+                }
+
                 function effacerValeursSource() {
                     baseMacros = null;
                     itemInput.value = '';
@@ -1020,6 +1061,7 @@
                 function appliquerRecette(recette) {
                     qtyLabel.textContent = 'Quantité';
                     ingCourant = null;
+                    majEtat();
                     baseUnite = 'part';
                     poidsParPart = 0;
                     qtyInput.min = '0.1'; qtyInput.max = '20'; qtyInput.step = '0.5';
@@ -1061,12 +1103,9 @@
                     remplirUnites(unites, Menu.uniteParDefaut(ing));
                     var parUnite = Menu.poidsUnite(ing, uniteInput ? uniteInput.value : 'g');
                     qtyInput.value = parUnite > 0 ? String(Math.round(100 / parUnite * 10) / 10) : '100';
-                    baseMacros = {
-                        p: Number(ing.proteines_100g || 0) / 100,
-                        g: Number(ing.glucides_100g || 0) / 100,
-                        l: Number(ing.lipides_100g || 0) / 100
-                    };
-                    remplirMacros();
+                    if (etatInput) etatInput.value = '';
+                    majEtat();
+                    majMacrosEtat();
                     if (ing.proteines_100g == null && ing.glucides_100g == null && ing.lipides_100g == null) {
                         UI.toast('Les macros ne sont pas renseignées pour cet aliment dans la base.');
                     }
@@ -1150,6 +1189,7 @@
                 }
                 qtyInput.oninput = remplirMacros;
                 if (uniteInput) uniteInput.onchange = remplirMacros;
+                if (etatInput) etatInput.onchange = function () { majEtat(); majMacrosEtat(); };
                 if (entree) {
                     // Correction d'une entrée : on retrouve l'unité enregistrée,
                     // sans source en base puisque les listes ne sont pas chargées.

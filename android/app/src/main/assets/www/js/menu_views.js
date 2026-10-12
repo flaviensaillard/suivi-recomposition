@@ -227,11 +227,33 @@
         var ingredients = Menu.ingredients('');
         var unit = line && line.unit || 'g';
         var units = Menu.UNITES.slice(); if (units.indexOf(unit) < 0) units.unshift(unit);
+        var ingChoisi = ingredients.filter(function (i) { return line && String(i.id) === String(line.ingredient_id); })[0];
         return '<div class="card flat tight menu-recipe-line" data-line-id="' + attribut(line && line.id || '') + '" style="margin:7px 0;">' +
             '<div class="champ"><label>Ingrédient</label><select data-line-ingredient><option value="">Choisir…</option>' + ingredients.map(function (i) { return optionSelect(i.id, line && line.ingredient_id, Menu.nomIngredient(i)); }).join('') + '</select></div>' +
+            // 1.4 — le même ingrédient n'a pas les mêmes macros pesé cru ou pesé
+            // cuit. Le choix se fait ici, par ligne de recette.
+            '<div class="champ" data-line-etat-box style="display:none;"><label>État pesé</label>' + selectEtat(line && line.etat) + '</div>' +
             '<div class="grille g2"><div class="champ"><label>Quantité</label><input data-line-quantity type="number" min="0" step="0.5" value="' + attribut(line && line.quantity != null ? line.quantity : 100) + '"></div>' +
             '<div class="champ"><label>Unité</label><select data-line-unit>' + units.map(function (u) { return optionSelect(u, unit, u); }).join('') + '</select></div></div>' +
             '<button class="btn btn-flat" data-line-remove>Supprimer cette ligne</button></div>';
+    }
+
+    function selectEtat(etat) {
+        return '<select data-line-etat>' +
+            '<option value="">' + (etat ? '' : 'Par défaut') + '</option>' +
+            '<option value="cru"' + (etat === 'cru' ? ' selected' : '') + '>Cru</option>' +
+            '<option value="cuit"' + (etat === 'cuit' ? ' selected' : '') + '>Cuit</option></select>';
+    }
+
+    // Le sélecteur n'est proposé que si l'ingrédient possède au moins une
+    // valeur par état. Sans donnée réelle, on refuse d'inventer un coefficient.
+    function majEtatLigne(box) {
+        if (!box) return;
+        var select = UI.$('[data-line-ingredient]', box);
+        var etatBox = UI.$('[data-line-etat-box]', box);
+        if (!select || !etatBox) return;
+        var ing = Menu.ingredientParId()[String(select.value)];
+        etatBox.style.display = Menu.aChoixEtat(ing) ? '' : 'none';
     }
     /**
      * Fiche de lecture d'une recette de la base synchronisée, ouvrable depuis
@@ -293,6 +315,15 @@
                     Array.prototype.forEach.call(racine.querySelectorAll('[data-line-remove]'), function (b) {
                         b.onclick = function () { b.closest('.menu-recipe-line').remove(); };
                     });
+                    Array.prototype.forEach.call(racine.querySelectorAll('.menu-recipe-line'), function (box) {
+                        var sel = UI.$('[data-line-ingredient]', box);
+                        if (sel) sel.onchange = function () {
+                            var etat = UI.$('[data-line-etat]', box);
+                            if (etat) etat.value = '';
+                            majEtatLigne(box);
+                        };
+                        majEtatLigne(box);
+                    });
                 }
                 brancherLignes();
                 var add = UI.$('#btnMenuAddRecipeLine', racine);
@@ -308,8 +339,10 @@
                     var parts = Math.max(1, Number(UI.$('#menuRecipeParts', racine).value) || 4);
                     var instructions = String(UI.$('#menuRecipeInstructions', racine).value || '').trim();
                     var items = Array.prototype.map.call(racine.querySelectorAll('.menu-recipe-line'), function (box) {
+                        var etatSel = UI.$('[data-line-etat]', box);
                         return { id: box.getAttribute('data-line-id') || '', ingredient_id: UI.$('[data-line-ingredient]', box).value,
-                            quantity: Number(UI.$('[data-line-quantity]', box).value) || 0, unit: UI.$('[data-line-unit]', box).value || 'g' };
+                            quantity: Number(UI.$('[data-line-quantity]', box).value) || 0, unit: UI.$('[data-line-unit]', box).value || 'g',
+                            etat: etatSel && etatSel.value || '' };
                     }).filter(function (x) { return x.ingredient_id && x.quantity > 0; });
                     if (!name) { UI.toast('Le nom de la recette est obligatoire'); return; }
                     if (!items.length) { UI.toast('Ajoute au moins un ingrédient avec une quantité'); return; }
@@ -317,7 +350,7 @@
                     var keep = {};
                     items.forEach(function (line) {
                         var row = { id: line.id || undefined, recipe_id: rec.id, ingredient_id: line.ingredient_id,
-                            quantity: line.quantity, unit: line.unit };
+                            quantity: line.quantity, unit: line.unit, etat: line.etat || null };
                         var saved = Store.upsertMenu('recipe_ingredients', row, line.id ? 'update' : 'insert');
                         if (saved) keep[String(saved.id)] = true;
                     });
