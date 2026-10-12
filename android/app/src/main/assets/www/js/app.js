@@ -733,8 +733,28 @@
         }
 
         Net.synchroniserSupabase(function (resultat) {
+            purgerSiEnvoiConfirme(resultat);
             if (resultat && resultat.synchronise) rafraichirVue();
         });
+    }
+
+    /**
+     * Ne vide les caches locaux qu'une fois l'envoi vers Supabase confirmé :
+     * aucune erreur et file vide. Autrement les données héritées de la 1.3.10
+     * disparaîtraient de l'interface sans jamais avoir atteint le serveur —
+     * le schéma suivi dans schema.sql ne correspond d'ailleurs pas aux tables
+     * interrogées par net.js.
+     */
+    function purgerSiEnvoiConfirme(resultat) {
+        if (!resultat || !resultat.synchronise) return;
+        if (resultat.erreurs && resultat.erreurs.length) return;
+        if (resultat.enAttente) return;
+        if (Store.cachesPurges()) return;
+        Store.purgerCachesLocaux();
+        Store.marquerCachesPurges();
+        UI.toast('Données locales transférées vers Supabase');
+        // Le tirage suivant reconstitue l'interface depuis le serveur.
+        Net.synchroniserSupabase(function () { rafraichirVue(); });
     }
 
     /** Déverse le tampon local dans Supabase dès que la connexion revient. */

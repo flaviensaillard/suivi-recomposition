@@ -466,6 +466,7 @@
     // ------------------------------------------------------------------
 
     var CLE_MIGRATION_14 = 'eq.migration.v1.4';
+    var CLE_PURGE_14 = 'eq.purge.v1.4';
 
     function estEnLigne() {
         try {
@@ -521,11 +522,16 @@
     ];
 
     /**
-     * Pousse tout le contenu local dans la file de synchronisation, puis vide
-     * les caches locaux : à partir de là, seule Supabase fait autorité et le
-     * prochain tirage reconstitue le contenu depuis le serveur.
+     * Pousse tout le contenu local dans la file de synchronisation.
      *
-     * Les réglages, la session et la file elle-même sont conservés.
+     * Les caches locaux ne sont PAS vidés ici : `schema.sql` du dépôt ne
+     * correspond pas aux tables réellement interrogées par net.js (tables
+     * préfixées `sr_`, tables de menus absentes). Vider avant d'avoir la
+     * preuve que l'envoi a abouti ferait disparaître les données de
+     * l'interface. La purge est faite par `purgerCachesLocaux()`, appelé
+     * seulement après une synchronisation sans erreur et file vide.
+     *
+     * Les réglages, la session et la file elle-même sont toujours conservés.
      */
     function migrerDonneesLocalesVersFile() {
         var compte = 0;
@@ -543,7 +549,6 @@
                 enfile(t.table, 'upsert', cle, ligne);
                 compte++;
             });
-            sauverJson(t.cle, []);
         });
 
         // L'état coché de la liste de courses vit dans shopping_state.
@@ -558,17 +563,31 @@
             compte++;
         });
 
+        return compte;
+    }
+
+    /**
+     * Vide les caches locaux, une fois seulement l'envoi vers Supabase
+     * confirmé. À partir de là Supabase fait autorité, et le tirage suivant
+     * reconstitue le contenu depuis le serveur.
+     */
+    function purgerCachesLocaux() {
+        TABLES_A_MIGRER.forEach(function (t) { sauverJson(t.cle, []); });
         sauverJson(CLE_COURSES, []);
         sauverJson(CLE_PROFIL, {});
-        return compte;
     }
 
     function migrationFaite() { return chargerJson(CLE_MIGRATION_14, false) === true; }
     function marquerMigrationFaite() { sauverJson(CLE_MIGRATION_14, true); }
+    function cachesPurges() { return chargerJson(CLE_PURGE_14, false) === true; }
+    function marquerCachesPurges() { sauverJson(CLE_PURGE_14, true); }
 
     Store.estEnLigne = estEnLigne;
     Store.surveillerConnexion = surveillerConnexion;
     Store.migrerDonneesLocalesVersFile = migrerDonneesLocalesVersFile;
+    Store.purgerCachesLocaux = purgerCachesLocaux;
+    Store.cachesPurges = cachesPurges;
+    Store.marquerCachesPurges = marquerCachesPurges;
     Store.migrationFaite = migrationFaite;
     Store.marquerMigrationFaite = marquerMigrationFaite;
     Store.viderFileMaintenant = function () { planifierSynchronisation(); };

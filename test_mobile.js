@@ -253,17 +253,28 @@ function testMigrationLocaleVersSupabase() {
     assert.deepEqual(tables, ['daily_logs', 'daily_logs', 'measurements', 'profiles',
         'protein_entries', 'shopping_state', 'workout_sets', 'workouts']);
 
-    // Les caches locaux sont vidés : Supabase devient la seule source.
+    // Tant que l'envoi vers Supabase n'est pas confirmé, les caches restent en
+    // place : l'interface continue d'afficher les données héritées.
+    assert.equal(EQ.store.getLogs().length, 2);
+    assert.equal(EQ.store.getMensurations().length, 1);
+    assert.equal(EQ.store.getCourses().length, 2);
+
+    // Une fois l'envoi confirmé, la purge vide les caches.
+    assert.equal(EQ.store.cachesPurges(), false);
+    EQ.store.purgerCachesLocaux();
+    EQ.store.marquerCachesPurges();
     assert.deepEqual(EQ.store.getLogs(), []);
     assert.deepEqual(EQ.store.getMensurations(), []);
     assert.deepEqual(EQ.store.getSeances(), []);
     assert.deepEqual(EQ.store.getCourses(), []);
-    // La file, les réglages et la session survivent à la migration.
-    assert.equal(donnees.get('eq.sync.queue.v1') ? true : false, true);
+
+    // La file, les réglages et la session survivent à la purge.
+    assert.equal(EQ.store.syncCount(), 8, 'la purge ne doit pas vider la file');
     assert.deepEqual(EQ.store.getRemoteSession(), session);
     assert.equal(EQ.store.getReglages().coachApiUrl, '');
 
     assert.equal(EQ.store.migrationFaite(), true, 'la migration ne doit pas se rejouer');
+    assert.equal(EQ.store.cachesPurges(), true, 'la purge ne doit pas se rejouer');
     // Second passage : il ne reste rien à pousser.
     assert.equal(EQ.store.migrerDonneesLocalesVersFile(), 0);
     assert.equal(EQ.store.syncCount(), 8);
