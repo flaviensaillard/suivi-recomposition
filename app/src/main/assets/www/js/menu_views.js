@@ -166,9 +166,14 @@
         if (!visibles.length) html += '<div class="card"><div class="vide">Aucun ingrédient trouvé.</div></div>';
         visibles.forEach(function (i) {
             var owned = Menu.estPersonnel(i);
+            // 1.4 — la liste annonce les valeurs de l'état par défaut, pas la
+            // colonne historique : un aliment dont l'état par défaut est cuit
+            // doit afficher ses macros cuites. Sans valeur d'état, macrosPourEtat
+            // retombe sur la colonne historique : rien ne change pour les autres.
+            var m = Menu.macrosPourEtat(i);
             html += '<div class="card tight" data-ingredient-card data-search="' + attribut(Menu.nomIngredient(i)) + '" style="margin-bottom:9px;">' +
                 '<div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;"><div><div style="font-weight:750;">' + h(Menu.nomIngredient(i)) + '</div><div class="st">' + h(i.category || 'Autre') + ' · ' + h(i.unit || 'g') + (owned ? ' · personnel' : ' · base de référence') + '</div></div><span class="badge mut">' + (i.code_ciqual ? 'Ciqual' : (owned ? 'À moi' : 'Base')) + '</span></div>' +
-                '<div class="st" style="margin:8px 0;">' + (i.kcal_100g == null ? '—' : Math.round(Number(i.kcal_100g) || 0)) + ' kcal · P ' + (i.proteines_100g == null ? '—' : Menu.fmtNombre(i.proteines_100g)) + ' g · G ' + (i.glucides_100g == null ? '—' : Menu.fmtNombre(i.glucides_100g)) + ' g · L ' + (i.lipides_100g == null ? '—' : Menu.fmtNombre(i.lipides_100g)) + ' g / 100 g' + (i.poids_piece_g ? ' · ' + Menu.fmtNombre(i.poids_piece_g) + ' g / unité' : '') + '</div>' +
+                '<div class="st" style="margin:8px 0;">' + (m.kcal == null ? '—' : Math.round(Number(m.kcal) || 0)) + ' kcal · P ' + (m.proteines == null ? '—' : Menu.fmtNombre(m.proteines)) + ' g · G ' + (m.glucides == null ? '—' : Menu.fmtNombre(m.glucides)) + ' g · L ' + (m.lipides == null ? '—' : Menu.fmtNombre(m.lipides)) + ' g / 100 g' + (Menu.aChoixEtat(i) ? ' · ' + h(m.etat) : '') + (i.poids_piece_g ? ' · ' + Menu.fmtNombre(i.poids_piece_g) + ' g / unité' : '') + '</div>' +
                 '<div class="grille g2"><button class="btn btn-flat" data-ing-toggle="exclude_from_list" data-ing-id="' + attribut(i.id) + '" data-ing-value="' + (!i.exclude_from_list) + '">' + (i.exclude_from_list ? '🚪 Fond de placard ✓' : '🚪 Fond de placard') + '</button><button class="btn btn-flat" data-ing-toggle="is_recurrent" data-ing-id="' + attribut(i.id) + '" data-ing-value="' + (!i.is_recurrent) + '">' + (i.is_recurrent ? '🔁 Récurrent ✓' : '🔁 Récurrent') + '</button></div>' +
                 (owned ? '<button class="btn btn-flat" data-ing-edit="' + attribut(i.id) + '" style="margin-top:7px;">✎ Modifier</button>' : '') + '</div>';
         });
