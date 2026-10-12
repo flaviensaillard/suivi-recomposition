@@ -374,7 +374,7 @@
             var card = creerEl('details', 'coach-report');
             var summary = root.document.createElement('summary');
             summary.appendChild(creerEl('span', 'coach-report-date', dateFr(r.report_date)));
-            summary.appendChild(creerEl('span', 'coach-report-hint', 'Ouvrir le rapport')); 
+            summary.appendChild(creerEl('span', 'coach-report-hint', 'Ouvrir le rapport'));
             card.appendChild(summary);
             var body = creerEl('div', 'coach-report-body', String(r.report_text || ''));
             card.appendChild(body);
