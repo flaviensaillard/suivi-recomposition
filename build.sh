@@ -38,7 +38,8 @@ ANDROID_JAR="$PLAT/android.jar"
 
 # Vérification de l'intégrité des modules Web
 WWW="$ROOT/app/src/main/assets/www"
-for f in js/util.js js/models.js js/store.js js/net.js js/ui.js js/views.js js/app.js; do
+for f in js/util.js js/models.js js/store.js js/net.js js/menu.js js/ui.js \
+         js/menu_views.js js/views.js js/coach.js js/app.js; do
     if [ ! -f "$WWW/$f" ]; then
         echo "Module JavaScript manquant : $WWW/$f" >&2
         exit 1
@@ -49,7 +50,9 @@ for f in js/util.js js/models.js js/store.js js/net.js js/ui.js js/views.js js/a
     fi
 done
 
-for onglet in bord pesee seances menus apps; do
+# Navigation basse de la 1.3.10 : l'onglet « apps » du fork 1.0.13 a été
+# remplacé par « nutrition » et « coach ».
+for onglet in bord pesee seances menus nutrition coach; do
     if ! grep -q "data-onglet=\"$onglet\"" "$WWW/index.html"; then
         echo "Onglet $onglet absent de la navigation basse" >&2
         exit 1
