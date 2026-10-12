@@ -358,6 +358,42 @@ const MENUS_TEST = {
     ]
 };
 
+function testFicheRecetteRappelleEtatCruCuit() {
+    // 1.4 — « carottes cuites » dans un velouté et « carottes crues » en
+    // salade ne donnent pas les mêmes macros. Rien d'autre que la fiche ne
+    // distingue les deux à la lecture : l'état pesé doit y être rappelé.
+    const app = creerAppli();
+    amorcerMenus(app, {
+        ingredients: [{
+            id: 'c1', name: 'Carotte', unit: 'g', category: 'Légumes',
+            kcal_100g: 30, proteines_100g: 0.9, glucides_100g: 5.9, lipides_100g: 0.2,
+            etat_defaut: 'cru',
+            kcal_100g_cru: 30.2, proteines_100g_cru: 0.93, glucides_100g_cru: 5.9, lipides_100g_cru: 0.24,
+            kcal_100g_cuit: 29.6, proteines_100g_cuit: 0.72, glucides_100g_cuit: 5.2, lipides_100g_cuit: 0.18
+        }],
+        recipes: [{ id: 'v1', name: 'Velouté de carotte', base_servings: 2, instructions: 'Cuire et mixer.' }],
+        recipe_ingredients: [
+            { id: 'x1', recipe_id: 'v1', ingredient_id: 'c1', quantity: 400, unit: 'g', etat: 'cuit' }
+        ],
+        planned_meals: []
+    });
+    const dom = creerDomStub();
+    app.contexte.document = dom.document;
+    app.contexte.Native = { toast: () => { } };
+
+    app.EQ.menuViews.ouvrirFicheRecette('v1');
+
+    const feuille = dom.resoudre('#feuille');
+    assert.match(feuille.innerHTML, /Velouté de carotte/, 'la fiche doit s’ouvrir');
+    assert.match(feuille.innerHTML, /cuit/, 'la fiche doit rappeler l’état pesé');
+
+    // Les macros doivent suivre l'état de la ligne, pas la colonne historique :
+    // 400 g × 29,6 kcal/100 g = 118,4 kcal, et non 400 × 30 / 100 = 120.
+    const calc = app.EQ.menu.calculerRecette('v1');
+    assert.equal(Math.round(calc.lignes[0].kcal), 118,
+        'la ligne doit porter les valeurs cuites, pas la colonne historique');
+}
+
 function testFicheRecetteDepuisLePlanning() {
     // 1.4 : un plat planifié doit permettre de consulter sa recette. La fiche
     // est lue dans la base synchronisée, pas dans la liste statique d'exemples.
@@ -777,7 +813,8 @@ const TESTS = [
     testUnitePartDansLaSynchronisation,
     testRepasTypesEditables,
     testEtatCruCuitChangeLesMacros,
-    testEtatOmisSiLaColonneManque
+    testEtatOmisSiLaColonneManque,
+    testFicheRecetteRappelleEtatCruCuit
 ];
 let passes = 0;
 (async () => {

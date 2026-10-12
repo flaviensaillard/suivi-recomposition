@@ -274,7 +274,11 @@
             corps += '<div class="card"><div class="lbl">Ingrédients</div>';
             if (!calc.lignes.length) corps += '<div class="st">Aucune ligne d’ingrédient.</div>';
             calc.lignes.forEach(function (l) {
-                corps += '<div class="ligne"><div class="gr"><div class="tt">' + h(l.name) + '</div>' +
+                // 1.4 — l'état pesé est rappelé : « carottes cuites » dans un
+                // velouté et « carottes crues » en salade ne donnent pas les
+                // mêmes macros, et rien d'autre ne le signale à la lecture.
+                corps += '<div class="ligne"><div class="gr"><div class="tt">' + h(l.name) +
+                    (l.etat_modifiable ? ' <span class="badge mut">' + h(l.etat) + '</span>' : '') + '</div>' +
                     '<div class="st">' + h(Menu.fmtNombre(l.quantity)) + ' ' + h(l.unit) + ' · ' +
                     Math.round(l.grams) + ' g</div></div>' +
                     '<div class="dr"><div class="a">' + Math.round(l.kcal) + ' kcal</div>' +
