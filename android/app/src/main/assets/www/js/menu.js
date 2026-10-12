@@ -73,7 +73,11 @@
     }
     function estPersonnel(ing) {
         if (ing && ing.est_a_moi != null) return !!ing.est_a_moi;
-        return !!(ing && (!ing.code_ciqual || ing.nom_affiche || ing.exclude_from_list || ing.is_recurrent));
+        // nom_affiche n'est PAS un marqueur de propriété : c'est le nom court
+        // affiché. Avec la convention retenue, tous les aliments de la base en
+        // portent un — les compter comme personnels les rendrait modifiables et
+        // leur ferait perdre le badge « base de référence ».
+        return !!(ing && (!ing.code_ciqual || ing.exclude_from_list || ing.is_recurrent));
     }
     function recettes(terme, inclurePseudo) {
         var q = sansAccent(terme || '');

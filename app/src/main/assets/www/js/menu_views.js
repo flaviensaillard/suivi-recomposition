@@ -397,6 +397,10 @@
                 champ('Fat', 'lipides_100g', 'Lipides (g)', 100, 0.1) + '</div>';
         }
         var html = '<div class="champ"><label>Nom</label><input id="menuIngName" maxlength="120" value="' + attribut(val('name', '')) + '"></div>' +
+            // La base garde le libellé complet ; c'est ce nom court qui s'affiche
+            // partout. Vide = le libellé complet reste affiché.
+            '<div class="champ"><label>Nom affiché <span class="st">(facultatif — vide = le nom ci-dessus)</span></label>' +
+            '<input id="menuIngAlias" maxlength="120" value="' + attribut(val('nom_affiche', '')) + '"></div>' +
             '<div class="grille g2"><div class="champ"><label>Unité principale</label><select id="menuIngUnit">' + units.map(function (u) { return optionSelect(u, val('unit', 'g'), u); }).join('') + '</select></div>' +
             '<div class="champ"><label>Rayon</label><select id="menuIngCategory">' + categories.map(function (x) { return optionSelect(x, val('category', 'Autre'), x); }).join('') + '</select></div></div>' +
             '<div class="champ"><label>Poids d’une unité (g)</label><input id="menuIngWeight" type="number" min="0" max="5000" step="1" value="' + attribut(val('poids_piece_g', '')) + '"></div>' +
@@ -440,7 +444,8 @@
                         var avant = ingredient && ingredient[p[0]] != null ? Number(ingredient[p[0]]) : null;
                         if (valNum(p[1]) !== avant) etatsManuels = true;
                     });
-                    var row = { id: ingredient && ingredient.id, name: name, nom_affiche: ingredient && ingredient.nom_affiche || null,
+                    var row = { id: ingredient && ingredient.id, name: name,
+                        nom_affiche: String(UI.$('#menuIngAlias', racine).value || '').trim() || null,
                         unit: UI.$('#menuIngUnit', racine).value, category: UI.$('#menuIngCategory', racine).value,
                         poids_piece_g: valNum('#menuIngWeight'), unite_liste_courses: ingredient && ingredient.unite_liste_courses || UI.$('#menuIngUnit', racine).value,
                         kcal_100g: valNum('#menuIngKcal'), proteines_100g: valNum('#menuIngProtein'),

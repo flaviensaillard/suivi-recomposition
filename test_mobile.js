@@ -358,6 +358,33 @@ const MENUS_TEST = {
     ]
 };
 
+function testNomCourtAfficheEtProprieteInchangee() {
+    // Convention retenue : la base garde les libellés Ciqual complets, c'est
+    // nom_affiche qui s'affiche partout. Un nom court ne doit PAS faire
+    // basculer un aliment de référence en « personnel » : il deviendrait
+    // modifiable et perdrait son badge « base de référence ».
+    const app = creerAppli();
+    amorcerMenus(app, {
+        ingredients: [
+            { id: 'ref', name: 'Carotte, crue', nom_affiche: 'Carotte', code_ciqual: '20009', unit: 'g' },
+            { id: 'moi', name: 'Ma sauce maison', unit: 'g' }
+        ],
+        recipes: [], recipe_ingredients: [], planned_meals: []
+    });
+    const ref = app.EQ.menu.rows('ingredients').find((i) => i.id === 'ref');
+    const moi = app.EQ.menu.rows('ingredients').find((i) => i.id === 'moi');
+
+    assert.equal(app.EQ.menu.estPersonnel(ref), false,
+        'un nom court ne doit pas rendre un aliment de référence personnel');
+    assert.equal(app.EQ.menu.estPersonnel(moi), true,
+        'un aliment sans code Ciqual reste personnel');
+
+    assert.equal(app.EQ.menu.nomIngredient(ref), 'Carotte',
+        'le nom court doit s’afficher à la place du libellé complet');
+    assert.equal(app.EQ.menu.nomIngredient(moi), 'Ma sauce maison',
+        'sans nom court, le nom complet s’affiche');
+}
+
 function testEditeurAlimentSaisitLesValeursCuit() {
     // 1.4 — critère d'acceptation : les valeurs cuit manquantes doivent être
     // saisissables à la main, et signalées comme telles. Ciqual ne fournit pas
@@ -389,6 +416,7 @@ function testEditeurAlimentSaisitLesValeursCuit() {
     // l'enregistrement écraserait les colonnes historiques avec null et le test
     // échouerait sur le stub plutôt que sur le comportement testé.
     dom.resoudre('#menuIngName').value = 'Carotte';
+    dom.resoudre('#menuIngAlias').value = 'Carotte';
     dom.resoudre('#menuIngKcal').value = '30';
     dom.resoudre('#menuIngProtein').value = '0.9';
     dom.resoudre('#menuIngCarbs').value = '5.9';
@@ -404,6 +432,7 @@ function testEditeurAlimentSaisitLesValeursCuit() {
     assert.equal(sauve.etat_defaut, 'cuit', 'l’état par défaut doit suivre le choix');
     assert.equal(sauve.etats_manuels, true,
         'une valeur tapée à la main doit être signalée comme telle');
+    assert.equal(sauve.nom_affiche, 'Carotte', 'le nom court saisi doit être enregistré');
 
     // Le cru laissé vide retombe sur la colonne historique (30), pas sur 0.
     const m = app.EQ.menu.macrosPourEtat(sauve, 'cru');
@@ -928,6 +957,7 @@ const TESTS = [
     testRepasTypesEditables,
     testEtatCruCuitChangeLesMacros,
     testEtatOmisSiLaColonneManque,
+    testNomCourtAfficheEtProprieteInchangee,
     testEditeurAlimentSaisitLesValeursCuit,
     testEtatIngredientOmisSiLesColonnesManquent,
     testFicheRecetteRappelleEtatCruCuit
