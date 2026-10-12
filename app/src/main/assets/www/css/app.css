@@ -953,6 +953,10 @@ nav.bottom button span { font-size: 10.5px; }
 .coach-textarea:focus { border-color:var(--gold); box-shadow:0 0 0 2px rgba(245,196,81,.1); }
 .coach-textarea::placeholder { color:var(--txt-3); }
 .coach-chat-form .btn { align-self:stretch; }
+.coach-attachments { display:flex; flex-wrap:wrap; align-items:center; }
+.coach-attachments:empty { display:none; }
+.coach-attachments .badge { max-width:100%; }
+.coach-attachments a { color:var(--txt-2); text-decoration:none; font-size:12px; }
 .coach-memory-card > summary { cursor:pointer; list-style:none; }
 .coach-memory-card > summary::-webkit-details-marker { display:none; }
 .coach-memory-card > summary::after { content:'＋'; float:right; color:var(--gold); font-size:18px; font-weight:700; }
