@@ -428,6 +428,44 @@ function testAutocompletionNutritionProposeRecettesEtAliments() {
         'les protéines doivent être calculées depuis la recette');
 }
 
+function testBoutonRecettePresentSurLesPlatsACuisiner() {
+    // 1.4 : c'est le point de départ de la demande — depuis les plats à
+    // cuisiner, il n'y avait aucun moyen de consulter la recette. Le bouton
+    // doit apparaître sur chaque plat dont la recette est dans la base.
+    const app = creerAppli();
+    const aujourd_hui = new Date();
+    aujourd_hui.setHours(12, 0, 0, 0);
+    const dateMenu = aujourd_hui.toISOString().slice(0, 10);
+    amorcerMenus(app, Object.assign({}, MENUS_TEST, {
+        planned_meals: [
+            { id: 'p1', date_menu: dateMenu, meal_type: 'Midi', recipe_id: 'r1', servings: 2 },
+            { id: 'p2', date_menu: dateMenu, meal_type: 'Soir', name: 'Restes', servings: 2 }
+        ]
+    }));
+    const dom = creerDomStub();
+    app.contexte.document = dom.document;
+    app.contexte.Native = { toast: () => { } };
+
+    const ctx = { reglages: app.EQ.store.getReglages() };
+    app.EQ.menuViews.setTab('planning');
+    app.EQ.menuViews.setPlanningStart(dateMenu);
+    const html = app.EQ.menuViews.vueMenus(ctx);
+
+    assert.match(html, /data-meal-recipe="r1"/,
+        'le plat lié à une recette de la base doit exposer le bouton « Voir la recette »');
+    assert.match(html, /title="Voir la recette"/, 'le bouton doit être libellé');
+
+    // Un repas libre, sans recette en base, ne doit pas proposer de fiche.
+    const boutons = [...html.matchAll(/data-meal-recipe="([^"]+)"/g)].map((m) => m[1]);
+    assert.deepEqual(boutons, ['r1'],
+        'seul le plat réellement lié à une recette doit porter le bouton');
+
+    // Et le bouton doit bien ouvrir la fiche correspondante.
+    app.EQ.menuViews.ouvrirFicheRecette(boutons[0]);
+    assert.match(dom.resoudre('#feuille').innerHTML, /Poulet au riz/,
+        'le bouton doit ouvrir la fiche de la bonne recette');
+}
+
 const TESTS = [
     testPremierLancementVide,
     testConservationDonneesLocalesApresMonteeDeVersion,
@@ -439,7 +477,8 @@ const TESTS = [
     testRetourEnLigneDeclencheLeDeversement,
     testMigrationLocaleVersSupabase,
     testFicheRecetteDepuisLePlanning,
-    testAutocompletionNutritionProposeRecettesEtAliments
+    testAutocompletionNutritionProposeRecettesEtAliments,
+    testBoutonRecettePresentSurLesPlatsACuisiner
 ];
 let passes = 0;
 TESTS.forEach((test) => {
